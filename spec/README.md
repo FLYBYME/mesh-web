@@ -9,6 +9,8 @@ not the process. This document is what follows from taking that seriously.
 **Status.** Design. Sections marked **Decided** are settled. Sections marked **Proposed** are mine
 and need a yes or no. Sections marked **Open** are not answered yet.
 
+Companion: [Storage and the registry](./storage-and-registry.md).
+
 ---
 
 ## 1. Processes
@@ -160,6 +162,30 @@ and an administrator at runtime.
 A deployment can be locked to one mode. Locked means the mode cannot be changed by anyone, through
 any control, at runtime. A locked blog is a blog and cannot be turned into floating windows.
 
+### Two hotkeys, and they are different things — **Decided**
+
+> "a hot key in dev mode can trigger a switch or because more than one application can run at a
+> time a hot key to switch"
+
+**Mode switch** — tiled ↔ windowed. Available in dev mode and to an administrator. This is the
+trigger; there is no viewport-driven or otherwise automatic switching, and §8 no longer asks about
+one. A person presses a key. That is the whole mechanism, and it is the right amount of mechanism:
+a site that rearranges itself because a window got narrow is a different feature, and one nobody
+asked for.
+
+**Application switch** — cycle between the Applications running at once. Not privileged and not a
+dev-mode feature: several processes running with one foreground is the normal state, so this is an
+ordinary part of using the system.
+
+They must be separately bound. Sharing one key, or gating the application switcher behind dev mode,
+would conflate "which process am I looking at" with "how are windows arranged".
+
+**This needs a working hotkey parser, and there is not one.** The existing task switcher compares a
+configured hotkey against the string literal `` 'ctrl+`' `` and hard-codes the matching event test,
+so any other configured binding installs a listener that can never fire — silently. It is filed as
+mesh-api issue #7 and moved here with the runtime. Two bindings instead of one makes it a blocker
+rather than a wart: the second one cannot work at all until the parser is real.
+
 ### Stripping it from production builds is acceptable — **Decided**
 
 > "if it needs to be locked out from production builds that's fine"
@@ -190,8 +216,10 @@ Written down so it is not lost:
 3. **Regions and the window manager must merge.** `LayoutConfig.regions` and the compositor's region
    placement describe tiled mode. They are not a separate concept from windows.
 4. **View state needs an owner and a store.** Nothing today persists geometry, z-order or mode.
+   [Storage and the registry](./storage-and-registry.md) gives it one.
 5. **A capability for mode control**, gated — an Application should not be able to switch the host's
    mode just because it can see it.
+6. **A real hotkey parser**, before anything binds a second key. See §6.
 
 ---
 
@@ -202,10 +230,6 @@ Written down so it is not lost:
   restarted; an Extension is part of the framework once loaded. This may be a real distinction or
   may collapse.
 - **`tile` as a slot name or a position in a split tree.** See §2.
-- **What "automatically" means for a mode switch.** The phrase was used earlier; §4 answers what is
-  *preserved* across a switch, but not what *triggers* one without a person asking. Viewport size is
-  the obvious candidate — a tiled site on a phone — but that is not the same feature as an admin
-  toggling windowed mode, and conflating them would be a mistake.
 - **Multiple windows of one view.** `singleton: false` currently sits on an Application. If a window
   holds a view, the question is whether one view can appear in two windows, which is a different and
   harder question (two live instances of the same subtree).
