@@ -1,0 +1,15 @@
+{
+  // Type-checks everything, tests and example apps included. `tsconfig.json` covers only `src` so
+  // that `npm run build` emits a clean `dist/` — but vitest transpiles without type-checking, so
+  // without this a type error in a test could never fail anything.
+  //
+  // `types: ["node"]` is added back here and only here: a handful of tests read `tokens.css` off
+  // disk and load fixtures, which is legitimate for a test and never for `src`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["src/**/*", "test/**/*", "apps/**/*"]
+}

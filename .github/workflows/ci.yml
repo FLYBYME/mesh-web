@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # No MongoDB service, and no browser. Every suite here runs against happy-dom in-process, which
+    # a `// @vitest-environment happy-dom` docblock selects per file. A service that exists because
+    # another repo has one is the kind nobody removes later.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      # `npm install`, not `npm ci`: there is no committed lockfile, and `prepare` runs the build on
+      # install — so a failure here is already a build failure worth seeing.
+      - run: npm install
+
+      # Typecheck covers src, test and apps. It is a separate step from the build on purpose:
+      # `tsconfig.json` compiles only `src` so `dist/` stays clean, and vitest transpiles without
+      # type-checking, so without this a type error in a test could never fail anything.
+      #
+      # It is also what enforces the capability-narrowing contract. The contribution tests assert
+      # with `@ts-expect-error` that an undeclared capability does not exist on the context; if that
+      # narrowing ever widens, those directives go unused and TypeScript fails the build here.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # The build is two steps — `tsc`, then `copy-assets.js` for the component CSS, which the
+      # components import for real. `tsc` does not copy stylesheets, so if that second step silently
+      # stops running the build still "succeeds" and every consumer's page loses its styling. Assert
+      # the artifacts rather than trusting the exit code.
+      - name: Verify the published artifacts exist
+        run: |
+          set -euo pipefail
+          for f in dist/index.js dist/index.d.ts dist/contribution/index.d.ts; do
+            test -f "$f" || { echo "MISSING: $f"; exit 1; }
+          done
+          count=$(find dist/dom -name '*.css' | wc -l)
+          echo "component stylesheets in dist: $count"
+          test "$count" -gt 0 || { echo "MISSING: no CSS copied into dist/"; exit 1; }
+
+      # Nothing in `src` may import a node builtin. `tsconfig.json` sets `types: []` so that is
+      # already a compile error, but the check is cheap and the failure it guards against — express
+      # or `node:http` reaching a browser bundle — has happened before and was found by a consumer's
+      # bundler rather than by us.
+      - name: Assert src is browser-only
+        run: |
+          set -euo pipefail
+          if grep -rn "from 'node:" src --include='*.ts'; then
+            echo "src must not import node builtins"
+            exit 1
+          fi
+          echo "src is browser-only"
+
+      - name: Test
+        run: npm test
