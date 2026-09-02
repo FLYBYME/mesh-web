@@ -7,7 +7,8 @@
 
 **Status.** Design. **Decided** is settled. **Proposed** is mine. **Open** is not answered.
 
-Companions: [the model](./README.md), [storage and the registry](./storage-and-registry.md).
+Companions: [the model](./README.md) · [storage and the registry](./storage-and-registry.md) ·
+[authentication](./auth.md).
 
 ---
 
@@ -131,17 +132,18 @@ these and none is designed.
 
 ---
 
-## 4. Every application defines its own API and its own auth — **Decided**
+## 4. A site defines its API and how it authenticates — **Decided**
 
 > "every application defines it's API and how it auths. one application with does not automatically
 > auth you with the second API."
 
-**There is no ambient session.** Signing into one Application does not sign you into another. Two
-Applications running side by side may be authenticated as different people, or one authenticated and
-one not, and that is normal rather than a bug.
+**There is no session ambient across sites.** Signing into one site does not sign you into another,
+because a site is an origin and the credentials for one origin's API are not the credentials for
+another's.
 
-This follows from §2 and §3: a site is an origin, an Application talks to the API its own
-`endpoints` declares, and the credentials for one origin's API are not the credentials for another's.
+Within a site it is the opposite, and deliberately so — see "The boundary is the site" below. Every
+Application on a page shares that page's API and therefore its session. The unit of authentication
+is the site, not the Application.
 
 ### One API address, many API instances — **Decided**
 
@@ -171,17 +173,11 @@ real rather than advisory*. That decision is right and this does not overturn it
 cost on it: every instance needs to resolve a session it did not issue, which is a shared read on
 every authenticated request.
 
-The alternatives are the usual three, and the ranking is not obvious:
-
-- **Shared store, read every time.** Correct, revocable, and a cross-region read in the hot path
-  unless the store is itself replicated.
-- **Signed token with a short life.** Fast and stateless, and it reintroduces exactly the
-  advisory-revocation problem that was rejected on purpose.
-- **Signed token plus a revocation list.** The pragmatic middle, and the one that actually needs
-  designing rather than choosing.
-
-Not decided. It should be decided explicitly, because drifting into the second by accident would
-quietly undo a stated security decision.
+The alternatives were the usual three — shared store read every time; short-lived signed token;
+signed token plus a revocation list — and the third has since been designed rather than merely
+named. See [authentication](./auth.md) §3: a long-lived **grant** verified by a shared read on a
+rare path, and short-lived service-scoped **tickets** verified by signature alone on the hot path.
+Ten regions then cost nothing extra per request, and revocation is bounded rather than advisory.
 
 **2. The registry's remote hives.** `user` and `system` are backed by a remote provider, and "remote"
 is now ten places. This is where `EntryStat.version` and conditional writes stop being a nicety: two
@@ -322,8 +318,9 @@ no fields, with nothing in the console.
 
 - **Per-tenant limits and abuse.** §3. Ten nodes makes this worse: a limit enforced per node is ten
   times the limit, and a limit enforced globally is a shared counter in the hot path.
-- **How sessions resolve on an instance that did not issue them.** §4. The decision that must not be
-  made by drift.
+- **How sessions resolve on an instance that did not issue them.** Answered — see
+  [authentication](./auth.md). What remains open there is ticket lifetime, ticket signing and key
+  rotation.
 - **Where the hostname → site mapping lives**, who may write it, and how a node that has never seen
   a hostname resolves it. Shared, mutable, cross-node state, and now the same question as sessions
   (§4) — which is the argument for answering them together and with the mesh, rather than building a
