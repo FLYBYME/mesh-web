@@ -275,6 +275,3 @@ conversation so they are not lost.
   setting declaration, defaulting to `reject`. Safe by default; window geometry opts into
   last-write-wins explicitly rather than everything silently doing it. See
   [storage and the registry](./storage-and-registry.md) §7.
-- **Do two Applications pointing at the same API share a session?** See
-  [hosting](./hosting.md) §4. Same origin, same cookie jar, so they will unless prevented — which
-  should be a decision rather than a side effect.

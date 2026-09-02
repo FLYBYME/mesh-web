@@ -22,6 +22,29 @@ half keeps that rule. The server half is a peer of it, in its own directory, wit
 and the two never import each other's internals — the same split mesh-api draws between `runtime/`
 and `server/`, which is the split that made this repo necessary in the first place.
 
+### Both servers sit behind the surfdns proxy — **Decided**
+
+> "both the mesh-api and mesh-web http servers will be route through surfdns proxy system. they
+> don't need to think about tls it's just a container running somewhere."
+
+mesh-api and mesh-web are **plain HTTP containers**. They do not terminate TLS, do not hold
+certificates, do not renew anything, and do not need to know their own public hostname to serve —
+the proxy knows it, routes by it, and hands them an ordinary request.
+
+Consequences, all simplifications:
+
+- **No certificate machinery in this repo.** The custom-domain question in §7 is the proxy's, not
+  mesh-web's, and is struck from the open list here.
+- **A node is disposable.** No per-node state, no cert on disk, no hostname pinned to a machine —
+  which is what makes "any CDN node asked to serve it can serve it" (§2) operationally true rather
+  than aspirational.
+- **`Host` is what a node routes on**, and the proxy is what guarantees the value is real. A node
+  behind the proxy may trust it; a node exposed directly may not, and should not be exposed
+  directly.
+- **In-cluster API URLs are the normal case.** An Application's `api` endpoint points at a service
+  address the proxy fronts, not at a public URL, which is why the deployment descriptor in §5 uses
+  one.
+
 ### mesh-api as it exists is not the destination — **Decided**
 
 > "what ever mesh-api is will most likely be deleted and adapted to how the mesh-web works"
@@ -108,25 +131,28 @@ one not, and that is normal rather than a bug.
 This follows from §2 and §3: a site is an origin, an Application talks to the API its own
 `endpoints` declares, and the credentials for one origin's API are not the credentials for another's.
 
-### What this changes — **Proposed**
+### The boundary is the site, not the Application — **Decided**
 
-The auth Extension as previously described — a singleton providing *the* session — is wrong. An
-Extension is a singleton, but a session is not: it belongs to an (Application, API) pair.
+> "these apps are not logging into anything but the mesh-api"
 
-Two ways to express it, and the second is better:
+An earlier draft of this section concluded that a session belongs to an (Application, API) pair and
+that a singleton auth Extension was therefore wrong. That was an overcorrection. **The auth
+Extension is right as originally described.**
 
-1. The auth Extension provides a factory: `auth.forEndpoint(url)` returns a session for that API.
-2. **Auth is per-Application, and the `net` capability carries it.** An Application's `net` is
-   already bound to its own `baseUrl`; the session is the credential state of that binding. What an
-   auth Extension contributes is the *flow* — sign-in screens, token refresh, storage — not the
-   identity.
+The reconciliation is that §2 already drew the boundary, and it is the site:
 
-The second keeps the invariant that makes the rule enforceable: **an Application cannot obtain
-credentials for an API that is not its own**, because it never holds a `net` bound to one.
+- A **site is a hostname is an origin**, and a site talks to **one** mesh-api.
+- Every Application running on that page therefore talks to the same API.
+- One session for that API, provided by one auth Extension, is exactly correct — and the Extension
+  being a singleton is not a compromise, it is the right shape.
 
-**Open:** whether two Applications pointing at the *same* API share a session. Same origin, same
-cookie jar, so at the transport level they will unless prevented. Probably right, and it should be a
-decision rather than a side effect.
+"One application does not automatically auth you with the second API" is a statement about
+**different sites**, which are different origins and different pages. There is no shared page on
+which two APIs meet, so no ambient-session problem to solve. The browser's own origin model enforces
+it, and nothing in the framework needs to.
+
+This also means the earlier open question — do two Applications on one API share a session — is not
+open. They share a page, a site and an API, so of course they do. That is the point.
 
 ---
 
@@ -137,6 +163,22 @@ decision rather than a side effect.
 
 The repo is the source of truth for where it lives — production, and every other environment.
 
+It carries more than URLs. It carries **the mesh-api routing information and the mesh-web
+configuration** — where the API is, what of it this site uses, and how the site is built and served.
+
+### The site team owns its own exposure — **Decided**
+
+> "surfdns-console team is responsible for what mesh stuff they expose and how and to who"
+
+This is a real allocation of responsibility and worth stating as one. The team that owns the site
+decides which mesh contracts its API surface exposes, by what route, and to whom. Not the platform
+team, and not by a default that quietly widens.
+
+It puts the decision where the knowledge is: the people writing the screens know which calls those
+screens make, and an exposure list that lives beside the screens can be reviewed against them. An
+exposure list owned elsewhere drifts open, because nobody removing a screen remembers to go and
+close the route it used.
+
 ### Shape — **Proposed**
 
 ```yaml
@@ -146,13 +188,26 @@ application: surfdns.console
 environments:
   production:
     host: console.surfdns.net
-    api:  https://api.surfdns.net
+    api:  http://surfdns-api            # in-cluster; the proxy fronts it
   staging:
     host: console.staging.surfdns.net
-    api:  https://api.staging.surfdns.net
+    api:  http://surfdns-api.staging
   development:
     host: localhost:5601
     api:  http://localhost:5600
+
+# What of the mesh this site exposes, and to whom. Owned by this team.
+expose:
+  - contract: identity.whoami        auth: user
+  - contract: identity.members       auth: user
+  - contract: identity.register      auth: public
+  - contract: node.status            auth: user
+
+# How mesh-web builds and serves it.
+web:
+  entry: src/main.ts
+  policy:
+    mesh/window-manager/mode: tiled     # frozen at build; see the registry doc
 ```
 
 One build per environment, because `api` is baked in — and because the build is also where policy
@@ -199,6 +254,6 @@ no fields, with nothing in the console.
   deployment, not a role inside the running application. What is not settled is how a CDN node
   *verifies* that — a signature on the artifact, an identity at the builder, or trust in the
   hostname mapping. For a locked site this does not arise, because policy is frozen at build.
-- **Do two Applications on one API share a session?** §4.
-- **Custom domains and certificates.** A tenant bringing `blog.theirdomain.com` needs certificate
-  issuance and renewal per hostname. Implied by §2 and not addressed.
+Closed since the first draft: two Applications on one API share a session (§4 — they share a site,
+which is the boundary). Custom domains and certificates are the surfdns proxy's problem, not
+mesh-web's (§1).
