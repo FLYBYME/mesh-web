@@ -145,21 +145,42 @@ Within a site it is the opposite, and deliberately so — see "The boundary is t
 Application on a page shares that page's API and therefore its session. The unit of authentication
 is the site, not the Application.
 
-### One API address, many API instances — **Decided**
+### Many instances, and addressing is a deployment choice — **Decided**
 
 > "there might be 10 apis all around the world serving the same understanding mesh network"
+> "the cdn might be behind a load balancer but the API might not and it might have its own url
+> unique to that process and the same for the cdn"
 
-"A site talks to one mesh-api" means one **address**, not one process. Behind it may be ten
-instances on three continents, and the proxy or DNS gives a visitor whichever is near.
+An earlier draft said "a site talks to one API *address*, behind which are many instances". **That is
+wrong**, and the correction matters because a lot follows from it.
 
-The thing that makes them interchangeable is the mesh itself. They are not replicas kept in step by
-a synchronisation mechanism — **they are all nodes on one network**, so any of them can answer
-anything by asking the network. That is what the mesh is for, and it is the reason this is a
-paragraph rather than a subsystem.
+**A process may have its own URL.** A mesh-api instance can be individually addressed, and so can a
+mesh-web node. A load balancer in front of either is one deployment option among several, not the
+architecture — the CDN might sit behind one while the API does not, or the reverse.
 
-Which means the CDN and the API have the same shape: geographically distributed, interchangeable,
-none of them the home of anything. A visitor is served a bundle by a nearby mesh-web node and talks
-to a nearby mesh-api node, and neither node is special.
+So the design must not assume a single address for a tier. What it may assume is what is actually
+true:
+
+- **Instances are equivalent in what they can answer**, because they are nodes on one mesh. Not
+  replicas kept in step by a synchronisation mechanism — any of them can answer anything by asking
+  the network. That is what the mesh is for.
+- **Instances are not equivalent in how they are reached.** One may be `api-fra-1.example.net`,
+  another behind `api.example.net`, another only reachable in-cluster. Addressing is deployment.
+
+The consequences are worth spelling out because they are easy to get wrong in the other direction:
+
+- **A site's `api` endpoint is whatever that deployment says it is** — a load-balanced name, one
+  specific process, or an in-cluster address. The deployment descriptor (§5) already carries it per
+  environment, which turns out to be exactly right.
+- **Nothing may be built on "the same client keeps reaching the same instance."** No instance-local
+  session state, no sticky assumptions. This is what makes
+  [first-sight ticket validation](./auth.md) §3 the right design rather than merely a good one: it
+  assumes nothing about which instance a request lands on.
+- **Equally, nothing may assume a client is spread across instances.** A deployment with one API and
+  one CDN is legitimate and common, and must not require a load balancer to work.
+
+The CDN and API still have the same *shape* — distributed, interchangeable in capability, none the
+home of anything. They just do not necessarily share an address.
 
 #### What the mesh does *not* solve — **Proposed**
 
@@ -269,12 +290,13 @@ environments:
     host: localhost:5601
     api:  http://localhost:5600
 
-# What of the mesh this site exposes, and to whom. Owned by this team.
+# What of the mesh this site exposes, and to which roles. Owned by this team.
+# Roles are records in mesh-identity, not an enum — see auth.md §5.
 expose:
-  - contract: identity.whoami        auth: user
-  - contract: identity.members       auth: user
-  - contract: identity.register      auth: public
-  - contract: node.status            auth: user
+  - contract: identity.register      roles: [public]
+  - contract: identity.whoami        roles: [member, admin]
+  - contract: identity.members       roles: [member, admin]
+  - contract: node.status            roles: [operator]
 
 # How mesh-web builds and serves it.
 web:

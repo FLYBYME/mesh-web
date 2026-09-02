@@ -46,6 +46,29 @@ Whether these are three repositories or one is left open by the requirement and 
 design — the boundary that matters is that **only mesh-identity issues**, and a single repository
 can hold that boundary as well as three can. Three makes it visible; one makes it easier to move.
 
+### mesh-identity is a foundation, not a surfdns component — **Decided**
+
+> "mesh-identity must be designed to be used as the base for any number of other projects that need
+> and API and web with identity"
+
+This is a constraint on the design, not a note about packaging. mesh-identity is the starting point
+for *any* project that needs an API, a web front end and identity — surfdns is its first consumer,
+not its owner.
+
+What that rules out, concretely:
+
+- **No surfdns concepts in it.** No DNS, no zones, no nodes-as-surfdns-means-them. If a shape only
+  makes sense for surfdns, it belongs in surfdns.
+- **Nothing hardcoded that a project would want to differ**, and the obvious one is roles — hence
+  §5. A project's roles are its own, so they are records rather than an enum in the source.
+- **The org/user/membership model must be optional or replaceable.** Plenty of projects have users
+  and no organizations. A single-tenant blog should not inherit a membership join it never uses.
+- **It has to be adoptable without the rest.** A project taking mesh-identity should not thereby be
+  taking a DNS platform.
+
+What it does own: people, credentials, tickets, roles, and the issuing authority. That is a coherent
+product on its own, which is the test of whether the boundary is drawn in the right place.
+
 Issuance stays central even though everything else distributes. Ten instances able to mint
 credentials is ten times the blast radius for no gain: verification is what needs to be near the
 user, and verification is what §3 distributes.
@@ -136,14 +159,63 @@ differ in exposure, not in how they are stopped.
 > "I would like the API to be the gatekeeper for the underlying mesh. some contracts are public some
 > require user x and some by an admin."
 
-Every contract reaching the mesh from outside passes the API, and the API decides. Three levels,
-which is what surfdns's exposure policy already has:
+Every contract reaching the mesh from outside passes the API, and the API decides.
 
-| level | meaning |
+### Roles are records, not an enum — **Decided**
+
+> "I think there needs to be a crud with defined roles so public role has x routes and so on"
+
+surfdns currently has a fixed three-level `public | user | admin` compiled into the source. That
+cannot survive §2's requirement that mesh-identity be the base for other projects, because every
+project's roles are different: a blog has `reader` and `author` and `editor`; a trading platform has
+`trader` and `risk` and `compliance`. An enum in the framework means every one of them either
+contorts into three levels or forks it.
+
+So **roles are CRUD**. A role is a record with an id, a name, a scope, and the routes it grants.
+
+```
+role:  { id, name, scope, description, builtin }
+grant: { roleId, contract }        # which contracts this role may call
+```
+
+`public` is a role like any other — the role of a caller with no ticket. That is a genuine
+simplification rather than a relabelling: there is one resolution path, not "check if public, else
+resolve the principal, else check the level". Anonymous callers have a role; it just happens to be
+the one everyone has.
+
+**Deny by default.** A contract not granted to any role you hold is refused. The union of your
+roles' grants is your surface, and nothing widens it — which matters because grants are additive and
+a system where roles could *remove* permissions is one where nobody can answer "what can this person
+do" without evaluating order.
+
+### Role scope is explicit, and that fixes a real bug — **Proposed**
+
+A role record carries `scope`, and it is required:
+
+| scope | means |
 | --- | --- |
-| `public` | no ticket. Registration, a blog's read path, health. |
-| `user` | a valid ticket resolving to a person or a key holder. |
-| `admin` | an operator. |
+| `cluster` | holds everywhere in this deployment. An operator. |
+| `organization` | holds inside one organization, via membership. |
+
+This is not decoration. surfdns issue #26 exists precisely because `admin` currently means two
+different things — `roleSatisfies('admin')` is organization-scoped, `auth: 'admin'` is
+cluster-scoped, and nothing connects them, so **nobody can actually be a platform operator today**.
+That ambiguity is only possible because roles are strings in code. Once a role is a record with a
+required scope, the two cannot be confused: they are different records.
+
+Making roles data does not implement #26, but it removes the conditions that produced it.
+
+### Resolution — **Proposed**
+
+```
+request → ticket?  → no  → roles = [public]
+                   → yes → validate (§3) → principal → roles = principal's roles
+                                                               (cluster-scoped + those from
+                                                                membership in the scoped org)
+        → grants = union of those roles' grants
+        → contract in grants?  → no → refuse
+                               → yes → call the mesh
+```
 
 Two rules that already exist and are restated because this document is where someone would look for
 an exception:
@@ -151,12 +223,9 @@ an exception:
 - **There is no bypass.** No trusted-internal-caller path by IP, network origin or shared-secret
   header. A CDN node calling over the mesh ([hosting](./hosting.md) §1) authenticates as itself and
   gets a shorter path, not more authority.
-- **No god token.** `admin` is a level, not a key that opens everything.
-
-The unresolved part is what `admin` means: surfdns issue #26 records that `roleSatisfies('admin')`
-is organization-scoped while `auth: 'admin'` is cluster-scoped, and nothing connects them — so today
-nobody can actually be a platform operator. That gap is upstream of this document and blocks the
-third row of the table above.
+- **No god token.** An operator role is a set of grants like any other. A role granting every
+  contract is possible to create and should be treated as the dangerous thing it is — but it is a
+  record someone made, visible and revocable, not a key baked into the framework.
 
 ---
 
@@ -206,7 +275,12 @@ a separate collection from public.
   reconnect. §3 depends on this and the mesh's guarantees need checking rather than assuming.
 - **Where the validation cache lives** — per instance in memory, or shared. Per-instance is simpler
   and is what §3 assumes; shared would cut the first-sight calls but reintroduces shared state.
-- **What `admin` means.** surfdns issue #26. Blocks §5.
+- **Whether a grant names a contract, a pattern, or both.** `identity.*` is convenient and is also
+  how a role quietly acquires a contract nobody reviewed. Explicit contracts are safer and more
+  tedious; paas chose patterns with narrowing, which is a third answer.
+- **Whether the org/user/membership model is part of mesh-identity or a layer on it.** §2 requires
+  it be optional for projects that have users and no organizations, and "optional" can mean absent,
+  or present and unused. Those are different amounts of work.
 - **Bootstrapping a node's own credential.** How a CDN or API node gets the key it authenticates
   with. surfdns's `bootstrapCredential` is the same problem already visible, and it is currently
   reported to anonymous callers — surfdns issue #35.
