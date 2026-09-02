@@ -4,10 +4,13 @@ import { AppStateContainerImpl, MemoryStorage } from '../../src/app/index.js';
 import {
     constructExtension,
     constructApplication,
+    provider,
     type Extension,
     type Application,
     type CapabilityContext,
     type ContributionBase,
+    type Consumer,
+    type ProviderToken,
 } from '../../src/contribution/index.js';
 
 /**
@@ -21,17 +24,27 @@ import {
  * type-checking, which is why that separate step exists at all.
  */
 
-function baseContext(id: string): ContributionBase {
+/**
+ * The part of a context every contributor gets, plus an erased `use` that resolves nothing.
+ *
+ * A real host builds `use` from the contributor's `consumes` and the providers it has already
+ * activated. Here nothing is registered, so `use` throwing is the honest stand-in — a test that
+ * quietly returned undefined would be a test asserting the opposite of the design.
+ */
+function baseContext(id: string): ContributionBase & { use(token: ProviderToken<unknown>): never } {
     return {
         id,
         state: new AppStateContainerImpl(id, createScope(), new MemoryStorage()),
         registerCleanup: () => undefined,
+        use(token: ProviderToken<unknown>): never {
+            throw new Error(`no provider registered for "${token.id}"`);
+        },
     };
 }
 
 describe('capability narrowing', () => {
     it('gives a contributor exactly what it declared', () => {
-        class NarrowExtension implements Extension<['net', 'commands'], void> {
+        class NarrowExtension implements Extension<['net', 'commands']> {
             readonly needs = ['net', 'commands'] as const;
 
             activate(cx: CapabilityContext<['net', 'commands']>): void {
@@ -65,13 +78,15 @@ describe('capability narrowing', () => {
         expect(new BareExtension()).toBeInstanceOf(BareExtension);
     });
 
-    it('carries an Extension export type through activate', () => {
+    it('checks what activate returns against the token it promised', () => {
         interface AuthApi {
             readonly signedIn: boolean;
         }
+        const Auth = provider<AuthApi>('identity.auth');
 
-        class AuthExtension implements Extension<['storage'], AuthApi> {
+        class AuthExtension implements Extension<['storage'], readonly [], AuthApi> {
             readonly needs = ['storage'] as const;
+            readonly provides = Auth;
 
             activate(cx: CapabilityContext<['storage']>): AuthApi {
                 return { signedIn: cx.storage.get('signedIn', false) };
@@ -87,6 +102,47 @@ describe('capability narrowing', () => {
             },
         });
         expect(exports.signedIn).toBe(false);
+        expect(new AuthExtension().provides.id).toBe('identity.auth');
+    });
+
+    it('refuses an Extension whose activate does not return what its token promises', () => {
+        interface AuthApi {
+            readonly signedIn: boolean;
+        }
+        const Auth = provider<AuthApi>('identity.auth');
+
+        class Drifted implements Extension<readonly [], readonly [], AuthApi> {
+            readonly provides = Auth;
+            // @ts-expect-error — `provides` is Auth, so `activate` must return AuthApi.
+            activate(): string {
+                return 'not an AuthApi';
+            }
+        }
+        expect(new Drifted()).toBeInstanceOf(Drifted);
+    });
+
+    it('resolves a consumed token to the type the token carries, and refuses undeclared ones', () => {
+        interface AuthApi {
+            readonly signedIn: boolean;
+        }
+        const Auth = provider<AuthApi>('identity.auth');
+        const Unrelated = provider<{ other: true }>('some.other');
+
+        class Consumer1 implements Application<readonly [], readonly [typeof Auth]> {
+            readonly consumes = [Auth] as const;
+            readonly surfaces = [{ role: 'page', route: '/' }] as const;
+
+            onLoad(cx: CapabilityContext<readonly []> & Consumer<readonly [typeof Auth]>): void {
+                // Declared: `use` returns AuthApi, inferred from the token — not `unknown`.
+                const signedIn: boolean = cx.use(Auth).signedIn;
+                expect(typeof signedIn).toBe('boolean');
+
+                // @ts-expect-error — `Unrelated` is not in `consumes`, so it cannot be used.
+                cx.use(Unrelated);
+            }
+        }
+
+        expect(new Consumer1().consumes[0].id).toBe('identity.auth');
     });
 
     it('lets an Application declare window preferences and surfaces', () => {

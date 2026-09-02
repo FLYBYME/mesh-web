@@ -40,7 +40,13 @@ export type {
     CapabilityContext,
 } from './capabilities.js';
 
+export type { ProviderToken, Provided, ProviderTokens, Consumer } from './provider.js';
+export { provider } from './provider.js';
+
 export type {
+    ErasedContext,
+    ErasedExtension,
+    ErasedApplication,
     CommandContribution,
     MenuContribution,
     ViewContribution,

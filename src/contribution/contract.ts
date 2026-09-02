@@ -7,6 +7,7 @@ import type {
     MenuItem,
     MenuTarget,
 } from './capabilities.js';
+import type { Consumer, ProviderToken, ProviderTokens } from './provider.js';
 
 /**
  * What a bundle exports.
@@ -111,7 +112,8 @@ export interface Contributions {
  */
 export interface Extension<
     TNeeds extends readonly CapabilityName[] = readonly [],
-    TExports = void,
+    TConsumes extends ProviderTokens = readonly [],
+    TProvides = void,
 > {
     /**
      * Capabilities this Extension uses.
@@ -122,17 +124,32 @@ export interface Extension<
      */
     readonly needs?: Readonly<TNeeds>;
 
-    /** Other extensions this one depends on, by manifest id. Activated first, or this is refused. */
-    readonly uses?: readonly string[];
+    /**
+     * Providers this Extension consumes, as tokens.
+     *
+     * Resolved before `activate`, so `cx.use` never returns undefined — a provider the host cannot
+     * supply is a load failure naming both sides rather than a null check at every call site. The
+     * declaration is also what lets the host order activation: providers first, in dependency
+     * order, and a cycle reported as a cycle.
+     */
+    readonly consumes?: Readonly<TConsumes>;
+
+    /**
+     * What this Extension offers others, as a token.
+     *
+     * The token carries the type, so `activate`'s return value is checked against what was
+     * promised. An Extension that drifts from its own token fails to compile in its own repo,
+     * rather than at runtime in somebody else's.
+     */
+    readonly provides?: ProviderToken<TProvides>;
 
     /**
      * Called once, when the Extension is first needed.
      *
-     * Whatever it returns becomes this Extension's exports, available to anything naming it in
-     * `uses`. Returning nothing is normal — an Extension that only registers commands has no
-     * providers to offer.
+     * Its return value is what `provides` names. Returning nothing is normal — an Extension that
+     * only registers commands has nothing to offer and declares no token.
      */
-    activate(cx: CapabilityContext<TNeeds>): TExports | Promise<TExports>;
+    activate(cx: CapabilityContext<TNeeds> & Consumer<TConsumes>): TProvides | Promise<TProvides>;
 
     /**
      * Called on deactivation or host shutdown.
@@ -212,12 +229,31 @@ export interface WindowPreferences {
  * }
  * ```
  */
-export interface Application<TNeeds extends readonly CapabilityName[] = readonly []> {
+export interface Application<
+    TNeeds extends readonly CapabilityName[] = readonly [],
+    TConsumes extends ProviderTokens = readonly [],
+    TProvides = void,
+> {
     /** Capabilities this Application uses. Read before construction of any window. */
     readonly needs?: Readonly<TNeeds>;
 
-    /** Extensions this Application depends on, by manifest id. Refused at load if unavailable. */
-    readonly uses?: readonly string[];
+    /**
+     * What this Application takes in, as provider tokens.
+     *
+     * Usually from Extensions — the session from auth, a repository from source control — but an
+     * Application may consume from another Application too, which is what a nested Application
+     * inside a workbench does. Resolved before `onLoad`, so `cx.use` never returns undefined.
+     */
+    readonly consumes?: Readonly<TConsumes>;
+
+    /**
+     * What this Application offers others, as a token.
+     *
+     * An Application provides less often than an Extension does, and when it does it is usually to
+     * things it hosts: a workbench Application offering its editor group to the Applications docked
+     * inside it. The token carries the type, so `onLoad`'s return is checked against the promise.
+     */
+    readonly provides?: ProviderToken<TProvides>;
 
     readonly endpoints?: ApplicationEndpoints;
     readonly window?: WindowPreferences;
@@ -233,10 +269,17 @@ export interface Application<TNeeds extends readonly CapabilityName[] = readonly
      */
     readonly surfaces: readonly SurfaceDefinition<unknown>[];
 
-    onLoad?(cx: CapabilityContext<TNeeds>): void | Promise<void>;
-    onActivate?(cx: CapabilityContext<TNeeds>): void | Promise<void>;
-    onDeactivate?(cx: CapabilityContext<TNeeds>): void | Promise<void>;
-    onUnload?(cx: CapabilityContext<TNeeds>): void | Promise<void>;
+    /**
+     * Called once per window, before anything is placed.
+     *
+     * Its return value is what `provides` names — which is why this returns `TProvides` rather than
+     * `void`, and why the default `TProvides = void` keeps the common case unchanged. An
+     * Application that provides nothing writes `onLoad(cx) { ... }` exactly as before.
+     */
+    onLoad?(cx: CapabilityContext<TNeeds> & Consumer<TConsumes>): TProvides | Promise<TProvides>;
+    onActivate?(cx: CapabilityContext<TNeeds> & Consumer<TConsumes>): void | Promise<void>;
+    onDeactivate?(cx: CapabilityContext<TNeeds> & Consumer<TConsumes>): void | Promise<void>;
+    onUnload?(cx: CapabilityContext<TNeeds> & Consumer<TConsumes>): void | Promise<void>;
 }
 
 // ─── Loading a bundle ────────────────────────────────────────────────────────
@@ -264,24 +307,35 @@ export interface Application<TNeeds extends readonly CapabilityName[] = readonly
  * from that same declaration. The narrow type is the one contributors write against and the one
  * that catches mistakes; this one exists so the host can hold a heterogeneous collection of them.
  */
-export type ErasedContext = ContributionBase & Partial<CapabilityMap>;
+export type ErasedContext = ContributionBase &
+    Partial<CapabilityMap> & {
+        /**
+         * Erased `use`. Returns `unknown` because which tokens were declared is a runtime fact
+         * here — a host holding a heterogeneous list of contributors cannot know. Concrete
+         * contributors still get `Provided<TToken>` from their own `consumes`, which is where the
+         * safety is; this signature exists so the host can hold them all in one collection.
+         */
+        use(token: ProviderToken<unknown>): unknown;
+    };
 
-/** An Extension whose capability declaration is only known at runtime. What a host holds. */
+/** An Extension whose declarations are only known at runtime. What a host holds. */
 export interface ErasedExtension {
     readonly needs?: readonly CapabilityName[];
-    readonly uses?: readonly string[];
+    readonly consumes?: ProviderTokens;
+    readonly provides?: ProviderToken<unknown>;
     activate(cx: ErasedContext): unknown;
     deactivate?(): void | Promise<void>;
 }
 
-/** An Application whose capability declaration is only known at runtime. What a host holds. */
+/** An Application whose declarations are only known at runtime. What a host holds. */
 export interface ErasedApplication {
     readonly needs?: readonly CapabilityName[];
-    readonly uses?: readonly string[];
+    readonly consumes?: ProviderTokens;
+    readonly provides?: ProviderToken<unknown>;
     readonly endpoints?: ApplicationEndpoints;
     readonly window?: WindowPreferences;
     readonly surfaces: readonly SurfaceDefinition<unknown>[];
-    onLoad?(cx: ErasedContext): void | Promise<void>;
+    onLoad?(cx: ErasedContext): unknown;
     onActivate?(cx: ErasedContext): void | Promise<void>;
     onDeactivate?(cx: ErasedContext): void | Promise<void>;
     onUnload?(cx: ErasedContext): void | Promise<void>;
