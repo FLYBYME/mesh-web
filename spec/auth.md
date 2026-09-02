@@ -10,7 +10,7 @@
 **Status.** Design. **Decided** is settled. **Proposed** is mine. **Open** is not answered.
 
 Companions: [the model](./README.md) · [storage and the registry](./storage-and-registry.md) ·
-[hosting](./hosting.md).
+[hosting](./hosting.md) · [service modules](./service-modules.md).
 
 This answers what [hosting](./hosting.md) §4 left open: how a credential resolves on an API instance
 that did not issue it, when there are ten of them.

@@ -7,7 +7,8 @@
 document is Proposed, because two sentences of requirement imply a lot of structure and the
 inferences should be visible rather than buried. **Open** is not answered.
 
-Companion to [the model](./README.md).
+Companions: [the model](./README.md) · [hosting](./hosting.md) · [authentication](./auth.md) ·
+[service modules](./service-modules.md).
 
 ---
 

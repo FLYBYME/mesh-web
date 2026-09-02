@@ -8,7 +8,7 @@
 **Status.** Design. **Decided** is settled. **Proposed** is mine. **Open** is not answered.
 
 Companions: [the model](./README.md) · [storage and the registry](./storage-and-registry.md) ·
-[authentication](./auth.md).
+[authentication](./auth.md) · [service modules](./service-modules.md).
 
 ---
 
