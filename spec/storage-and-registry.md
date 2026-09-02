@@ -69,6 +69,46 @@ be one nobody can change. The three levels proposed in the model doc (`locked` /
 This also means a UI that shows a setting can show *why* it is greyed out, which is the thing every
 settings screen gets wrong.
 
+### Where `system` policy comes from — **Proposed**
+
+> "in theory the use who loaded the page in their browser. this might be where a smart build process
+> and strip down the page and lock it. I'm not really sure."
+
+The first instinct is right and the second sentence is the answer it leads to.
+
+In a browser there is **no machine administrator distinct from the person at the keyboard**. The
+browser is the machine and its owner is whoever opened the tab. So a `system` hive administered
+*from the browser* is incoherent — anyone with devtools is its administrator. That is not a hole to
+plug; it is a fact about the medium, and the design has to route around it rather than pretend.
+
+So policy has two legitimate origins, neither of them the running page:
+
+**1. The build.** Values frozen into the bundle. No provider, no write path, not changeable at
+runtime — a constant, not a setting. This is how a blog gets locked, and it is the same pass that
+strips the floating-window code the model doc already permits removing. A feature that is absent is
+a stronger guarantee than a feature that is disabled, and it is smaller.
+
+**2. The server.** A remote provider, administered through the API, carrying the API's own
+authorization. This is how a console or a multi-tenant deployment does it, where policy has to
+change without a redeploy.
+
+They compose, build first, because a build constant is not something a later layer can outvote:
+
+**build policy → `system` (remote) policy → `user` → `device` → schema default**
+
+### Locking the UI is not access control — **Decided by implication, stated here because it must be**
+
+Build-time policy and a stripped bundle are **product decisions, not security boundaries**. A person
+with devtools can do anything they like to a page running on their own machine, including restoring
+a mode the build removed. Nothing in this section changes that and nothing should be built as though
+it does.
+
+What actually protects anything is the API refusing the request, server-side, every time. This is
+the existing rule — the API is the only way into the cluster — and the registry does not get an
+exception. A locked blog is locked because it is not worth shipping the code, not because the lock
+would survive an attacker. Any setting whose value must be trusted is enforced at the API, and the
+page's copy is a hint.
+
 ---
 
 ## 3. Addresses — **Proposed**
@@ -108,18 +148,112 @@ talk to a server. A kiosk can bind `device` to remote so a replaced machine keep
 ```ts
 interface StorageProvider {
     readonly id: string;
-    read(namespace: string, path: string): Promise<unknown | undefined>;
-    write(namespace: string, path: string, value: unknown): Promise<void>;
+    readonly capabilities: ProviderCapabilities;
+
+    read(namespace: string, path: string): Promise<StoredValue | undefined>;
+    write(namespace: string, path: string, value: unknown, expect?: string): Promise<StoredValue>;
     delete(namespace: string, path: string): Promise<void>;
-    list(namespace: string, prefix: string): Promise<readonly string[]>;
+
+    stat(namespace: string, path: string): Promise<EntryStat | undefined>;
+    list(namespace: string, prefix: string): Promise<readonly EntryStat[]>;
+
+    /** Atomic multi-key write, where the provider can offer it. See `capabilities.atomicBatch`. */
+    batch?(namespace: string, writes: readonly BatchWrite[]): Promise<void>;
+
     /** Change notification, where the provider can offer it. Remote does this over SSE. */
     watch?(namespace: string, prefix: string, onChange: (path: string) => void): DisposeFn;
+
+    usage(namespace?: string): Promise<Usage>;
+    metrics(): ProviderMetrics;
 }
 ```
 
 Async throughout, including for the local provider. A synchronous local interface and an
 asynchronous remote one are not swappable — every caller would have to know which it had, which
 defeats the entire purpose.
+
+### Per-entry metadata — **Proposed**
+
+```ts
+interface EntryStat {
+    readonly path: string;
+    readonly size: number;          // serialized bytes
+    readonly createdAt: number;
+    readonly updatedAt: number;
+    readonly version: string;       // etag; see below
+    readonly provider: string;      // which provider answered — hives can be re-bound
+}
+
+interface StoredValue {
+    readonly value: unknown;
+    readonly stat: EntryStat;
+}
+```
+
+`version` is the piece that earns its keep beyond diagnostics. A write may pass `expect: version`
+and be rejected if the entry changed underneath — which is how the conflict question in §7 gets an
+answer rather than a shrug. Without it, last-write-wins is not a decision anyone made, it is just
+what happens.
+
+`list` returning stats rather than bare paths means a UI can show sizes and dates without N round
+trips, which is the difference between a storage inspector being possible and being a stub.
+
+### Usage and quota — **Proposed**
+
+```ts
+interface Usage {
+    readonly bytes: number;
+    readonly entries: number;
+    readonly quota?: number;        // undefined when the provider cannot say
+    readonly pressure?: 'ok' | 'nearing' | 'exceeded';
+}
+```
+
+Not optional in practice. `localStorage` dies at roughly 5MB, IndexedDB has a soft eviction policy
+the browser decides, and a remote provider has whatever the deployment set. A provider that cannot
+report usage is one where an application discovers the limit by failing a write, in front of a
+person, having already destroyed their draft.
+
+`quota` is optional because some providers genuinely do not know. `pressure` is the useful signal
+either way, and a provider that cannot compute a ratio can still report `exceeded` after the fact.
+
+### What a provider can actually do — **Proposed**
+
+Providers differ, and a caller that needs live updates should be able to ask rather than discover:
+
+```ts
+interface ProviderCapabilities {
+    readonly watch: boolean;
+    readonly atomicBatch: boolean;
+    readonly conditionalWrite: boolean;   // whether `expect` is honoured
+    readonly maxValueBytes?: number;
+    readonly durability: 'session' | 'device' | 'replicated';
+}
+```
+
+`durability` is the honest one. Memory loses everything on reload; device storage survives reload
+and dies with the machine; replicated survives the machine. An Application storing something that
+matters should be able to find out which it has, and refuse rather than silently keep a draft
+somewhere it will evaporate.
+
+### Operational metrics — **Proposed**
+
+```ts
+interface ProviderMetrics {
+    readonly reads: number;
+    readonly writes: number;
+    readonly errors: number;
+    readonly cacheHits: number;
+    readonly cacheMisses: number;
+    readonly p50LatencyMs: number;
+    readonly p99LatencyMs: number;
+}
+```
+
+Cheap to keep, and the thing that makes a remote provider debuggable. "The console feels slow" is
+unactionable; "the user hive is at 400ms p99 with a 12% cache hit rate" is a bug report. This is
+also what a built-in process manager would display, which is one of the reasons that process was
+named as built-in in the first place.
 
 ### Reads are signals, not promises — **Proposed**
 
@@ -197,6 +331,12 @@ cases are writes and conflicts, and they should not be designed on the way past.
 fails while offline reports failure rather than pretending. Optimistic offline writes are a separate
 feature and a large one.
 
+Conflict detection is no longer entirely open: `EntryStat.version` plus a conditional write (§4)
+gives a provider that supports it a real answer — the second writer is told the entry moved and
+gets to decide, instead of silently winning. What remains open is what a *caller* should do with
+that, which is a per-setting question. Window geometry should take last-write-wins and not bother
+anyone. A user's draft should not.
+
 ---
 
 ## 8. What this settles elsewhere
@@ -218,8 +358,10 @@ feature and a large one.
   browser-side. The remote provider is an API, which means contracts, which means a server-side
   owner. The likely answer is that mesh-web owns the abstraction and the local provider, and the
   remote provider is a thin client over contracts that mesh-api exposes.
-- **Who administers `system`?** It needs an authorisation model, and surfdns issue #26 — nobody can
-  currently be a platform operator — is the same gap seen from another angle.
+- **Who administers a *remote* `system` hive?** Answered for the build case in §2, which covers a
+  locked deployment and needs no authorisation model at all. The remote case still needs one, and
+  surfdns issue #26 — nobody can currently be a platform operator — is that same gap seen from
+  another angle.
 - **Schema migration.** A setting whose schema changes needs its stored value migrated or discarded.
   NT's answer was "nothing, good luck". Ours should be better, and a version plus a migrate function
   on the declaration is probably enough.
