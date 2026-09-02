@@ -229,7 +229,82 @@ an exception:
 
 ---
 
-## 6. What to carry from the paas identity service — **Proposed**
+## 6. Organizations, teams, and scoping — **Proposed**
+
+> "I do know that the API will demand references to /api/.../:organizationId/... or what ever in the
+> routes"
+> "last time every namespace crud collection object included a 'membership' array but I don't think
+> I want that"
+
+You are right to drop the membership array, and the shape you already reached twice is the answer.
+Both surfdns and paas model membership as a **join** — surfdns's `MembershipSchema { userId,
+organizationId, role }`, paas's `{ orgId, userId, invitedBy, acceptedAt }` — and neither embeds an
+access list in the records. That is the right one; the array version was the mistake.
+
+### The organization is in the path — **Decided**
+
+`/api/orgs/:organizationId/...`. Named explicitly on every scoped route, never inferred from the
+ticket.
+
+surfdns already learned why, and wrote it down on `InviteInputSchema`: naming the organization is
+*the subject of the request*, and *"a default would mean a mistyped invite lands somewhere plausible
+instead of failing"*. A caller who belongs to three organizations must say which one they mean. An
+implicit default is how you write to the wrong tenant and find out later.
+
+### Records carry one `organizationId`. They do not carry an ACL. — **Proposed**
+
+A record says **which organization it belongs to**. It does not say who may see it.
+
+That single field replaces the membership array, and the reasons are concrete:
+
+- **A membership change rewrites one record**, not every object the person could touch. With an
+  embedded array, adding someone to a team is a migration.
+- **The ACL cannot drift from the organization**, because there is no second copy to drift.
+- **Access-filtered queries are an indexed equality**, not a scan over arrays.
+- **No write-stripping bugs.** An embedded array is a field every partial write must be careful not
+  to clobber, which paas hit hard enough to write a rule about.
+
+### Authorization is two questions, and both are needed — **Proposed**
+
+```
+1. Is this principal a member of the organization named in the path, and with what role(s)?
+2. Do those roles grant this contract?     (§5)
+→ then every query is scoped to that organizationId, by the framework, not by the handler.
+```
+
+The last line matters as much as the first two. Scoping applied by the handler is scoping that one
+handler will eventually forget, and the failure is silent and cross-tenant. It belongs in the layer
+that already knows the organization because it parsed it out of the path.
+
+### Teams group people; they do not scope resources — **Proposed**
+
+This is the smallest thing that answers "org/team" without adding an axis.
+
+A **team** is a named group of principals inside an organization. A role is granted to a principal
+*or* to a team. Membership resolution becomes: your roles are those granted to you directly, plus
+those granted to any team you are in.
+
+What this deliberately does **not** do is put teams in the path or on records. Resources belong to
+an organization; teams only affect who holds which role. So `:organizationId` stays the only scope
+segment, and adding teams changes the membership query and nothing else.
+
+The alternative — resources owned by teams, a `teamId` on records, `/orgs/:o/teams/:t/...` — is a
+second scoping axis, and every query, every grant and every migration doubles. Worth doing only when
+something concretely needs it, and nothing does yet.
+
+### What is not organization-scoped — **Open**
+
+A person's own settings, their passkeys, their list of organizations. These belong to the user, not
+to any organization, so they cannot live under `/orgs/:organizationId/`. There is a second,
+user-scoped surface — `/api/me/...` — and its existence is certain while its shape is not.
+
+Related and also open: whether a *platform*-scoped surface (`/api/admin/...`, cluster-scoped roles,
+no organization at all) is a third one, or is just the `cluster` role scope from §5 applied to
+ordinary routes.
+
+---
+
+## 7. What to carry from the paas identity service — **Proposed**
 
 Read on request. Four decisions there are better than what surfdns currently has.
 
@@ -252,7 +327,7 @@ a separate collection from public.
 
 ---
 
-## 7. What this changes here — **Proposed**
+## 8. What this changes here — **Proposed**
 
 - **[hosting](./hosting.md) §4 is answered.** Not by any of the three options listed there: validate
   on first sight and invalidate by event is a fourth, and better than all of them for this topology.
@@ -266,7 +341,7 @@ a separate collection from public.
 
 ---
 
-## 8. Open
+## 9. Open
 
 - **Ticket lifetime and cache TTL.** Two numbers. The TTL is a backstop for missed events (§3) and
   should be short; the ticket lifetime governs how often a passkey challenge is repeated, and that
@@ -275,12 +350,18 @@ a separate collection from public.
   reconnect. §3 depends on this and the mesh's guarantees need checking rather than assuming.
 - **Where the validation cache lives** — per instance in memory, or shared. Per-instance is simpler
   and is what §3 assumes; shared would cut the first-sight calls but reintroduces shared state.
-- **Whether a grant names a contract, a pattern, or both.** `identity.*` is convenient and is also
-  how a role quietly acquires a contract nobody reviewed. Explicit contracts are safer and more
-  tedious; paas chose patterns with narrowing, which is a third answer.
-- **Whether the org/user/membership model is part of mesh-identity or a layer on it.** §2 requires
-  it be optional for projects that have users and no organizations, and "optional" can mean absent,
-  or present and unused. Those are different amounts of work.
+- **The user-scoped and platform-scoped surfaces.** §6. `/api/me/...` certainly exists; whether
+  platform scope is a third surface or just the `cluster` role scope on ordinary routes is not
+  settled.
+- **Whether the org model is absent by default or present and unused**, for projects that have users
+  and no organizations (§2). Different amounts of work, and it decides whether `:organizationId` is
+  in the route shape for everyone.
+
+**Closed since the first draft.** Grants name **patterns** — `identity.*` — because the alternative
+is enumerating every contract by hand, which is worse in practice and no safer once a role's grant
+list is reviewable data. The risk is real and stated: a pattern silently widens when a new contract
+is added under a prefix, so a role's effective surface should be *shown expanded* wherever it is
+reviewed, never as the pattern alone.
 - **Bootstrapping a node's own credential.** How a CDN or API node gets the key it authenticates
   with. surfdns's `bootstrapCredential` is the same problem already visible, and it is currently
   reported to anonymous callers — surfdns issue #35.
