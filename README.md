@@ -39,25 +39,35 @@ An **Extension** is a capability contributed to whatever is running — commands
 providers. Auth, logging, source control. It has no route, activates once, and spans every
 Application. The workbench is an Extension like any other.
 
-Both declare what they need, and receive exactly that:
+**A bundle exports a class. The host constructs it.**
 
 ```ts
-defineExtension({
-    id: 'identity.auth',
-    title: 'Authentication',
-    needs: ['net', 'commands', 'notifications'] as const,
-    activate(cx) {
+export default class AuthExtension implements Extension<['net', 'notifications'], AuthApi> {
+    readonly needs = ['net', 'notifications'] as const;
+
+    activate(cx: CapabilityContext<['net', 'notifications']>): AuthApi {
         cx.net.baseUrl;              // declared
         cx.notifications.info('hi'); // declared
         cx.windows.open({ ... });    // compile error: not declared
         return { session: cx.state.signal<Session | null>(null) };
-    },
-});
+    }
+}
 ```
 
-That narrowing is the whole design, and it is checked in CI: `test/contribution/capabilities.test.ts`
-asserts with `@ts-expect-error` that an undeclared capability is not on the context, so if it ever
-widens the build goes red.
+There is no `defineExtension()` and no registry, deliberately. That pattern is how *mesh contracts*
+work and it is right there — a contract is a global declaration, there is one of each, and importing
+the file is the act of declaring it. None of that is true of a screen, and copying it across bought
+three problems: importing a bundle became a side effect, so a host could not inspect one before
+trusting it; one definition meant one instance, which a window manager whose point is two chart
+windows cannot use; and identity came from the code rather than from the manifest that asked for it.
+
+The mesh is the network. It is not a model for how a page is put together.
+
+Capability narrowing is the other half of the design, and it is checked in CI:
+`test/contribution/contract.test.ts` asserts with `@ts-expect-error` that an undeclared capability is
+not on the context. Removing one of those directives produces
+`Property 'notifications' does not exist on type 'CapabilityContext<readonly ["net", "commands"]>'`,
+so the assertions fail the build if the narrowing ever widens.
 
 The reason it matters: the previous generation handed every extension a `Shell` object carrying
 `layout, activityBar, tabs, docking, transport`, so every extension was implicitly an extension *of

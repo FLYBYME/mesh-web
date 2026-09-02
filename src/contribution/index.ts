@@ -1,9 +1,10 @@
 /**
- * The contribution layer: what a bundle declares, and what it is handed in return.
+ * The contribution layer: what a bundle exports, and what it is handed in return.
  *
- * Two contracts over one runtime — an Application is a destination, an Extension is a capability —
- * and one rule connecting them: a contributor receives exactly the capabilities it declared, and
- * nothing else.
+ * An extension module default-exports an `Extension`; an application module default-exports an
+ * `Application`. The host imports, constructs and drives them. No registry, no `define*`, no
+ * side effect on import — see `contract.ts` for why copying the mesh contract pattern here was
+ * wrong.
  */
 
 export type {
@@ -40,28 +41,14 @@ export type {
 } from './capabilities.js';
 
 export type {
-    ApplicationEndpoints,
-    WindowPreferences,
-    ApplicationDefinition,
-} from './application.js';
-export {
-    defineApplication,
-    getRegisteredApplication,
-    getAllRegisteredApplications,
-    clearApplicationRegistry,
-} from './application.js';
-
-export type {
     CommandContribution,
     MenuContribution,
     ViewContribution,
     Contributions,
-    ExtensionDefinition,
-    ExtensionExports,
-} from './extension.js';
-export {
-    defineExtension,
-    getRegisteredExtension,
-    getAllRegisteredExtensions,
-    clearExtensionRegistry,
-} from './extension.js';
+    Extension,
+    Application,
+    ApplicationEndpoints,
+    WindowPreferences,
+} from './contract.js';
+
+export { constructExtension, constructApplication } from './contract.js';
