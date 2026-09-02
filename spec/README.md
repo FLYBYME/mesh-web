@@ -9,7 +9,8 @@ not the process. This document is what follows from taking that seriously.
 **Status.** Design. Sections marked **Decided** are settled. Sections marked **Proposed** are mine
 and need a yes or no. Sections marked **Open** are not answered yet.
 
-Companion: [Storage and the registry](./storage-and-registry.md).
+Companions: [Storage and the registry](./storage-and-registry.md) ·
+[Hosting: the builder, the CDN, and how a site is found](./hosting.md).
 
 ---
 
@@ -49,6 +50,34 @@ with `provides` and without views.
 
 A view is a unit of screen. **A window contains a view.** The header of a blog is a view; so is its
 sidebar, its content area and its footer.
+
+### Views do not nest. Below a view are components. — **Decided**
+
+> "you can't move a nested view out of its parent. because a view can be made up of views or what it
+> should be is components I think. everybody uses the same form component just with different
+> styles."
+
+This is a real simplification and it should be stated as a rule: **the window manager sees views and
+nothing below them.** A view is a leaf as far as arrangement is concerned. What a view is made of is
+components — a form, a table, a toolbar — and components are not window-manager concerns. They are
+not placed, not moved, not dragged out, not remembered in view state.
+
+The shared component library is the point. Everyone uses the same `Form`; what differs is styling,
+not structure or placement. A component is composed into a view by its author, in code, and stays
+there.
+
+Two things fall out:
+
+- **Nested tiling nearly disappears as a feature.** A view whose content is laid out in columns is
+  using a layout component, not hosting sub-views the user can pull apart. There is no cross-level
+  drag, no nested focus traversal, no recursive geometry — the hard parts were all consequences of
+  a nesting that does not exist.
+- **A view is the unit of everything the window manager tracks**: an id, geometry, z-order, a tile
+  position. One view, one window, one row of view state.
+
+Where genuine nesting does exist — a workbench Application hosting other Applications in its own
+tiles — those are *Applications*, each contributing their own views to the host's arrangement. That
+is the same one-level relationship seen from outside, not a view inside a view.
 
 That is the unification the whole design turns on: **regions and windows are the same thing.** There
 is no separate region concept that windows live inside. A tiled layout is a set of windows arranged
@@ -225,13 +254,27 @@ Written down so it is not lost:
 
 ## 8. Open
 
-- **Does a headless Application have a lifecycle distinct from an Extension?** Both activate and
-  provide. The difference is that an Application is a process with identity and can be stopped and
-  restarted; an Extension is part of the framework once loaded. This may be a real distinction or
-  may collapse.
-- **`tile` as a slot name or a position in a split tree.** See §2.
-- **Multiple windows of one view.** `singleton: false` currently sits on an Application. If a window
-  holds a view, the question is whether one view can appear in two windows, which is a different and
-  harder question (two live instances of the same subtree).
-- **Nested tiling.** A tiled Application inside a floating window of the console. The model permits
-  it; whether the first implementation supports it is a scope decision.
+Recommendations below are mine and one word from settled. They are recorded rather than left in a
+conversation so they are not lost.
+
+- **Does a headless Application have a lifecycle distinct from an Extension?** — **Proposed: yes,
+  keep them distinct.** The test that settles it is whether killing it leaves the system working. A
+  background process can be stopped and everything carries on; kill the auth Extension and
+  everything consuming it breaks. In OS terms an Extension is *installed* — a driver registered with
+  the kernel, singleton by nature — and an Application is *run*: a process in the process table,
+  with N possible instances, stoppable and restartable, listed in the process manager.
+- **`tile` as a slot name or a position in a split tree?** — **Proposed: both.** It is a split tree
+  whose nodes may be named. `tile: 'header'` resolves to the node named `header`; user-dragged
+  splits create unnamed nodes. A blog author writes names and never sees a tree; an IDE user drags
+  splits and never writes a name.
+- **Can one view live in two windows?** — **Proposed: no.** A view instance is in exactly one
+  window; a DOM element has one parent and anything else means mirroring. Two windows means two
+  instances. A split editor showing one document twice already works without a new concept, because
+  view state and application state are separate (§4): two view instances, one application state.
+- **What does a caller do with a detected conflict?** — **Proposed:** a `conflict` field on a
+  setting declaration, defaulting to `reject`. Safe by default; window geometry opts into
+  last-write-wins explicitly rather than everything silently doing it. See
+  [storage and the registry](./storage-and-registry.md) §7.
+- **Do two Applications pointing at the same API share a session?** See
+  [hosting](./hosting.md) §4. Same origin, same cookie jar, so they will unless prevented — which
+  should be a decision rather than a side effect.

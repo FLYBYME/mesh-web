@@ -358,10 +358,18 @@ anyone. A user's draft should not.
   browser-side. The remote provider is an API, which means contracts, which means a server-side
   owner. The likely answer is that mesh-web owns the abstraction and the local provider, and the
   remote provider is a thin client over contracts that mesh-api exposes.
-- **Who administers a *remote* `system` hive?** Answered for the build case in §2, which covers a
-  locked deployment and needs no authorisation model at all. The remote case still needs one, and
-  surfdns issue #26 — nobody can currently be a platform operator — is that same gap seen from
-  another angle.
+- **Who administers a *remote* `system` hive?** — answered in principle:
+
+  > "I think this is who ever has control of the cdn/builder/API they all work together"
+
+  Administrative authority over a site is **control of its deployment**, not a role inside the
+  running application. That is a different axis from the org-scoped `admin` role, and it means the
+  remote `system` hive is administered by whoever can rebuild and redeploy the site — which is the
+  same authority that could have frozen the value at build time anyway. Consistent, and it means
+  the two origins of policy in §2 are one authority reached two ways.
+
+  What remains open is how a CDN node *verifies* it. See [hosting](./hosting.md) §7. For a locked
+  site it does not arise, because policy is a build constant.
 - **Schema migration.** A setting whose schema changes needs its stored value migrated or discarded.
   NT's answer was "nothing, good luck". Ours should be better, and a version plus a migrate function
   on the declaration is probably enough.
