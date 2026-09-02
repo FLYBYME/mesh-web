@@ -229,7 +229,7 @@ an exception:
 
 ---
 
-## 6. Organizations, teams, and scoping — **Proposed**
+## 6. Organizations, teams, and scoping — **Decided**
 
 > "I do know that the API will demand references to /api/.../:organizationId/... or what ever in the
 > routes"
@@ -251,7 +251,7 @@ surfdns already learned why, and wrote it down on `InviteInputSchema`: naming th
 instead of failing"*. A caller who belongs to three organizations must say which one they mean. An
 implicit default is how you write to the wrong tenant and find out later.
 
-### Records carry one `organizationId`. They do not carry an ACL. — **Proposed**
+### Records carry one `organizationId`. They do not carry an ACL. — **Decided**
 
 A record says **which organization it belongs to**. It does not say who may see it.
 
@@ -264,7 +264,7 @@ That single field replaces the membership array, and the reasons are concrete:
 - **No write-stripping bugs.** An embedded array is a field every partial write must be careful not
   to clobber, which paas hit hard enough to write a rule about.
 
-### Authorization is two questions, and both are needed — **Proposed**
+### Authorization is two questions, and both are needed — **Decided**
 
 ```
 1. Is this principal a member of the organization named in the path, and with what role(s)?
@@ -276,7 +276,7 @@ The last line matters as much as the first two. Scoping applied by the handler i
 handler will eventually forget, and the failure is silent and cross-tenant. It belongs in the layer
 that already knows the organization because it parsed it out of the path.
 
-### Teams group people; they do not scope resources — **Proposed**
+### Teams group people; they do not scope resources — **Decided**
 
 This is the smallest thing that answers "org/team" without adding an axis.
 
