@@ -68,6 +68,18 @@ no path prefix, no query parameter, no build-time coupling between a site and a 
 never seen resolves it, fetches what it needs, and serves. Nodes are interchangeable; none is the
 home of a particular site.
 
+> "same there might be 10 cdn"
+
+Ten CDN nodes around the world, exactly as there may be ten APIs (§4). **The symmetry is exact and
+it is the organising idea of this document:** both tiers are geographically distributed, both are
+interchangeable, neither has a node that is the home of anything, and both are made interchangeable
+by the same thing — they are nodes on one mesh.
+
+So there is one set of problems here, not two. Whatever answers "how does a CDN node it has never
+been asked about before find a site" should also answer "how does an API instance resolve a session
+it did not issue", because both are asking the mesh for state that is not local. A design that
+solves them separately has built the same distributed system twice.
+
 ### Resolution — **Proposed**
 
 A request arrives with a `Host` header. The node resolves, in order:
@@ -131,6 +143,68 @@ one not, and that is normal rather than a bug.
 This follows from §2 and §3: a site is an origin, an Application talks to the API its own
 `endpoints` declares, and the credentials for one origin's API are not the credentials for another's.
 
+### One API address, many API instances — **Decided**
+
+> "there might be 10 apis all around the world serving the same understanding mesh network"
+
+"A site talks to one mesh-api" means one **address**, not one process. Behind it may be ten
+instances on three continents, and the proxy or DNS gives a visitor whichever is near.
+
+The thing that makes them interchangeable is the mesh itself. They are not replicas kept in step by
+a synchronisation mechanism — **they are all nodes on one network**, so any of them can answer
+anything by asking the network. That is what the mesh is for, and it is the reason this is a
+paragraph rather than a subsystem.
+
+Which means the CDN and the API have the same shape: geographically distributed, interchangeable,
+none of them the home of anything. A visitor is served a bundle by a nearby mesh-web node and talks
+to a nearby mesh-api node, and neither node is special.
+
+#### What the mesh does *not* solve — **Proposed**
+
+Three things, and they are the same thing wearing different clothes: **state that is not in the
+mesh**.
+
+**1. Sessions.** Sign in against Frankfurt, and the next request lands in Sydney. That request must
+recognise you. surfdns already made the relevant decision and made it deliberately — sessions are
+server-side records, not self-describing tokens, *so that logout, expiry and forced revocation are
+real rather than advisory*. That decision is right and this does not overturn it, but it does put a
+cost on it: every instance needs to resolve a session it did not issue, which is a shared read on
+every authenticated request.
+
+The alternatives are the usual three, and the ranking is not obvious:
+
+- **Shared store, read every time.** Correct, revocable, and a cross-region read in the hot path
+  unless the store is itself replicated.
+- **Signed token with a short life.** Fast and stateless, and it reintroduces exactly the
+  advisory-revocation problem that was rejected on purpose.
+- **Signed token plus a revocation list.** The pragmatic middle, and the one that actually needs
+  designing rather than choosing.
+
+Not decided. It should be decided explicitly, because drifting into the second by accident would
+quietly undo a stated security decision.
+
+**2. The registry's remote hives.** `user` and `system` are backed by a remote provider, and "remote"
+is now ten places. This is where `EntryStat.version` and conditional writes stop being a nicety: two
+regions writing one setting is not a hypothetical when the instances are this far apart. The
+per-setting conflict policy already proposed — `reject` by default, geometry opting into
+last-write-wins — is the mechanism, and its default matters more than it did an hour ago.
+
+**3. The hostname → site mapping.** Already the open item flagged as the only shared, mutable,
+cross-node state in the design. Ten regions makes it worse and also suggests its answer: it is
+exactly the kind of thing the mesh's own registry is for, and putting it anywhere else means
+building a second distributed system beside the one already running.
+
+#### Live connections pick an instance and keep it — **Proposed**
+
+An SSE stream or a WebSocket is a long-lived connection to one instance, and it must stay there for
+its life. That is fine and needs no affinity machinery: the instance holding the connection is a
+mesh node, so events raised anywhere in the network reach it. The fan-out is the mesh's job and it
+already does it.
+
+What does need care is reconnection. A dropped stream may come back on a different instance, so
+`Last-Event-ID` resumption has to mean the same thing everywhere — which it does only if the event
+log is in the mesh rather than in the instance's memory.
+
 ### The boundary is the site, not the Application — **Decided**
 
 > "these apps are not logging into anything but the mesh-api"
@@ -141,7 +215,8 @@ Extension is right as originally described.**
 
 The reconciliation is that §2 already drew the boundary, and it is the site:
 
-- A **site is a hostname is an origin**, and a site talks to **one** mesh-api.
+- A **site is a hostname is an origin**, and a site talks to **one mesh-api address** — which may be
+  any of ten instances, all equivalent because all on one mesh.
 - Every Application running on that page therefore talks to the same API.
 - One session for that API, provided by one auth Extension, is exactly correct — and the Extension
   being a singleton is not a compromise, it is the right shape.
@@ -245,10 +320,14 @@ no fields, with nothing in the console.
 
 ## 7. Open
 
-- **Per-tenant limits and abuse.** §3.
+- **Per-tenant limits and abuse.** §3. Ten nodes makes this worse: a limit enforced per node is ten
+  times the limit, and a limit enforced globally is a shared counter in the hot path.
+- **How sessions resolve on an instance that did not issue them.** §4. The decision that must not be
+  made by drift.
 - **Where the hostname → site mapping lives**, who may write it, and how a node that has never seen
-  a hostname resolves it. This is the one piece of genuinely shared, mutable, cross-node state in
-  the design, which makes it the piece most likely to be a bottleneck or a single point of failure.
+  a hostname resolves it. Shared, mutable, cross-node state, and now the same question as sessions
+  (§4) — which is the argument for answering them together and with the mesh, rather than building a
+  second distributed system alongside the one already running.
 - **Who administers a site.** > "who ever has control of the cdn/builder/API they all work together"
   Recorded as the answer in principle: administrative authority over a site is control of its
   deployment, not a role inside the running application. What is not settled is how a CDN node
