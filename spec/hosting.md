@@ -173,11 +173,13 @@ real rather than advisory*. That decision is right and this does not overturn it
 cost on it: every instance needs to resolve a session it did not issue, which is a shared read on
 every authenticated request.
 
-The alternatives were the usual three — shared store read every time; short-lived signed token;
-signed token plus a revocation list — and the third has since been designed rather than merely
-named. See [authentication](./auth.md) §3: a long-lived **grant** verified by a shared read on a
-rare path, and short-lived service-scoped **tickets** verified by signature alone on the hot path.
-Ten regions then cost nothing extra per request, and revocation is bounded rather than advisory.
+The alternatives looked like the usual three — shared store read every time; short-lived signed
+token; signed token plus a revocation list. The answer turned out to be a fourth, and better than
+any of them here: **validate on first sight, cache, invalidate by event**. See
+[authentication](./auth.md) §3. An instance seeing an unfamiliar ticket asks over the mesh once and
+caches; revocation arrives as an event and every instance drops it. One call per (ticket, instance)
+rather than per request, revocation near-immediate rather than bounded by expiry, and — because
+nothing is verified by signature — no signing key to distribute across ten regions at all.
 
 **2. The registry's remote hives.** `user` and `system` are backed by a remote provider, and "remote"
 is now ten places. This is where `EntryStat.version` and conditional writes stop being a nicety: two

@@ -1,190 +1,213 @@
-# Authentication across many regions
+# Authentication: tickets, validation, and the API as gatekeeper
 
-> "the cdn can back channel through the mesh to the API"
-> "one auth extension is right and I think ether cdn or API controls it"
-> "some kind of trusted certification or token service is needed and like kerbroth I think it's
-> called"
-> "some client might not have to log in just because they are using private public key system"
+> "I do what some ticket issuing service and the API be the ticket validation step"
+> "tickets can be revoked through the event system. every API on the first time seeing the ticket
+> makes a mesh call to validate it."
+> "the browser has some kind of passkey or something like that and it identifys a person"
+> "I would like the API to be the gatekeeper for the underlying mesh. some contracts are public some
+> require user x and some by an admin."
 
 **Status.** Design. **Decided** is settled. **Proposed** is mine. **Open** is not answered.
 
 Companions: [the model](./README.md) · [storage and the registry](./storage-and-registry.md) ·
 [hosting](./hosting.md).
 
-This answers the question [hosting](./hosting.md) §4 left open: how a session resolves on an API
-instance that did not issue it, when there are ten of them.
+This answers what [hosting](./hosting.md) §4 left open: how a credential resolves on an API instance
+that did not issue it, when there are ten of them.
 
 ---
 
-## 1. The CDN back-channels over the mesh — **Decided**
+## 1. Not Kerberos — **Decided**
 
-A CDN node is a mesh node. When it needs something from the API — validate a ticket, resolve a
-hostname to a site, fetch an artifact record — it **asks over the mesh**, not over HTTP.
+Kerberos is a KDC split into an Authentication Server issuing ticket-granting tickets and a
+Ticket-Granting Server issuing service tickets. An earlier draft of this document proposed copying
+that shape. **It is not what is wanted**, and the two pieces actually wanted are simpler:
 
-This is not a hole in "the API is the only way into the cluster". That rule is about callers from
-outside. A CDN node is not outside; it is a node, with a node's identity, running platform code. The
-rule it must not break is the other one: **no privileged back door for first-party callers** — no IP
-allowlist, no shared secret header, no god token. A CDN node authenticates as itself, holds its own
-credential, and is authorized like anything else. What it gets is a shorter path, not more authority.
+- **a ticket issuing service**
+- **the API as the ticket validation step**
 
-What this buys:
-
-- **No public verification endpoint.** Ticket validation is a mesh call, so nothing has to be
-  exposed to the internet to make the CDN work.
-- **No HTTP hop in the hot path**, and no second protocol to secure, rate-limit and monitor.
-- **The mesh already routes it.** Any CDN node can reach any API instance because both are on the
-  network. This is the same answer as everything else in [hosting](./hosting.md) §2 and §4, which is
-  the point — one distributed system, not several.
+The parts of Kerberos being dropped are the TGT/TGS indirection and offline signature verification.
+What replaces the second is better (§3), and dropping the first removes a whole tier.
 
 ---
 
-## 2. Who controls auth — **Decided**
+## 2. Three components — **Decided**
 
-> "I think ether cdn or API controls it"
+> "there should be 3 repos mesh-api mesh-web and mesh-identity but they should also just be the same
+> repo but that's what ever"
 
-It is the **API**, and the split is clean:
-
-| | |
+| | owns |
 | --- | --- |
-| **API** issues | It owns identity, users, organizations and credentials. It is the authority. |
-| **CDN** verifies | It accepts what the API issued, checking over the mesh (§1). It is never the authority. |
+| **mesh-identity** | people, passkeys, keys, API keys, tickets. **The only thing that issues.** |
+| **mesh-api** | the gatekeeper to the mesh. Validates tickets, enforces per-contract auth. |
+| **mesh-web** | the browser framework, the builder, the CDN. |
 
-The CDN holding issuing authority would mean ten CDN nodes each able to mint credentials, which is
-ten times the blast radius for no gain. Verification distributes; issuance should not.
+Whether these are three repositories or one is left open by the requirement and does not change the
+design — the boundary that matters is that **only mesh-identity issues**, and a single repository
+can hold that boundary as well as three can. Three makes it visible; one makes it easier to move.
 
-The auth Extension in the browser is the third piece and is unchanged: it owns the *flow* — sign-in
-screens, renewal, storing what it was given — for the one site it runs on. It is not an authority
-either.
-
----
-
-## 3. Kerberos, and why it is the right shape here — **Proposed**
-
-The problem [hosting](./hosting.md) §4 raised: server-side session records are revocable, which is
-why surfdns chose them on purpose, but with ten regions they cost a shared read on every
-authenticated request. Signed tokens avoid the read and make revocation advisory, which is the thing
-that was rejected.
-
-Kerberos resolves that tension by **splitting the credential in two**, and that is what makes it
-worth copying rather than the specific protocol:
-
-| | long-lived | short-lived |
-| --- | --- | --- |
-| Kerberos | ticket-granting ticket | service ticket |
-| here | **grant** | **ticket** |
-| presented | rarely — to get tickets | on every request |
-| lifetime | hours to days | minutes |
-| verified by | a shared read, and it can afford one | signature alone, no read |
-| scoped to | the principal | **one named service** |
-
-The hot path is verified by signature with no lookup — so ten regions cost nothing extra. The shared
-read moves to the rare path, where a cross-region hop is fine. And revocation is bounded rather than
-advisory: revoking a grant stops new tickets immediately, and existing tickets expire in minutes.
-
-**Bounded is not instant, and that is a real trade.** It should be chosen deliberately, with the
-ticket lifetime as the dial: shorter means faster revocation and more traffic on the rare path. For
-anything that must die *now* — a compromised credential — the grant is revoked and a revocation list
-covers the remaining ticket lifetime. That list is small precisely because tickets are short.
-
-### Tickets are scoped to a service — **Proposed**
-
-The property that a bearer session does not have. A ticket is issued *for* something: a site's API,
-the CDN, a contract domain. A ticket presented to the wrong service is refused even though it is
-perfectly valid.
-
-This matters immediately here. A CDN node handling a request holds a ticket good for the CDN and
-nothing else, so a node that is compromised cannot turn its visitors' credentials into API access.
-Under a shared bearer session it could.
+Issuance stays central even though everything else distributes. Ten instances able to mint
+credentials is ten times the blast radius for no gain: verification is what needs to be near the
+user, and verification is what §3 distributes.
 
 ---
 
-## 4. Clients that never log in — **Decided**
+## 3. Validate on first sight, cache, invalidate by event — **Decided**
 
-> "some client might not have to log in just because they are using private public key system"
+> "every API on the first time seeing the ticket makes a mesh call to validate it"
+> "tickets can be revoked through the event system"
 
-Authentication is **proof of possession of a key**, and a password is one way to get there, not the
-only one. A client holding a private key proves it by signing a challenge and receives a grant. No
-password, no interactive login, no session to establish.
+An API instance seeing a ticket it does not recognise asks mesh-identity over the mesh: is this
+valid, and who is it? It caches the answer. Every later request carrying that ticket is a cache hit.
+When a ticket is revoked, mesh-identity **emits an event** and every instance drops it.
 
-This is one mechanism covering two cases that are usually built twice:
+```
+first request at instance N   →  mesh call to mesh-identity  →  cache
+later requests at instance N  →  cache hit, no call
+revocation anywhere           →  event on the mesh  →  every instance drops it
+```
 
-- **A person with a passkey.** WebAuthn: the private key stays in the authenticator, the public key
-  is registered, the browser signs a challenge.
-- **A machine with a key pair.** A CDN node, a service, another cluster. It signs on startup, gets a
-  grant, and renews on its own.
+The cost is one mesh call per (ticket, instance) pair, not per request. Ten instances mean a
+frequently-used ticket is validated at most ten times in its life.
 
-paas already models both. `PasskeySchema` stores `credentialId` and `publicKey`, described as
+### Why this is better than what it replaced — **Proposed**
+
+The previous draft proposed signed tickets verified offline, and accepted "revocation is bounded by
+ticket lifetime rather than instant" as the price. This design does not pay that price:
+
+- **Revocation is event-driven, so it is near-immediate** rather than bounded by expiry. That
+  preserves the property surfdns chose server-side sessions for in the first place — *logout, expiry
+  and forced revocation are real rather than advisory* — without a shared read in the hot path.
+- **Tickets can be opaque random strings.** Nothing verifies them by signature, so **there is no
+  signing key**, and therefore no key to distribute to ten instances and no key rotation. That was
+  the largest open item in the previous draft and it disappears rather than being solved.
+- **The mesh is already the event bus.** Revocation fan-out is not new machinery.
+
+### What has to be got right — **Proposed**
+
+The cache is correctness-critical, so its failure modes need naming rather than discovering:
+
+- **A missed event serves a revoked ticket.** An instance that was down, partitioned, or resubscribed
+  late will not have seen the revocation. So a cache entry needs a **TTL as a safety net** — short
+  enough to bound the damage, long enough that it is not the primary mechanism. The event is the
+  mechanism; the TTL is the backstop.
+- **Subscription must be durable enough to survive a reconnect.** A restarting instance should
+  re-validate rather than resume with a warm cache it cannot vouch for, or reconcile before serving.
+- **Negative results need caching too**, or an invalid ticket presented in a loop is a mesh call per
+  request — which is a denial-of-service against mesh-identity written by the attacker.
+- **A cache entry must not outlive the ticket**, independent of the TTL.
+
+---
+
+## 4. What identifies a person — **Decided**
+
+> "we are 2026. the browser has some kind of passkey or something like that and it identifys a
+> person."
+
+A **passkey**. The private key never leaves the authenticator; the browser signs a challenge and
+mesh-identity issues a ticket. There is no password to store, phish or rotate, and — the point for
+this design — **the browser never holds a long-lived credential.** It holds a ticket, and the durable
+thing lives in hardware.
+
+That closes the open question about whether a browser holds a grant. It does not. The question only
+existed because the previous draft needed somewhere durable to put one.
+
+paas already models this. `PasskeySchema` stores `credentialId` and `publicKey`, described as
 *"WebAuthn public keys -- public, not secret; verified via credential.verify"*, and the credential
-service's `subjectType` is already `platform | org | node | service | cluster | user`. A node
-authenticating with a key is not a new concept there; it is an existing one with a different
-subject.
+service's `subjectType` already spans `platform | org | node | service | cluster | user` — so a node
+or a service authenticating with a key pair is the same mechanism with a different subject, not a
+second system.
+
+### API keys are fine, because they are revocable — **Decided**
+
+> "a user holding an API key is fine because you can tell the API that key is no good"
+
+Revocability is the whole argument, and §3 is what delivers it: telling the API a key is no good is
+an event, and it lands everywhere. A credential you cannot withdraw is the thing to avoid; a
+long-lived one you can withdraw immediately is fine.
+
+This is also why the design tolerates long-lived API keys and short-lived tickets side by side. They
+differ in exposure, not in how they are stopped.
 
 ---
 
-## 5. What to carry from the paas identity service — **Proposed**
+## 5. The API is the gatekeeper — **Decided**
 
-Read at your suggestion. Four decisions in it are better than what surfdns currently has, and should
-be carried rather than rediscovered.
+> "I would like the API to be the gatekeeper for the underlying mesh. some contracts are public some
+> require user x and some by an admin."
 
-### A token derefs to its issuer's *current* permissions
+Every contract reaching the mesh from outside passes the API, and the API decides. Three levels,
+which is what surfdns's exposure policy already has:
 
-> "token's permissions are the issuer's effective permissions at call time, never its own grant"
+| level | meaning |
+| --- | --- |
+| `public` | no ticket. Registration, a blog's read path, health. |
+| `user` | a valid ticket resolving to a person or a key holder. |
+| `admin` | an operator. |
 
-An `ApiToken` stores `issuedByUserId` and no grant of its own. Suspend the user and every token they
-ever issued dies with them, with no enumeration and no cascade. This is the single best idea in that
-service, and it applies unchanged to grants and tickets here.
+Two rules that already exist and are restated because this document is where someone would look for
+an exception:
 
-### Scope narrows and never widens
+- **There is no bypass.** No trusted-internal-caller path by IP, network origin or shared-secret
+  header. A CDN node calling over the mesh ([hosting](./hosting.md) §1) authenticates as itself and
+  gets a shorter path, not more authority.
+- **No god token.** `admin` is a level, not a key that opens everything.
 
-`ApiTokenScope` is documented as *"narrowing ceiling only ... never exceeding them"*. Attenuation
-only: a token may be weaker than its issuer, never stronger. That is what makes it safe to hand one
-out, and it is what a scoped ticket (§3) needs to mean.
-
-### Authentication is separate from authorization
-
-`token_verify` returns coarse identity — kind, org, principal, scope — and explicitly leaves
-fine-grained checks to each service. Resolving *who you are* and deciding *what you may do* are
-different questions asked at different places, and merging them is how a verification endpoint
-slowly becomes a policy engine nobody can reason about.
-
-### The hash is stored for lookup; the raw value is returned once
-
-`tokenHash` sits on the record so verification is a direct lookup rather than a scan over vaulted
-secrets, with the reasoning written down: the hash of a 256-bit random token is not reversible, so a
-queryable hash column is the standard pattern. Private material lives in a separate collection from
-public material.
+The unresolved part is what `admin` means: surfdns issue #26 records that `roleSatisfies('admin')`
+is organization-scoped while `auth: 'admin'` is cluster-scoped, and nothing connects them — so today
+nobody can actually be a platform operator. That gap is upstream of this document and blocks the
+third row of the table above.
 
 ---
 
-## 6. What this changes here — **Proposed**
+## 6. What to carry from the paas identity service — **Proposed**
 
-- **[hosting](./hosting.md) §4's three options resolve to the third.** "Signed token plus a
-  revocation list" was the pragmatic middle that needed designing; §3 is that design. Recorded so
-  nobody re-opens it as if it were still a three-way choice.
-- **The `net` capability carries a ticket, not a cookie.** Same-site cookies do not survive the
-  cross-origin arrangement in [hosting](./hosting.md), and a ticket is what a scoped credential
-  looks like on the wire.
-- **A ticket needs renewal in the background.** Minutes-long tickets mean the auth Extension renews
-  silently, and a renewal failure has to surface as a real state rather than a stream of 401s.
-- **The credential service is nearly the right shape already.** `CredentialKindRegistry` is
-  extensible and currently holds only `tls`; a grant and a ticket are further kinds, with the
-  lifecycle fields — `status`, `issuedAt`, `expiresAt`, `renewAfter` — already present.
+Read on request. Four decisions there are better than what surfdns currently has.
+
+**A token derefs to its issuer's current permissions.** `ApiToken` stores `issuedByUserId` and no
+grant of its own — *"the token's permissions are the issuer's effective permissions at call time,
+never its own grant"*. Suspend the user and every token they ever issued dies, with no enumeration
+and no cascade. The single best idea in that service, and it composes with §3: the revocation event
+is on the *principal*, and every ticket deriving from them drops.
+
+**Scope narrows and never widens.** `ApiTokenScope` is a *"narrowing ceiling only ... never
+exceeding"*. A ticket may be weaker than its issuer, never stronger.
+
+**Authentication is separate from authorization.** `token_verify` returns coarse identity — kind,
+org, principal, scope — and leaves fine-grained checks to each service. Merging them is how a
+validation endpoint becomes a policy engine nobody can reason about.
+
+**The hash is stored for lookup; the raw value is returned once.** `tokenHash` sits on the record so
+validation is a direct lookup rather than a scan over vaulted secrets, and private material lives in
+a separate collection from public.
 
 ---
 
-## 7. Open
+## 7. What this changes here — **Proposed**
 
-- **Ticket lifetime.** The dial between revocation latency and rare-path traffic. Needs a number,
-  and the number is a product decision rather than a technical one.
-- **What signs tickets, and how the signing key is distributed and rotated.** Ten API instances that
-  can all issue need the key, and a key in ten places is a key with ten chances to leak. Whether
-  issuance is genuinely distributed or centralised with distributed *verification* is the real
-  question, and §2 leans toward the latter without settling it.
-- **Where grants are stored**, given that a grant lookup is the rare-path shared read. Probably the
-  same answer as sessions were going to have, and probably the mesh.
-- **Whether a browser holds a grant at all**, or only ever tickets with a renewal path through the
-  auth Extension. Holding a long-lived grant in a browser is the thing that a stolen-token attack
-  wants most.
-- **How a CDN node gets its own credential in the first place.** Bootstrapping. surfdns's
-  `bootstrapCredential` is the same problem already visible on nodes, and it is currently reported
-  publicly — see surfdns issue #35.
+- **[hosting](./hosting.md) §4 is answered.** Not by any of the three options listed there: validate
+  on first sight and invalidate by event is a fourth, and better than all of them for this topology.
+- **The `net` capability carries a ticket**, not a cookie. Cookies do not survive the cross-origin
+  arrangement in [hosting](./hosting.md), and a ticket is what a revocable credential looks like on
+  the wire.
+- **The auth Extension owns the passkey flow** — challenge, signature, ticket, renewal — and holds
+  nothing durable.
+- **mesh-api needs an event subscription it does not have**, plus a validation cache. This is the
+  concrete new work in that repo.
+
+---
+
+## 8. Open
+
+- **Ticket lifetime and cache TTL.** Two numbers. The TTL is a backstop for missed events (§3) and
+  should be short; the ticket lifetime governs how often a passkey challenge is repeated, and that
+  is a usability decision.
+- **Delivery guarantees on the revocation event.** At-least-once and ordered, or reconciliation on
+  reconnect. §3 depends on this and the mesh's guarantees need checking rather than assuming.
+- **Where the validation cache lives** — per instance in memory, or shared. Per-instance is simpler
+  and is what §3 assumes; shared would cut the first-sight calls but reintroduces shared state.
+- **What `admin` means.** surfdns issue #26. Blocks §5.
+- **Bootstrapping a node's own credential.** How a CDN or API node gets the key it authenticates
+  with. surfdns's `bootstrapCredential` is the same problem already visible, and it is currently
+  reported to anonymous callers — surfdns issue #35.
+- **Three repos or one.** Left open by the requirement; does not change the design.
