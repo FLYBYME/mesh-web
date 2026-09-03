@@ -7,9 +7,9 @@ Written 2026-09-02. Three tracks — **UI**, **CDN**, **API** — plus the decis
 the surfdns migration that trails them.
 
 This is the *work* list. [`status.md`](./status.md) is the *state* list: what exists today and what
-was decided. The five design documents are the reasoning. Nothing here invents new design; every
-item points at the section that specifies it, and where a spec says **Open**, the item is marked
-blocked rather than guessed at.
+was decided; it indexes the design documents that are the reasoning. Nothing here invents new design;
+every item points at the section that specifies it, and where a spec says **Open**, the item is
+marked blocked rather than guessed at.
 
 **Sizes** are rough: **S** under a day, **M** a few days, **L** a week or more. **⛔** means blocked
 on a decision. **★** means it unblocks several other items and should go early.
@@ -18,17 +18,18 @@ on a decision. **★** means it unblocks several other items and should go early
 
 ## Track 0 — Decisions that gate code
 
-Six questions. Five have a recommendation and want one word; one is genuinely undecided and decides
-a constructor signature. Nothing in Track C can start without D1, and Track A's window manager wants
-D2–D4.
+**Three of six decided.** D1 dissolved rather than being answered, and D3/D4 turned out to have been
+settled in [application §6](./application.md) while still listed as open here — worth noting as a
+failure mode: a decision made in the document where the work is happening does not propagate back to
+the list of open questions by itself.
 
-- [ ] **D1 ★ Assignment granularity** — a ServiceModule mounts a subset chosen at construction, or
-      assignment moves to module granularity for these three.
-      **No longer abstract:** the `web` domain covers the CDN and the builder, which are one module
-      and cannot be one process — a CDN node is small, stateless and everywhere; a builder is large,
-      few and CPU-heavy. A CDN node mounts `site_resolve`/`artifact_get`, a builder mounts
-      `build_start`/`build_status`. *Recommend: subset at construction*, which is now what mesh-web
-      needs to be deployable at all. [service-modules §3, §4](./service-modules.md)
+**Nothing in Track B or C is blocked any more.** D2, D5 and D6 remain, and each wants one word.
+
+- [x] **D1 Assignment granularity — dissolved, not answered.** **Four modules: `identity`, `api`,
+      `cdn`, `builder`.** Splitting `web` makes the module boundary and the deployment boundary the
+      same line, so there is no subset to mount, no assignment in a constructor, and no partial-mount
+      machinery to build. All four may share one process; splitting them is configuration.
+      **M3 can therefore be a single process.** [service-modules §3](./service-modules.md)
 - [ ] **D2 Headless Application distinct from Extension** — *recommend yes*. [README §8](./README.md)
 - [x] **D3 `tile` is a split tree with named nodes** — **decided: both.** An Application declares a
       layout; `tile` names a node; dragged splits create unnamed ones. And a tile is a *slot*, not a
@@ -114,7 +115,7 @@ The largest single piece, and the one everything visual waits on. Nothing here e
       Owned by the window manager, not the Application. **M** · [README §4](./README.md)
 - [ ] **A2.2 Windowed mode: move, resize, focus, z-order, min/max/restore.** The GIMP case. **L**
 - [ ] **A2.3 Tiled mode as a split tree**, nodes optionally named. Layout-defined geometry, no
-      min/max affordances. The website case. **L** · ⛔ D3
+      min/max affordances. The website case. **L** · [application §6](./application.md)
 - [ ] **A2.4 Mode switching with no remount.** The whole point of separating view state from
       application state: a switch re-parents DOM and reassigns geometry, and the Application never
       learns it happened — scroll positions, form contents and open connections survive.
@@ -312,11 +313,14 @@ mesh-web's server half. **None of it exists** — no server, no builder, no `web
 [hosting.md](./hosting.md).
 
 - [ ] **B0 ★ Settle the repo shape** and create the server package. **S** · ⛔ D6
-- [ ] **B1 The `web` ServiceModule**, paas layout: `web.contract.ts`, `web.schema.ts`,
-      `web.service.ts` as a mount-only class, one file per action under `tools/`.
-      CRUD `site`, `build`, `artifact`; tools `site_resolve`, `build_start`, `build_status`,
-      `artifact_get`; events `web.build_started` / `_completed` / `_failed` / `web.site_changed`.
-      **L** · ⛔ D1 · [service-modules §2](./service-modules.md)
+- [ ] **B1a The `cdn` ServiceModule**, paas layout. CRUD `site`, `artifact`; tools `site_resolve`,
+      `artifact_get`; event `cdn.site_changed`. **M** · [service-modules §2](./service-modules.md)
+- [ ] **B1b The `builder` ServiceModule.** CRUD `build`; tools `build_start`, `build_status`; events
+      `builder.build_started` / `_completed` / `_failed`. **M** ·
+      [service-modules §2](./service-modules.md)
+- [ ] **B1c Decide who owns `artifact`** — the builder writes it, the CDN reads it constantly.
+      *Recommend `cdn` owns it*, so the read path has no extra hop and the builder writes by calling
+      `cdn.artifact_create`. **S** · [service-modules §2](./service-modules.md)
 - [ ] **B2 ★ The builder.** Takes a repo, produces artifacts. The one hard requirement, stated
       explicitly: **the code must not have to be local to the server** — that was the defect in the
       previous generation. Fetch, build, publish. **L** · [hosting §6](./hosting.md)
@@ -355,7 +359,7 @@ is built against these specs. [auth.md](./auth.md).
 ### C1 — mesh-identity
 
 - [ ] **C1.1 ★ The `identity` ServiceModule.** CRUD `user`, `organization`, `membership`, `team`,
-      `role`, `grant`, `apiToken`, `ticket`. **L** · ⛔ D1 ·
+      `role`, `grant`, `apiToken`, `ticket`. **L** ·
       [service-modules §2](./service-modules.md)
 - [ ] **C1.2 Ticket issue / validate / revoke.** Tickets are **opaque**, which is the whole point:
       nothing is signature-verified, so **there is no signing key** to distribute or rotate. **M** ·
@@ -398,7 +402,7 @@ is built against these specs. [auth.md](./auth.md).
 
 ### C3 — mesh-api adapted
 
-- [ ] **C3.1 The `api` ServiceModule** and the `exposure` collection. **M** · ⛔ D1
+- [ ] **C3.1 The `api` ServiceModule** and the `exposure` collection. **M**
 - [ ] **C3.2 ⛔ Decide whether exposure is a collection or the deployment descriptor.** The descriptor
       is where the site team owns it, which argues for descriptor as source and collection as resolved
       cache. **S** · [service-modules §2](./service-modules.md)
@@ -465,8 +469,8 @@ A2.3 · A2.4 · A2.5 · A2.7 · A2.8 · A3.4 · A4.1–A4.4 · A6.2
 *A blog in tiled mode; hit the hotkey; the header, sidebar and footer become windows; scroll position
 survives.* This is the demo that proves the central claim.
 
-**M3 — A site served from a hostname.**
-B0 · B1 · B2 · B4 · B5 · B6 · B8 · C1.1 · C1.2 · C2.1 · A3.1 · A6.4
+**M3 — A site served from a hostname.** *(one process, four modules)*
+B0 · B1a · B1b · B1c · B2 · B4 · B5 · B6 · B8 · C1.1 · C1.2 · C2.1 · A3.1 · A6.4
 *Push a repo, mesh-web builds it, `console.surfdns.net` serves it from any CDN node, and signing in
 issues a ticket the API validates once and caches.* End to end, one site.
 

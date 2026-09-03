@@ -75,16 +75,34 @@ Tools: `user_create`, `org_create`, `member_invite`, `member_remove`, `team_crea
 Events: `identity.ticket_revoked`, `identity.principal_suspended`, `identity.grant_changed` — the
 revocation fan-out [authentication](./auth.md) §3 depends on.
 
-**mesh-web** — `web`
+**mesh-web** — two modules, `cdn` and `builder` (§3)
 
-CRUD: `site` (the hostname → application mapping), `build`, `artifact`.
-Tools: `site_resolve`, `build_start`, `build_status`, `artifact_get`.
-Events: `web.build_started`, `web.build_completed`, `web.build_failed`, `web.site_changed`.
+`cdn` — CRUD: `site` (the hostname → application mapping), `artifact`.
+Tools: `site_resolve`, `artifact_get`.
+Events: `cdn.site_changed`.
+
+`builder` — CRUD: `build`.
+Tools: `build_start`, `build_status`.
+Events: `builder.build_started`, `builder.build_completed`, `builder.build_failed`.
 
 `site_resolve` is the one every CDN node calls, and `site` is the shared mutable state
 [hosting](./hosting.md) §7 flags as the design's most likely bottleneck. Making it an ordinary CRUD
 collection on the mesh is the answer that avoids building a second distributed system beside the one
 already running.
+
+**Open — who owns `artifact`.** The split creates a producer/consumer pair: the builder writes
+artifacts, the CDN reads them constantly. Three ways to place it, and the choice is a judgement
+rather than a derivation:
+
+1. **`cdn` owns it**, and the builder writes by calling `cdn.artifact_create`. The collection sits
+   with its hot reader. The write-side dependency points the "wrong" way, which is a naming
+   discomfort rather than an architectural one — every module reaches every contract over the mesh.
+   *Recommended*, because the read path is the one that must not have an extra hop.
+2. **`builder` owns it**, and the CDN reads `builder.artifact_get`. Puts a build-domain module in
+   the serving hot path, which is exactly the coupling §3 split them to avoid.
+3. **A third data-only module** owns `site`, `build` and `artifact`, and both compute modules call
+   it. Cleanest separation, five modules, and one more thing that must be running before anything
+   serves.
 
 **mesh-api** — `api`
 
@@ -102,9 +120,74 @@ that being the source.
 
 ---
 
-## 3. The tension with per-unit assignment — **Open**
+## 3. Assignment granularity — **Decided**
 
-Flagged because it is a real conflict and quietly picking a side would be wrong.
+> "i think its one ServiceModule for the cdn, one ServiceModule for the builder one ServiceModule for
+> the identity and one ServiceModule for the api"
+>
+> "all services can run in one process but can also be one process per service, but that's a later
+> thing"
+
+**Four modules, not three.** The `web` domain splits, because the CDN and the builder were never one
+thing — they only looked like one because they shared a name.
+
+| module | job |
+| --- | --- |
+| `identity` | issues — users, tickets, roles, grants |
+| `api` | gatekeeps — contracts to REST, SSE, WS |
+| `cdn` | serves — hostname to site to artifact |
+| `builder` | builds — repo to artifact |
+
+### This dissolves the question rather than answering it
+
+The question as originally posed was: given one `web` module containing both serving and building,
+can a node mount a *subset* of its tools chosen at construction? Three options were on the table, and
+the argument for the subset was that a CDN node is small, stateless and everywhere while a builder is
+large, few and CPU-heavy, so one module could not be one process.
+
+**Splitting the module makes the deployment boundary and the module boundary the same line.** With
+that, there is nothing to subset:
+
+- no constructor parameter carrying an assignment
+- no partial mount, and no way to be half-mounted
+- assignment is per module, which is what mesh already does — a process `use()`s the modules it runs
+
+The machinery that would have supported per-unit assignment for these four does not get built. That
+is the cheapest possible resolution and it was available the whole time; the earlier framing had
+assumed the domain grouping was fixed and reasoned inside it.
+
+### Co-location is a deployment choice, and it is not urgent — **Decided**
+
+> "all services can run in one process but can also be one process per service, but that's a later
+> thing"
+
+A process hosts one or many modules. One process running all four is a legitimate deployment, and it
+is the obvious one for development and for a small install. Splitting them out is configuration, not
+a rewrite.
+
+**This is a significant de-risking**, and it should be said plainly: the CDN and builder having
+different scaling profiles is a real problem *eventually*, and it does not have to be solved to get
+something running. [Roadmap M3](./roadmap.md) — a site served from a hostname, end to end — can be
+one process running four modules.
+
+### What remains open, elsewhere
+
+surfdns built a whole runtime on the premise that units must be individually assignable, on the
+grounds that a class is "a class whose methods cannot be placed, cannot be assigned, and cannot be
+reasoned about individually."
+
+**That premise does not hold for these four**, and it is worth asking whether it holds for surfdns's
+own domains either, or whether module granularity would have been enough there too. Not decided here,
+and not this repository's call — but the argument that forced per-unit assignment has just failed its
+first real test case.
+
+---
+
+## 3a. The original framing, kept — **superseded by §3**
+
+Kept because the reasoning is worth having on record, and because the way it was wrong is instructive:
+it assumed the domain grouping was fixed and searched for an answer *inside* that assumption. The
+answer was to change the grouping.
 
 surfdns's runtime deliberately moved *away* from ServiceModule classes to plain unit records. The
 reasoning, from its own plan: a class is "a class whose methods cannot be placed, cannot be assigned,
@@ -127,7 +210,7 @@ written, because it decides the constructor signature of all three.
 
 ---
 
-## 4. What the three processes actually look like — **Proposed**
+## 4. What the processes actually look like — **Proposed**
 
 The module layout above says how the code is arranged. This says what runs.
 
@@ -175,43 +258,45 @@ Plus live SSE and WebSocket connections, which is the only reason an instance is
 interchangeable mid-connection. Nothing may assume sticky routing
 ([hosting §4](./hosting.md)), so a dropped connection reconnects anywhere and re-subscribes.
 
-### mesh-web — one module, two processes
+### mesh-web — two modules, and they were never one thing
 
-This is the one that does not fit the pattern, and it is worth being precise rather than tidy.
+The CDN and the builder are separate modules (§3), which is what makes this section short instead of
+complicated:
 
-The `web` domain covers **the CDN** and **the builder**, and they are not the same kind of process:
-
-| | CDN node | builder node |
+| | `cdn` | `builder` |
 | --- | --- | --- |
 | binds | a port, behind the proxy | nothing |
 | triggered by | HTTP requests | mesh calls and events |
 | profile | small, stateless, many, everywhere | large, few, CPU and IO heavy |
-| mounts | `site_resolve`, `artifact_get` | `build_start`, `build_status` |
 | scaling | with traffic | with pushes |
 
-Running a builder inside every CDN node would put a build's memory and CPU next to page serving, and
-running one CDN because builds are expensive would defeat the point of ten of them.
+Running a builder inside every CDN node would put a build's memory and CPU next to page serving;
+running one CDN because builds are expensive defeats the point of having ten. Separate modules, so
+separate deployment, with no assignment machinery in between.
 
-**So one ServiceModule, two assignments.** Which is the concrete case for §3's open question — and
-it argues for the first option, "a module can mount a subset of its tools, chosen at construction
-from the assignment." A CDN node constructs the `web` module with the serving tools; a builder node
-constructs it with the build tools. Same contracts, same code, different mount list.
-
-That is no longer an abstract preference. **It is what mesh-web needs to be deployable at all**, and
-it decides the constructor signature of all three modules.
+**And they may still share a process.** Nothing above says they must be split — only that they *can*
+be, by configuration rather than by rewrite. For development and for a small install, one process
+running all four modules is the right answer.
 
 ### The whole picture
 
-```
-browser ──HTTP──▶ surfdns proxy ──▶ mesh-api  :port A   typed calls, SSE, WS
-                              └──▶ mesh-web   :port W   html, js, assets  (CDN nodes)
+Four modules. How many processes is configuration.
 
-                        mesh-api ──mesh──▶ identity.ticket_validate
-                                 ──mesh──▶ whichever domain owns the contract
-                    mesh-web CDN ──mesh──▶ web.site_resolve
-                    mesh-identity          no listener
-                  mesh-web builder         no listener
 ```
+browser ──HTTP──▶ surfdns proxy ──▶ [api]      :port A   typed calls, SSE, WS
+                              └──▶ [cdn]      :port W   html, js, assets
+
+                            [api] ──mesh──▶ identity.ticket_validate
+                                  ──mesh──▶ whichever domain owns the contract
+                            [cdn] ──mesh──▶ cdn.site_resolve
+                       [identity]           no listener
+                        [builder]           no listener
+```
+
+**Development, and small installs:** one process, `use()`ing all four. Two ports, one container.
+
+**At scale:** many `cdn`, few `builder`, several `api`, a couple of `identity` — each its own
+process, same modules, no code change.
 
 Two ports, as decided early: **the API and the web interface are never on the same one.** Neither
 terminates TLS; both are containers behind the proxy.
