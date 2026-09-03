@@ -9,9 +9,15 @@ not the process. This document is what follows from taking that seriously.
 **Status.** Design. Sections marked **Decided** are settled. Sections marked **Proposed** are mine
 and need a yes or no. Sections marked **Open** are not answered yet.
 
-Companions: [Storage and the registry](./storage-and-registry.md) ·
+This document is the model in one piece. Three companions take its pieces in detail — **[the
+kernel](./kernel.md)**, which is what boots and hands out capabilities and cannot be replaced by what
+it loads; **[Extensions](./extension.md)** and **[Applications](./application.md)**, which are the
+two things it loads. Where they and this document overlap, they are the more specific and they win.
+
+Also: [Storage and the registry](./storage-and-registry.md) ·
 [Hosting: the builder, the CDN, and how a site is found](./hosting.md) ·
-[Authentication](./auth.md) · [Service modules](./service-modules.md).
+[Authentication](./auth.md) · [Service modules](./service-modules.md) ·
+[the roadmap](./roadmap.md).
 
 ---
 

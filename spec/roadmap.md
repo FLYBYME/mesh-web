@@ -37,6 +37,13 @@ D2–D4.
       two repos. *Recommend: one repo, two packages* — they share the manifest and deployment types
       and nothing else. [service-modules §4](./service-modules.md) · [hosting §1](./hosting.md)
 
+Raised by [kernel.md](./kernel.md) and not yet weighed: **real isolation** — an iframe per
+Application would give each its own origin, at the cost of putting a postMessage boundary under every
+capability call and making tiled layout much harder. Today's answer is one realm, written down as a
+limit rather than chosen as a design. Also **whether the kernel is replaceable at build time**, which
+is [stripping floating mode from a locked build](./README.md) §6 taken further and risks two kernels
+that drift.
+
 Deferred, because nothing is blocked on them yet: caching and offline writes
 ([storage §7](./storage-and-registry.md)), settings schema migration
 ([storage §9](./storage-and-registry.md)), per-tenant quotas ([hosting §3](./hosting.md)), ticket
@@ -151,11 +158,13 @@ The NT-style part. All design, no code. [storage-and-registry.md](./storage-and-
       running page. A locked blog is a policy value, not a mechanism. **S** ·
       [storage §2](./storage-and-registry.md) · ⛔ B2
 
-### A5 — The contribution layer
+### A5 — The kernel and the contribution layer
 
-The design here is settled and was type-checked once; the code is gone. The type-level guarantees are
-the part to rebuild deliberately rather than approximate — [status §2](./status.md) records what held
-up and the three interface faults only a typechecker found.
+[kernel.md](./kernel.md) · [extension.md](./extension.md) · [application.md](./application.md)
+
+The contribution *types* were settled and type-checked once; the code is gone, and the type-level
+guarantees are the part to rebuild deliberately rather than approximate ([status §2](./status.md)).
+The kernel around them is new design and has never existed in any form.
 
 - [ ] **A5.1 ★ `Application` and `Extension`, capabilities, provider tokens.** `needs: [...] as const`
       narrows `CapabilityContext<TNeeds>` so an undeclared capability is a compile error, with
@@ -165,10 +174,26 @@ up and the three interface faults only a typechecker found.
       `needs`, and refuse anything undeclared at runtime as well as at compile time. **M**
 - [ ] **A5.3 Provider wiring** — `provides` collected from `activate`'s return, `consumes` restricting
       `cx.use`, resolution ordered by dependency, and a real error for a missing provider. **M**
-- [ ] **A5.4 Lifecycle** — Extensions activate once and span everything; Applications start, stop and
-      restart, N instances possible, and appear in the process table. **M** · ⛔ D2
-- [ ] **A5.5 Multiple Applications loaded, one foreground.** The switcher, and what "running but not
-      shown" means for a view's DOM. **M**
+- [ ] **A5.4 The capability broker** — one context per contributor, built from its `needs` and
+      **scoped to it**, so `log` is tagged, `storage` is namespaced, `windows` knows the owner, and
+      disposal is the kernel's job rather than the contributor's. **M** · [kernel §4](./kernel.md)
+- [ ] **A5.5 Boot sequence** — descriptor, registry, construct all, resolve the graph, activate in
+      dependency order, restore view state, start Applications, route. Construction is side-effect
+      free and no Extension can run code during another's activation. **M** ·
+      [kernel §3](./kernel.md)
+- [ ] **A5.6 The process table** — `pid` assigned by the kernel, not taken from the bundle;
+      `applicationId` + instance; N instances of one Application. **M** · [kernel §5](./kernel.md)
+- [ ] **A5.7 Lifecycle** — Extensions activate once and are never deactivated; Applications start,
+      stop, restart and can rest in `failed`. **M** · ⛔ D2 · [application §4](./application.md)
+- [ ] **A5.8 Fault containment** — the kernel catches at every boundary it calls across and nowhere
+      else; a failed Extension cascades to its consumers as one error naming the root; a failed
+      Application leaves the rest untouched. **M** · [kernel §7](./kernel.md)
+- [ ] **A5.9 Multiple Applications loaded, one foreground.** Background Applications stay **mounted
+      and hidden** — idle, not stopped — so switching is instant and lossless. **M** ·
+      [application §5](./application.md)
+- [ ] **A5.10 A kernel with no Extensions is a blank page with a working process table**, and that is
+      a real testable state. It is the cheapest possible check that §2's kernel/Extension line is
+      actually where the code puts it. **S** · [kernel §8](./kernel.md)
 
 ### A6 — The built-ins
 

@@ -3,16 +3,23 @@
 Written 2026-09-02. This is the handoff: what exists, what was decided, what is still open, and what
 the next person (or the next session) should pick up.
 
-The design lives in five documents. This one is the index and the state of play.
+This one is the index and the state of play.
 
 | document | covers |
 | --- | --- |
 | [README](./README.md) | The model: processes, views, windows, view state |
+| **[kernel](./kernel.md)** | **What boots, what hands out capabilities, the process table** |
+| **[extension](./extension.md)** | **The Extension contract, providers, activation, lifecycle** |
+| **[application](./application.md)** | **The Application contract, instances, foreground, routing** |
 | [storage-and-registry](./storage-and-registry.md) | Providers, hives, settings, policy |
 | [hosting](./hosting.md) | The builder, the CDN, hostnames, multi-tenancy, the proxy |
 | [auth](./auth.md) | Tickets, validation, passkeys, roles, organizations |
 | [service-modules](./service-modules.md) | How the three server halves are structured |
 | **[roadmap](./roadmap.md)** | **The checklist — UI, CDN and API, ordered, with milestones** |
+
+[README](./README.md) is the model in one piece and the place to start. The three documents under it
+are the contracts in detail: **kernel** is the part that cannot be replaced by what it loads,
+**extension** and **application** are the two things it loads.
 
 This document is the state. [`roadmap.md`](./roadmap.md) is the work: every item to get the UI
 framework, the CDN and the API where they are meant to be, marked with what blocks it.
