@@ -37,21 +37,26 @@ them ([the model §6](./README.md)).
 Same shape as an Extension: **a bundle `export default`s a class, and the host constructs it.**
 
 ```ts
-import type { Application, CapabilityContext } from '@flybyme/mesh-web';
+import { needs, consumes, view, type Application, type Context } from '@flybyme/mesh-web';
+import { AUTH } from '@surfdns/auth-contract';
 
+const NEEDS = needs('net', 'windows', 'commands');
+const CONSUMES = consumes(AUTH);
 const CONSOLE = provider<ConsoleApi>('surfdns.console');
 
-export default class ConsoleApp implements Application<['net', 'windows', 'commands'], [typeof AUTH], typeof CONSOLE> {
-    readonly needs = ['net', 'windows', 'commands'] as const;
-    readonly consumes = [AUTH] as const;
+export default class ConsoleApp implements Application<typeof NEEDS, typeof CONSUMES, typeof CONSOLE> {
+    readonly needs = NEEDS;
+    readonly consumes = CONSUMES;
     readonly provides = CONSOLE;
 
+    // The catalogue of view *types*. Static, read before start(). See §6.
     readonly views = [
-        { id: 'domains',  title: 'Domains',  tile: 'content', default: { width: 900, height: 600 } },
-        { id: 'sidebar',  title: 'Navigate', tile: 'sidebar', default: { width: 240 } },
+        view({ id: 'domains', title: 'Domains',  tile: 'content', default: { width: 900, height: 600 } }),
+        view({ id: 'sidebar', title: 'Navigate', tile: 'sidebar', default: { width: 240 } }),
+        view({ id: 'record',  title: 'Record',   tile: 'content', instances: 'many' }),
     ];
 
-    async start(cx: Context): Promise<ConsoleApi> {
+    async start(cx: Context<typeof NEEDS, typeof CONSUMES>): Promise<ConsoleApi> {
         const auth = cx.use(AUTH);
         return { reload: () => { ... } };
     }
@@ -61,7 +66,9 @@ export default class ConsoleApp implements Application<['net', 'windows', 'comma
 ```
 
 The reasoning behind the class-export model, `needs` narrowing and provider tokens is identical to
-[Extensions §2 and §4](./extension.md) and is not repeated. What differs is everything below.
+[Extensions §2 and §4](./extension.md) and is not repeated — including why it is `needs('net', ...)`
+rather than `['net', ...] as const`, which was checked against a typechecker and is recorded there.
+What differs is everything below.
 
 ---
 
@@ -160,6 +167,79 @@ its sidebar, its content area and its footer.
 This is the decision that deletes most of the hard part: the window manager sees views and nothing
 under them, and there are no cross-level interactions to design.
 
+### View types are declared; view instances are created — **Proposed**
+
+The question this answers: does an Application register its views in `start()`, the way mesh-ui's
+extensions called `shell.views.registerProvider(location, provider)` during activation?
+
+**Partly, and the split matters.**
+
+| | view **type** | view **instance** |
+| --- | --- | --- |
+| what it is | "this Application can show a record editor" | "this record editor, showing `example.com`" |
+| declared | statically, on the class | created at run time |
+| when known | before `start()` | whenever the user opens one |
+| carries | defaults, tile name, min size, `instances` | geometry, z-order, scroll, its params |
+| how many | fixed, small | zero to many |
+
+The reason types cannot wait for `start()` is not aesthetic — it is the boot order.
+[kernel §3](./kernel.md) restores view state at step 7 and starts Applications at step 8. Geometry,
+z-order and mode are restored *before* the Application runs, so a window comes back where it was
+rather than appearing at a default position and jumping once the app finishes starting. That is only
+possible if the kernel already knows what views exist and what their defaults are. A registration
+call inside `start()` is too late by construction.
+
+And the reason instances cannot be static is obvious the moment there is a second one: an editor
+cannot declare "a view for `example.com`" ahead of time, and §3's whole point is that two of
+something must be possible.
+
+So:
+
+```ts
+// declared — the catalogue
+readonly views = [ view({ id: 'record', title: 'Record', instances: 'many' }) ];
+
+// created — at run time, by the Application, the router, or the user
+cx.windows.open({ view: 'record', params: { zone: 'example.com' } });
+```
+
+A view type declares `instances: 'one' | 'many'`. `'one'` is a sidebar or a footer — opening it twice
+focuses the existing one. `'many'` is an editor. Instance identity is the view id plus a key derived
+from `params`, which is what lets geometry persist per document rather than per view type.
+
+Declaring views statically has a second payoff that registration inside `start()` could not give:
+**the ids survive as literal types.**
+
+```ts
+type ConsoleViews = ConsoleApp['views'][number]['id'];   // 'domains' | 'sidebar' | 'record'
+```
+
+So `windows.open({ view: 'recrd' })` and a route pointing at a view that does not exist are both
+compile errors in the Application's own file. Checked against `tsc 5.9`, along with the rest of the
+contract.
+
+### What to keep from mesh-ui, and what not to — **Proposed**
+
+mesh-ui had `ViewProvider { id, name, resolveView(container, disposables) }` registered with
+`registerProvider(location, provider)`.
+
+**Keep the factory.** `resolveView(container)` — the framework owns the container and its lifecycle,
+the view fills it. That is the right shape and it is what makes a view mountable into a tile, a
+floating window or nothing at all without the view knowing which.
+
+**Drop three things:**
+
+1. **The four hard-coded locations.** `'left-panel' | 'right-panel' | 'center-panel' | 'bottom-panel'`
+   is an IDE baked into the framework — the same mistake as the `Shell` god object
+   ([Extensions §2](./extension.md)), one level down. A view names a *tile* in its Application's own
+   layout, and in windowed mode the tile name is not used at all.
+2. **One instance per id.** mesh-ui kept `activeContainers: Map<providerId, HTMLElement>`, so a
+   provider could be mounted in exactly one place. Two editors were impossible, which is §3.
+3. **Author-managed disposables.** `resolveView(container, disposables)` made every view author
+   responsible for its own cleanup. The kernel scopes capabilities per contributor and disposes them
+   ([kernel §4](./kernel.md)); a view's subscriptions go with its instance, and the case that has to
+   work is the one that crashed before it could clean up.
+
 Each view declares its own defaults, and they belong to the view rather than the Application
 ([roadmap A1.2](./roadmap.md)):
 
@@ -226,7 +306,18 @@ first. The auth Extension attaches the ticket, so an Application does not handle
 
 ## 9. Routing — **Proposed**
 
-The URL selects an Application instance and a view within it.
+**Yes, routing goes through views** — that is what a route resolves *to*.
+
+```
+/zones/example.com   →   application  surfdns-console
+                     →   view type    'record'
+                     →   params       { zone: 'example.com' }
+                     →   instance     created if absent, focused if present
+```
+
+A route names a view type and its params; the router asks for that view instance the same way any
+other caller does, through `windows.open`. So a deep link and a click are the same operation, and
+there is one path that creates a view rather than two that must agree.
 
 - **An Application declares its routes**, relative to a mount point it does not choose. Two instances
   of one Application cannot both own `/domains`, so the mount point is assigned — by the kernel for

@@ -14,7 +14,7 @@ Companions: [the model](./README.md) · [Extensions](./extension.md) · [Applica
 
 ## 1. Why there is a kernel at all — **Proposed**
 
-The framework already had a rule: an Extension declares `needs: ['net', 'commands'] as const` and
+The framework already had a rule: an Extension declares `needs('net', 'commands')` and
 gets a context on which `cx.notifications` is a compile error. That rule is worth very little on its
 own. A compile error is advice; the bundle can be built by someone else, with a different tsconfig,
 or edited after the fact.

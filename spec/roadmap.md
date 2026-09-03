@@ -166,7 +166,7 @@ The contribution *types* were settled and type-checked once; the code is gone, a
 guarantees are the part to rebuild deliberately rather than approximate ([status §2](./status.md)).
 The kernel around them is new design and has never existed in any form.
 
-- [ ] **A5.1 ★ `Application` and `Extension`, capabilities, provider tokens.** `needs: [...] as const`
+- [ ] **A5.1 ★ `Application` and `Extension`, capabilities, provider tokens.** `needs(...)`
       narrows `CapabilityContext<TNeeds>` so an undeclared capability is a compile error, with
       `@ts-expect-error` assertions in CI that fail the build if the narrowing widens. **M**
 - [ ] **A5.2 The host constructs bundles** — load a module, `constructApplication` /

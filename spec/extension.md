@@ -34,15 +34,16 @@ it breaks.
 **A bundle `export default`s a class. The host constructs it.**
 
 ```ts
-import type { Extension, CapabilityContext } from '@flybyme/mesh-web';
+import { needs, type Extension, type CapabilityContext } from '@flybyme/mesh-web';
+import { AUTH, type AuthApi } from '@surfdns/auth-contract';
 
-const AUTH = provider<AuthApi>('identity.auth');
+const NEEDS = needs('net', 'notifications');
 
-export default class AuthExtension implements Extension<['net', 'notifications'], [], typeof AUTH> {
-    readonly needs = ['net', 'notifications'] as const;
+export default class AuthExtension implements Extension<typeof NEEDS, [], typeof AUTH> {
+    readonly needs = NEEDS;
     readonly provides = AUTH;
 
-    activate(cx: CapabilityContext<['net', 'notifications']>): AuthApi {
+    activate(cx: CapabilityContext<typeof NEEDS>): AuthApi {
         cx.net.baseUrl;               // declared
         cx.notifications.info('hi');  // declared
         cx.windows.open({ ... });     // compile error: not declared
@@ -66,13 +67,55 @@ and identity came from the code rather than from the manifest that asked for it.
 register anything. All of that is `activate`. This is what lets the kernel construct every Extension,
 inspect the graph, and only then start activating ([kernel §3](./kernel.md)).
 
-**`needs` narrows the context.** `readonly needs = [...] as const` produces
-`CapabilityContext<TNeeds>` with exactly those capabilities on it — a compile error for anything
-else, and `undefined` at run time, because the kernel builds the object from the same list
-([kernel §4](./kernel.md)).
+**`needs` narrows the context.** It produces `CapabilityContext<TNeeds>` with exactly those
+capabilities on it — a compile error for anything else, and `undefined` at run time, because the
+kernel builds the object from the same list ([kernel §4](./kernel.md)).
 
 **`activate` returns what the Extension provides.** Not a side-channel registration — a return value,
 checked against the declared `provides`.
+
+### `needs(...)`, not `as const` — **Decided**
+
+Earlier drafts of this document wrote `readonly needs = ['net', 'notifications'] as const`. That was
+worse than it needed to be, in two ways: `as const` is ceremony the author has to know about, and the
+list then had to be repeated in the type argument. Both are avoidable, and the alternatives were
+checked against `tsc 5.9` rather than reasoned about.
+
+```ts
+export function needs<const T extends readonly CapabilityName[]>(...n: T): T { return n; }
+```
+
+A rest parameter with a `const` type parameter infers the literal tuple, so `as const` is not needed.
+Because the constraint is the `CapabilityName` union, the editor completes capability names inside
+the call and rejects a typo at the point of the typo — `needs('net', 'nett')` errors on `'nett'`,
+not on some downstream context type.
+
+Assigning it to a module-level `const` and referring to `typeof NEEDS` makes the list a single source
+of truth: it is written once, as a value, and used as a type everywhere else.
+
+**What was measured** — the four shapes, one file, `--strict`:
+
+| shape | result |
+| --- | --- |
+| `readonly needs = ['net', 'notifications']` | widens to `string[]`. Everything is lost, silently. |
+| `readonly needs = needs('net', 'notifications')` | literal tuple preserved. **✓** |
+| `activate(cx: CapabilityContext<this['needs']>)` | **fails** — `Property 'net' does not exist`. TS will not resolve a mapped type through the polymorphic `this`. |
+| a mixin base class supplying `activate`'s signature | **fails** — `Parameter 'cx' implicitly has an 'any' type`. A derived class's method parameters are never contextually typed by the base. |
+
+The last two are the ones worth recording, because both look like they should work and neither does.
+`this['needs']` is the shape that would remove the second `typeof NEEDS`, and it is simply not
+available. A mixin looks like it should let the base supply the signature, and TypeScript's rule that
+derived method parameters get no contextual type from the base kills it.
+
+The one shape with *no* annotation at all is an object literal passed to a generic helper — full
+contextual inference, nothing written twice. It is not used here, because it is
+`defineExtension({...})` in all but name, and the reasons for a class stand
+([§2](#2-the-bundle-contract--decided)). The class costs one type annotation on `activate`; that is
+the whole price, and it is worth paying.
+
+`implements` is optional — the kernel checks structurally, so a class without it still loads. Keep it
+anyway: it is what turns "I forgot to return the thing I said I provide" into an error in this file
+rather than a surprise in a consumer.
 
 ### Why narrowing, and not a `Shell`
 
@@ -122,13 +165,20 @@ The `unique symbol` phantom is what carries `T` across a boundary neither side i
 consumer writes:
 
 ```ts
-readonly consumes = [AUTH] as const;
+const NEEDS    = needs('net');
+const CONSUMES = consumes(AUTH);          // same helper shape as needs()
 
-activate(cx: CapabilityContext<['net']> & Consumer<[typeof AUTH]>) {
+readonly needs    = NEEDS;
+readonly consumes = CONSUMES;
+
+activate(cx: Context<typeof NEEDS, typeof CONSUMES>) {
     const auth = cx.use(AUTH);     // typed AuthApi, with no import of AuthExtension
     auth.session();                // and no `any` anywhere
 }
 ```
+
+`Context<TNeeds, TConsumes>` is `CapabilityContext<TNeeds> & Consumer<TConsumes>` — one type
+parameter per declaration, so the two lists stay independent and each is written once.
 
 Three rules:
 
@@ -141,6 +191,66 @@ Three rules:
 
 That last one is the reason for tokens rather than direct imports, and it is the same argument as
 swappable storage providers in [storage §4](./storage-and-registry.md).
+
+### Where the public interface lives — **Proposed**
+
+`provides` says *that* an Extension has a public interface. It does not say where the interface is
+written down, and that is the question that decides whether any of this survives contact with more
+than one repository.
+
+The constraint: **a consumer must get `AuthApi`'s type without importing `AuthExtension`.** If it
+imports the implementation it has pulled in the whole Extension, its dependencies and its side
+effects, and the token bought nothing.
+
+So the interface and the token live in a third place — small, types plus one constant, no
+implementation:
+
+```ts
+// @surfdns/auth-contract — imported by the Extension and by every consumer
+import { provider } from '@flybyme/mesh-web';
+
+export interface AuthApi {
+    readonly session: Signal<Session | null>;
+    signIn(): Promise<void>;
+    signOut(): Promise<void>;
+}
+
+export const AUTH = provider<AuthApi>('identity.auth');
+```
+
+Three consequences worth being explicit about:
+
+- **It is a real dependency, not a type-only one.** `AUTH` is a runtime value — an object with an
+  `id`. It is a few bytes, but `import type` will not do, and a build that assumes contract packages
+  are erasable will break.
+- **The contract package is the thing that gets versioned**, and it is the only thing both sides
+  share. Changing `AuthApi` is a breaking change to a published interface, which is exactly the
+  visibility that makes it hard to change casually.
+- **It is where a site's own conventions live.** `@surfdns/auth-contract` is surfdns's, not
+  mesh-web's. The framework ships `provider()` and nothing else; what a site's Extensions expose to
+  each other is the site team's business, the same as
+  [what it exposes over HTTP](./hosting.md) §5.
+
+An Extension may provide **more than one token**, and should when the audiences differ — a narrow
+`AUTH` that most consumers use, and a wider `AUTH_ADMIN` that the settings screen uses. That is
+cheaper than one interface with optional members, because `consumes` then records which consumer
+needed the privileged surface.
+
+**The alternative, considered and not taken.** Module augmentation would let the id carry the type
+with no import at all:
+
+```ts
+declare module '@flybyme/mesh-web' {
+    interface Providers { 'identity.auth': AuthApi }
+}
+// then: cx.use('identity.auth')  — typed, no token import
+```
+
+Nicer at the call site, and the editor completes the string. Rejected because it is a global
+namespace: two independently-built Extensions can claim the same key with different types, and
+whichever augmentation happens to be loaded wins. A token is a value, so a collision is a build
+error rather than a silent disagreement — and this framework is explicitly for many sites by many
+authors ([hosting §3](./hosting.md)).
 
 ---
 
