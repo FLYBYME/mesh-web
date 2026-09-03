@@ -85,10 +85,15 @@ forward except mesh-api issue #7, the task switcher hotkey bug, which is recorde
 | `src/description/` | **new.** The node tree an Application produces: elements, text, `when`, `each`, intents, actions, the handler table. Plain data throughout. |
 | `src/description/flatten.ts` | the test renderer — resolves every reactive value and expands control flow into a static tree. Also the server-rendering path. |
 | `src/render/` | **the DOM renderer.** Components to elements, fine-grained binding, `when` on comment markers, keyed `each`, device events to intents, scoped disposal. |
+| `src/contribution/` | the two contracts — `Extension`, `Application`, capabilities, provider tokens, `needs()`, `consumes()`, and `construct()`, which checks a bundle before trusting it. |
+| `src/kernel/` | **the kernel.** The capability broker, the provider graph, manifest merge with load-time conflict detection, the process table, lifecycle and fault containment. |
 | package, tsconfig, vitest, CI | `types: []` on the browser build, so a node import will not compile. |
 
-**59 tests.** 37 of them need no DOM at all — which is the property the description layer exists to
-give ([testing §2](./testing.md)) — and the renderer's 22 run under jsdom.
+Boot steps **3–7 and 10** of [kernel §3](./kernel.md) are real. Steps 1, 2, 8, 9 and 11 need the
+deployment descriptor, the registry, auth, view state and the router — none of which exist.
+
+**95 tests.** 73 of them need no DOM at all — which is the property the description layer and the
+kernel both exist to give ([testing §2](./testing.md)) — and the renderer's 22 run under jsdom.
 
 **What the renderer's tests actually assert**, since "it renders" is not the claim:
 
@@ -106,8 +111,9 @@ focus, real input devices and anything measured need one. The renderer's tests c
 binding, disposal and intent mapping — logic that happens to touch a DOM — and the browser tests
 that do not exist yet should cover what jsdom cannot rather than repeat this.
 
-**Still no code:** the kernel, every capability, the window manager, real input, the registry, the
-network client, the manifest, the component vocabulary as designed, and all four server modules.
+**Still no code:** the window manager, real input, the registry and hives, the network client, the
+component vocabulary as designed, `net`/`events`/`keys`/`menus`/`models`/`storage` as capabilities,
+and all four server modules.
 
 Two guards in `test/boundaries.test.ts`, and both were **verified to fail when violated** rather than
 assumed: nothing in `src/` imports node, and nothing in `src/description/` names a DOM type. Adding a

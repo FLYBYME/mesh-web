@@ -440,6 +440,16 @@ of the [roadmap](./roadmap.md) tests.
   times before it stays failed?
 - **Instance limits.** Should an Application be able to cap its own instances at something other than
   one or unbounded?
+- **Which instance owns a command's implementation.** Found while building the kernel, and it is a
+  real hole rather than an implementation detail. Commands are declared by the **Application** and
+  implemented by a **running instance**; with two blog windows open, which one does the palette's
+  "Blog: New Post" run? Today the first instance to start owns it and the second is refused, which is
+  defensible and probably not final. The candidates: the foreground instance, the one that most
+  recently had focus, or a command declared as instance-scoped versus application-scoped.
+
+  The same distinction bit once already: capabilities are scoped per **instance** (so two windows do
+  not share a log source or a storage namespace) while the manifest belongs to the **Application**.
+  Conflating the two means an Application cannot implement its own commands at all.
 - **What a background Application is told**, precisely, in §5's throttle notification — and whether
   ignoring it has any consequence at all, given [kernel §6](./kernel.md).
 - **Per-instance storage lifetime.** A new `pid` on every restart means per-instance storage is
