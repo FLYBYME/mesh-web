@@ -457,8 +457,13 @@ is built against these specs. [auth.md](./auth.md).
       mesh. Ticket validation is a real call to `identity.ticket_validate`, and the resolved scope
       reaches a handler as `ctx.meta.user.tenant_id` and confines its result. Tested against an actual
       MeshApp with a second real ServiceModule beside it — everything before this ran against a `Map`.
-- [ ] **C3.1c The `exposure` collection** as the resolved cache C3.2 describes — the API fills it at
-      boot from the descriptor, and nothing edits it. **S**
+- [x] **C3.1c The `exposure` collection** as the resolved cache C3.2 describes. **A row is about a
+      process, not an application** — keyed by `(application, nodeID)`, so a rolling deploy is
+      *visible* as rows that disagree rather than hidden by whichever instance booted last
+      overwriting the others. `exposureConsensus()` turns that into "is this deploy finished?".
+      Off by default, because recording needs a database and a listener that will not start without
+      mongo is a worse listener; a failed write is logged, never thrown. Verified against a real
+      mongo: the row lands, a restart updates rather than duplicates, two instances make two rows.
 - [x] **C3.2 Exposure is the site's repo descriptor.** Decided 2026-09-03: the site's repository is
       the source, and the API's `exposure` collection is a resolved cache filled at boot. A list owned
       elsewhere drifts open, because nobody deleting a screen closes the route it used. Consequence:
