@@ -446,8 +446,14 @@ is built against these specs. [auth.md](./auth.md).
       identifies the exposure rather than the file. Six mistakes fail the build: an ungated entry, two
       gates on one entry, an `internal` contract, a duplicate, a route collision, and a schema that
       cannot be described. 14 tests. **This is what A3.1a-ii reads.**
-- [ ] **C3.1b The `api` ServiceModule itself** — `onStart`, the port, `api_routes`, `api_status`, and
-      the `exposure` collection as the resolved cache C3.2 describes. **M**
+- [x] **C3.1b The `api` ServiceModule itself.** Registers with a real `MeshApp`; `onStart` binds the
+      port and validates the exposure, so a bad exposure is a module that failed to start rather than
+      a node quietly serving a surface nobody intended. `api.status` and `api.routes` answer over the
+      mesh. Ticket validation is a real call to `identity.ticket_validate`, and the resolved scope
+      reaches a handler as `ctx.meta.user.tenant_id` and confines its result. Tested against an actual
+      MeshApp with a second real ServiceModule beside it — everything before this ran against a `Map`.
+- [ ] **C3.1c The `exposure` collection** as the resolved cache C3.2 describes — the API fills it at
+      boot from the descriptor, and nothing edits it. **S**
 - [x] **C3.2 Exposure is the site's repo descriptor.** Decided 2026-09-03: the site's repository is
       the source, and the API's `exposure` collection is a resolved cache filled at boot. A list owned
       elsewhere drifts open, because nobody deleting a screen closes the route it used. Consequence:
