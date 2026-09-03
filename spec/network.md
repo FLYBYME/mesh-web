@@ -232,8 +232,11 @@ right; it is not decided, and it is §8.
   the generated descriptor instead.
 - **mesh-api's `generate-client`** ([roadmap C3.8](./roadmap.md)) moves from a nice-to-have to the
   thing the whole browser type story rests on.
-- **The exposure descriptor** gains a second job, which is an argument for it being the source of
-  truth rather than a cache ([service-modules §2](./service-modules.md) leaves that open).
+- **The exposure descriptor** gains a second job, and that argument won:
+  [service-modules §2](./service-modules.md) now **decides** the site's repo is the source and the
+  API's `exposure` collection is a resolved cache. So the generator reads a file in the site's
+  repository, needs no running cluster, and the generated client is a build artifact rather than
+  something fetched at deploy time.
 
 ---
 

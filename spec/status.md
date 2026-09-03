@@ -36,9 +36,9 @@ framework, the CDN and the API where they are meant to be, marked with what bloc
 | repo | branch | state |
 | --- | --- | --- |
 | **mesh** | master `1cb54e5` | Clean. v2.1.0 tagged. Nothing open. **Untouched by the reset.** |
-| **mesh-api** | master | **Emptied.** Every file deleted. |
+| **mesh-api** | master `e69aeb6` | **Emptied and pushed.** The old tree is tagged `archive/pre-rewrite` (`9a9e193`). |
 | **mesh-web** | master | **Emptied except `spec/` and `demo/`.** The spec is the repository. |
-| **surfdns** | master `cece581` | Clean and green, but **requires complete rework**. |
+| **surfdns** | master `9e70b25` | Clean and green, mesh-api pinned to `#9a9e193`, but **requires complete rework**. |
 | **surfdns-console** | master `772cdef` | Staged files only. Does not build. Superseded by the reset. |
 
 Both new repositories are private on GitHub:
@@ -278,13 +278,22 @@ Condensed. Each links to the reasoning.
 Written 2026-09-03 at the end of a working session. **Track 0 is closed — all six decisions are
 made** and none of the framework decisions below block starting work.
 
-### One thing waiting on a yes
+### Nothing is waiting on a yes
 
-- **mesh-api's deletion is committed and not pushed.** The repository is empty locally and `ahead 1`.
-  Pushing it breaks surfdns's `npm install` immediately: five of its packages depend on
-  `github:FLYBYME/mesh-api`, which resolves to that default branch. surfdns needs complete rework
-  regardless, so this is timing rather than an objection — but it is a one-way door on a shared
-  remote and it is the only thing held back for a decision.
+The mesh-api reset is **done**, 2026-09-03, as one batch:
+
+- `9a9e193` is tagged **`archive/pre-rewrite`** and pushed — the 168-file tree, recoverable by name
+  rather than by a SHA buried in a lockfile. Read `src/exposure/` there first: an entry with no gate
+  did not compile, and that property carries into the rewrite.
+- **The deletion is pushed.** `origin/master` is an empty tree.
+- **surfdns's five packages are pinned** to `github:FLYBYME/mesh-api#9a9e193`, so a re-resolve can no
+  longer follow the branch into an empty package. Not D.6 — that repoints them at a rebuilt mesh-api.
+- **PR #5 closed** (it targeted a tree that no longer exists; its finding survives as A1.4) and both
+  stale branches deleted. Their commits stay reachable through `refs/pull/5/head` and
+  `refs/pull/6/head`.
+
+Two merged branches remain on the remote — `bob/console-browser-entry` and `bob/z-from-contracts`,
+both fully contained in master's history. Deletable whenever, nothing depends on them.
 
 ### The honest risk, now partly closed
 
@@ -309,13 +318,17 @@ made** and none of the framework decisions below block starting work.
   *instance*; with two blog windows open, which one does the palette's "Blog: New Post" run? Today
   the first to start owns it. Defensible, probably not final.
 
-### Small, and want a word when convenient
+### Decided 2026-09-03, and both went against my recommendation in one direction
 
-- **Who owns `artifact`** ([service-modules §2](./service-modules.md)). The builder writes it, the
-  CDN reads it constantly. *Recommend `cdn`*, so the read path has no extra hop.
-- **Whether mesh-api's exposure is a collection or the deployment descriptor**
-  ([service-modules §2](./service-modules.md)). The descriptor is where the site team owns it, which
-  argues for it being the source and the collection a resolved cache.
+- **`artifact` belongs to the builder**, reached by the CDN and the API through a published
+  contract ([service-modules §2](./service-modules.md)). I had recommended `cdn` to save the read
+  path a hop; the answer is that ownership follows the writer, and a hop is what a boundary *is*.
+  The artifact is immutable once built, so a CDN node caches it by content hash and pays the hop
+  once per artifact rather than once per request. The rule now reads the same across all four
+  modules: **a module owns what it writes and publishes contracts for what others need.**
+- **Exposure is the site's repo descriptor**, with the API's collection as a resolved cache
+  ([service-modules §2](./service-modules.md), roadmap C3.2). This unblocks the client emitter: it
+  reads a file in the site's repository and needs no running cluster.
 
 ### Where I would pick up
 

@@ -77,12 +77,12 @@ revocation fan-out [authentication](./auth.md) §3 depends on.
 
 **mesh-web** — two modules, `cdn` and `builder` (§3)
 
-`cdn` — CRUD: `site` (the hostname → application mapping), `artifact`.
-Tools: `site_resolve`, `artifact_get`.
+`cdn` — CRUD: `site` (the hostname → application mapping).
+Tools: `site_resolve`.
 Events: `cdn.site_changed`.
 
-`builder` — CRUD: `build`.
-Tools: `build_start`, `build_status`.
+`builder` — CRUD: `build`, `artifact`.
+Tools: `build_start`, `build_status`, `artifact_get` (the contract the CDN and the API read through).
 Events: `builder.build_started`, `builder.build_completed`, `builder.build_failed`.
 
 `site_resolve` is the one every CDN node calls, and `site` is the shared mutable state
@@ -90,19 +90,31 @@ Events: `builder.build_started`, `builder.build_completed`, `builder.build_faile
 collection on the mesh is the answer that avoids building a second distributed system beside the one
 already running.
 
-**Open — who owns `artifact`.** The split creates a producer/consumer pair: the builder writes
-artifacts, the CDN reads them constantly. Three ways to place it, and the choice is a judgement
-rather than a derivation:
+### `artifact` belongs to the builder, reached by contract — **Decided**
 
-1. **`cdn` owns it**, and the builder writes by calling `cdn.artifact_create`. The collection sits
-   with its hot reader. The write-side dependency points the "wrong" way, which is a naming
-   discomfort rather than an architectural one — every module reaches every contract over the mesh.
-   *Recommended*, because the read path is the one that must not have an extra hop.
-2. **`builder` owns it**, and the CDN reads `builder.artifact_get`. Puts a build-domain module in
-   the serving hot path, which is exactly the coupling §3 split them to avoid.
-3. **A third data-only module** owns `site`, `build` and `artifact`, and both compute modules call
-   it. Cleanest separation, five modules, and one more thing that must be running before anything
-   serves.
+> "builder should own it and provide public contract to get to it from cdn or api"
+
+The producer owns its data. The builder writes artifacts, so the builder owns the collection, and
+the CDN and the API reach them through a **published contract** rather than by touching the
+collection — `builder.artifact_get`, and nothing else.
+
+This overrides the earlier recommendation, which put `artifact` with the CDN to save the read path a
+hop. The hop is real and it is the wrong thing to optimise for:
+
+- **Ownership follows the writer, or it is not ownership.** A collection owned by the module that
+  does not write it is a shared database with extra steps, and §3's whole argument for separate
+  modules is that they can be deployed and reasoned about apart.
+- **The contract is the boundary, and it is the only one.** Every module reaches every other over
+  the mesh already. "One extra hop" is what a boundary *is* — the alternative is two modules writing
+  one collection, which is the coupling that makes a split notional.
+- **The hop is cacheable and the boundary is not.** A CDN node can cache an artifact by content hash
+  for as long as it likes, because an artifact is immutable once built. The cost is paid once per
+  artifact per node, not once per request — so the read path that "must not have an extra hop"
+  mostly does not take one.
+
+The same rule then reads consistently across all four modules: **a module owns what it writes, and
+publishes contracts for what others need.** `site` stays with `cdn` because the CDN is what maintains
+the hostname mapping; `build` stays with `builder`; `exposure` with `api`.
 
 **mesh-api** — `api`
 
@@ -113,10 +125,24 @@ which routes.
 CRUD: `exposure` (contract → roles → route).
 Tools: `api_routes` (what this instance serves), `api_status`.
 
-**Open:** whether exposure is a CRUD collection the API reads, or comes from each site's deployment
-descriptor ([hosting](./hosting.md) §5), or both with the descriptor as the source and the
-collection as the resolved cache. The descriptor is where the site team owns it, which argues for
-that being the source.
+**The site's repo is the source — Decided.** The exposure list lives in the site's own repository, in
+its deployment descriptor ([hosting](./hosting.md) §5). The `exposure` collection, if the API keeps
+one at all, is a **resolved cache** the API fills at boot — never the thing anyone edits.
+
+This follows [hosting §5](./hosting.md), which already gave the site team ownership of what it
+exposes and to whom. The argument is about drift rather than about storage: the people writing the
+screens know which calls those screens make, and a list beside the screens gets reviewed against them
+when a screen changes. **A list owned elsewhere drifts open**, because nobody deleting a screen
+remembers to go and close the route it used — and an exposure list that only ever grows is a
+security boundary that only ever widens.
+
+Two consequences worth stating:
+
+- **The client generator reads the repo, not the cluster.** A build needs no running API to know what
+  the site exposes ([network §4](./network.md)), which is what makes the generated client a build
+  artifact rather than a deployment-time fetch.
+- **Changing exposure is a deploy.** There is no live toggle, and that is the intended trade: a
+  change to what the outside world can reach goes through review and lands as a commit.
 
 ---
 

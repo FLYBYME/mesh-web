@@ -440,9 +440,11 @@ is built against these specs. [auth.md](./auth.md).
 ### C3 — mesh-api adapted
 
 - [ ] **C3.1 The `api` ServiceModule** and the `exposure` collection. **M**
-- [ ] **C3.2 ⛔ Decide whether exposure is a collection or the deployment descriptor.** The descriptor
-      is where the site team owns it, which argues for descriptor as source and collection as resolved
-      cache. **S** · [service-modules §2](./service-modules.md)
+- [x] **C3.2 Exposure is the site's repo descriptor.** Decided 2026-09-03: the site's repository is
+      the source, and the API's `exposure` collection is a resolved cache filled at boot. A list owned
+      elsewhere drifts open, because nobody deleting a screen closes the route it used. Consequence:
+      the client generator reads a file, needs no running cluster, and changing exposure is a deploy.
+      [service-modules §2](./service-modules.md)
 - [ ] **C3.3 REST from contracts** — already the thing mesh-api does; it needs to read exposure rather
       than a hand-maintained list. **M** · [hosting §4](./hosting.md)
 - [ ] **C3.4 SSE from events**, which the browser's `events` client already expects. **M**
