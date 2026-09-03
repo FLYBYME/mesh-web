@@ -254,6 +254,51 @@ An Extension may provide **more than one token**, and should when the audiences 
 cheaper than one interface with optional members, because `consumes` then records which consumer
 needed the privileged surface.
 
+### What shape a provider API may be — **Proposed**
+
+A gap the isolation decision opens, and it needs stating before anyone writes a second provider.
+
+`cx.use(AUTH)` returns an object today because everything shares one realm. If an Application ever
+runs in a worker ([kernel §9](./kernel.md)), it cannot hold a reference to an object living on the
+main thread, and a provider API shaped as an ordinary object stops working.
+
+The demo's `AuthApi` already fails this test. `can(action: string): boolean` is **synchronous** and
+computes over state the Extension holds — there is no way to answer it across a boundary without
+blocking.
+
+So a provider API is an **interface, not an object graph**, and it may only be made of three things:
+
+| | | across a boundary |
+| --- | --- | --- |
+| **async methods** | `signIn(): Promise<void>` | a message and a reply |
+| **signals** | `session: Signal<Session \| null>` | mirrored by the kernel, the same machinery as view patches |
+| **plain data** | `readonly baseUrl: string` | copied once |
+
+And **nothing else** — no synchronous methods over provider state, no class instances, no callbacks
+passed in, no DOM.
+
+**Where the synchronous logic goes:** the contract package, as a pure function over mirrored state.
+
+```ts
+// @surfdns/auth-contract
+export interface AuthApi {
+    readonly session: Signal<Session | null>;
+    readonly grants:  Signal<readonly string[]>;   // mirrored, not asked for
+    signIn(): Promise<void>;
+    signOut(): Promise<void>;
+}
+
+/** Pure. Runs wherever the caller is, over data it already has. */
+export function can(grants: readonly string[], action: string): boolean { ... }
+```
+
+Which is better than the method it replaces even with no isolation anywhere: `can` becomes testable
+without an Extension, and a consumer that re-renders on `grants` changing gets that for free because
+it is a signal rather than a question.
+
+The rule, in one line: **state is signals, actions are async, logic is a pure function in the
+contract package.**
+
 **The alternative, considered and not taken.** Module augmentation would let the id carry the type
 with no import at all:
 

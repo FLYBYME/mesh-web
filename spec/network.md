@@ -146,6 +146,39 @@ audit wants.
 
 ---
 
+### This is not how an Application talks to an Extension — **Decided**
+
+Two boundaries that look superficially alike and are nothing like each other. They should not read
+the same, and they do not.
+
+```ts
+// → the API. Over the network. Gatekept. Can 403. Typed from the site's exposure.
+const cred = await cx.net.call('credential.resolve', { id });
+
+// → the auth Extension. In the page. Typed by a contract package both sides import.
+const auth = cx.use(AUTH);
+```
+
+| | `cx.net.call` | `cx.use` |
+| --- | --- | --- |
+| declared as | `api` in the manifest | `consumes` |
+| crosses | the network | a contribution boundary |
+| owned by | the site's exposure descriptor | a contract package ([Extensions §4](./extension.md)) |
+| fails with | 401, 403, 404, transport | a missing provider, at boot |
+| gatekept by | mesh-api | nothing — it is in the page |
+
+The last row is the one to keep straight. `cx.use` reaches something already running in the page and
+enforces nothing; **the API is still the only security boundary** ([kernel §4](./kernel.md)). An
+Extension is not a way to get privileged data — it is a way to share what the page already legitimately
+has.
+
+**And the console mostly does not call auth at all.** It does not fetch a ticket and attach it: the
+auth Extension attaches it to `net` for every caller, so an Application never handles a credential.
+What is left is small — read `session` to render who is signed in, `signIn`/`signOut` from a command,
+and an effect that reacts when the session goes null.
+
+---
+
 ## 5. The same treatment for the rest of the link — **Proposed**
 
 "The network layer is what links the mesh and the ui" is three things, not one, and all three come
