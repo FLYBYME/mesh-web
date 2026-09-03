@@ -18,19 +18,26 @@ on a decision. **★** means it unblocks several other items and should go early
 
 ## Track 0 — Decisions that gate code
 
-**Three of six decided.** D1 dissolved rather than being answered, and D3/D4 turned out to have been
-settled in [application §6](./application.md) while still listed as open here — worth noting as a
-failure mode: a decision made in the document where the work is happening does not propagate back to
-the list of open questions by itself.
+**All six decided.** Two of them changed shape rather than being answered: D1 dissolved once the
+`web` module split, and D5 turned out to have no cost once geometry was recognised as device-scoped.
 
-**Nothing in Track B or C is blocked any more.** D2, D5 and D6 remain, and each wants one word.
+Worth recording one failure mode: D3 and D4 had been settled inside
+[application §6](./application.md) while still listed as open here. **A decision made in the document
+where the work is happening does not propagate back to the list of open questions by itself.**
+
+**Nothing in any track is blocked on a decision.** What remains open is listed below and none of it
+gates starting.
 
 - [x] **D1 Assignment granularity — dissolved, not answered.** **Four modules: `identity`, `api`,
       `cdn`, `builder`.** Splitting `web` makes the module boundary and the deployment boundary the
       same line, so there is no subset to mount, no assignment in a constructor, and no partial-mount
       machinery to build. All four may share one process; splitting them is configuration.
       **M3 can therefore be a single process.** [service-modules §3](./service-modules.md)
-- [ ] **D2 Headless Application distinct from Extension** — *recommend yes*. [README §8](./README.md)
+- [x] **D2 Headless Application distinct from Extension — yes.** The deciding reason is volume: a
+      handful of Extensions will ever be written and many Applications, so the contract used by the
+      many gets the real lifecycle, instances and process table. Corollary recorded in
+      [kernel §2](./kernel.md): **the bias is toward Extension** — the kernel earns each row by being
+      unable to do otherwise. [README §8](./README.md)
 - [x] **D3 `tile` is a split tree with named nodes** — **decided: both.** An Application declares a
       layout; `tile` names a node; dragged splits create unnamed ones. And a tile is a *slot*, not a
       view — several views target one tile over an Application's life.
@@ -38,12 +45,16 @@ the list of open questions by itself.
 - [x] **D4 One view instance per window** — **decided: no sharing.** Two windows means two instances
       over one application state; identity is the view id plus a key from its params.
       [application §6](./application.md)
-- [ ] **D5 Conflict policy on a setting declaration, defaulting to `reject`** — *recommend yes*.
-      [README §8](./README.md) · [storage §7](./storage-and-registry.md)
-- [ ] **D6 Does mesh-web's server half live in this repository?** — the `tsconfig.json` sets
-      `types: []` precisely so a node import in `src/` fails to compile. Two packages in one repo, or
-      two repos. *Recommend: one repo, two packages* — they share the manifest and deployment types
-      and nothing else. [service-modules §4](./service-modules.md) · [hosting §1](./hosting.md)
+- [x] **D5 Conflicts reject. One way, no per-setting field.** The `conflict` declaration is
+      withdrawn. The case that argued for last-write-wins was window geometry — and geometry lives in
+      the **`device` hive**, which is not shared, so it never conflicts. That is right for its own
+      reasons: a Deck and a desktop have different screens and syncing window positions between them
+      would be wrong. [storage §7](./storage-and-registry.md)
+- [x] **D6 One repository, several packages.** `@flybyme/mesh-web` (browser), `@flybyme/mesh-cdn`,
+      `@flybyme/mesh-builder`, and a types-only `@flybyme/mesh-web-protocol`. Drawn so **an
+      Application author imports one package and never sees the other** — no subpath exports, because
+      an editor autocompleting `mesh-web/server` into an Application is a mistake worth making
+      impossible rather than discouraging. [hosting §0](./hosting.md)
 
 Raised by [kernel.md](./kernel.md) and not yet weighed: **real isolation** — an iframe per
 Application would give each its own origin, at the cost of putting a postMessage boundary under every
@@ -120,8 +131,9 @@ The largest single piece, and the one everything visual waits on. Nothing here e
       application state: a switch re-parents DOM and reassigns geometry, and the Application never
       learns it happened — scroll positions, form contents and open connections survive.
       **M** · [README §4](./README.md)
-- [ ] **A2.5 Geometry persistence** per (site, user, application), through the registry, so windowed
-      mode remembers position, size and z-order across a mode switch and across a reload.
+- [ ] **A2.5 Geometry persistence** per (site, application) in the **`device` hive** — not `user`,
+      because a Deck and a desktop have different screens. Through the registry, so windowed mode
+      remembers position, size and z-order across a mode switch and across a reload.
       **S** · ⛔ A4.2
 - [ ] **A2.6 The `windows` capability implemented** against the above — `open`, `close`, `focus`,
       `handle`. **M**
@@ -182,7 +194,8 @@ The NT-style part. All design, no code. [storage-and-registry.md](./storage-and-
 - [ ] **A4.4 Local providers** — memory, `localStorage`, IndexedDB — bound to hives by configuration.
       **M**
 - [ ] **A4.5 A remote provider** over `net`, which is what makes the abstraction worth having. **M**
-- [ ] **A4.6 Setting declarations** with schema, default and `conflict` policy. **S** · ⛔ D5
+- [ ] **A4.6 Setting declarations** with schema and default. **No `conflict` field** — conflicts
+      always reject. **S** · [storage §7](./storage-and-registry.md)
 - [ ] **A4.7 Build-time policy injection** — policy originates at the build or the server, never the
       running page. A locked blog is a policy value, not a mechanism. **S** ·
       [storage §2](./storage-and-registry.md) · ⛔ B2
@@ -213,7 +226,7 @@ The kernel around them is new design and has never existed in any form.
 - [ ] **A5.6 The process table** — `pid` assigned by the kernel, not taken from the bundle;
       `applicationId` + instance; N instances of one Application. **M** · [kernel §5](./kernel.md)
 - [ ] **A5.7 Lifecycle** — Extensions activate once and are never deactivated; Applications start,
-      stop, restart and can rest in `failed`. **M** · ⛔ D2 · [application §4](./application.md)
+      stop, restart and can rest in `failed`. **M** · [application §4](./application.md)
 - [ ] **A5.8 Fault containment** — the kernel catches at every boundary it calls across and nowhere
       else; a failed Extension cascades to its consumers as one error naming the root; a failed
       Application leaves the rest untouched. **M** · [kernel §7](./kernel.md)
@@ -312,7 +325,9 @@ none of this is speculative.
 mesh-web's server half. **None of it exists** — no server, no builder, no `web` ServiceModule.
 [hosting.md](./hosting.md).
 
-- [ ] **B0 ★ Settle the repo shape** and create the server package. **S** · ⛔ D6
+- [ ] **B0 ★ Create the packages** — `@flybyme/mesh-cdn`, `@flybyme/mesh-builder`, and the types-only
+      `@flybyme/mesh-web-protocol`, alongside the browser package. Neither side depends on the other.
+      **S** · [hosting §0](./hosting.md)
 - [ ] **B1a The `cdn` ServiceModule**, paas layout. CRUD `site`, `artifact`; tools `site_resolve`,
       `artifact_get`; event `cdn.site_changed`. **M** · [service-modules §2](./service-modules.md)
 - [ ] **B1b The `builder` ServiceModule.** CRUD `build`; tools `build_start`, `build_status`; events

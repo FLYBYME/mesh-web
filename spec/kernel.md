@@ -48,6 +48,20 @@ same interfaces an outside author gets is the only honest test that those interf
 This is the same argument as [the workbench being an Extension](./README.md) and it applies
 downward.
 
+**The bias is toward Extension, and it is deliberate — Decided.**
+
+> "that's not to say i don't want as many kernel stuff as Extension as possible"
+
+The test above is a *forcing* test, not a permission. When something could plausibly go either way,
+it goes in an Extension. The kernel earns each row in the table below by being unable to do
+otherwise — it is not a convenient place to put things that are hard.
+
+Two reasons this matters more than it sounds. A kernel that grows is a kernel nobody can replace,
+reason about, or test without the whole system. And every capability an Extension needs is a
+capability an *outside* author gets — so moving work outward is what keeps the published interfaces
+honest, and the surest way to ship a framework whose extension API is too weak is to build the
+framework's own parts underneath it.
+
 | in the kernel | a built-in Extension |
 | --- | --- |
 | the loader and the constructors | the workbench — chrome, activity bar, tabs |

@@ -12,6 +12,45 @@ Companions: [the model](./README.md) · [storage and the registry](./storage-and
 
 ---
 
+## 0. One repository, several packages — **Decided**
+
+> "i would much rather just have it as one repo. but you have the browser stuff and the server stuff
+> and they are two different things."
+>
+> "when i write bob's app i don't want some funky imports for browser and node code."
+
+**One repository.** Several packages inside it, and the split is drawn where it is for exactly one
+reason: **an Application author imports one package and never sees the other.**
+
+| package | what it is | who imports it |
+| --- | --- | --- |
+| `@flybyme/mesh-web` | the browser framework | every Application and Extension author |
+| `@flybyme/mesh-cdn` | the `cdn` ServiceModule | whoever deploys a CDN node |
+| `@flybyme/mesh-builder` | the `builder` ServiceModule | whoever deploys a builder |
+| `@flybyme/mesh-web-protocol` | manifest and deployment descriptor **types only** | both sides |
+
+Writing bob's app means one import line from one package. There is no browser/node decision to make,
+because the browser package is the only one an app author has heard of.
+
+### Why not subpath exports — **Decided**
+
+`@flybyme/mesh-web/server` would have been the tidier-looking answer, and it is a trap: an editor
+autocompletes it, someone imports it in an Application, and node code lands in a browser bundle where
+it fails at run time or, worse, bloats silently.
+
+**Separate package names make that mistake impossible rather than merely discouraged**, which is the
+same standard applied everywhere else — [type-safety §7](./type-safety.md) makes the untyped escape
+hatch awkward on purpose, and this is the packaging version of it.
+
+Enforced three ways, because a convention is not a boundary:
+
+- `types: []` in the browser package's `tsconfig.json`, so a node import will not compile
+- the browser package has no node dependency, checked in CI
+- neither side lists the other in its dependencies; both may depend on the types-only protocol
+  package, which has no runtime and cannot pull anything in
+
+---
+
 ## 1. mesh-web is two things — **Decided**
 
 A browser framework, and a **server process running its own HTTP server** — the builder and the CDN.

@@ -383,11 +383,30 @@ cases are writes and conflicts, and they should not be designed on the way past.
 fails while offline reports failure rather than pretending. Optimistic offline writes are a separate
 feature and a large one.
 
-Conflict detection is no longer entirely open: `EntryStat.version` plus a conditional write (§4)
-gives a provider that supports it a real answer — the second writer is told the entry moved and
-gets to decide, instead of silently winning. What remains open is what a *caller* should do with
-that, which is a per-setting question. Window geometry should take last-write-wins and not bother
-anyone. A user's draft should not.
+### Conflicts reject. One way, no per-setting choice. — **Decided**
+
+> "yes reject. we do this one way."
+
+`EntryStat.version` plus a conditional write (§4) detects the conflict; the second writer is told the
+entry moved rather than silently winning. **And that is the only behaviour.** There is no `conflict`
+field on a setting declaration, no last-write-wins option, and no per-setting choice — which was the
+earlier proposal and is now withdrawn.
+
+**The case that argued against this dissolves on inspection.** The reason for wanting last-write-wins
+was window geometry: two devices both move a window, and rejecting means the window snaps back, which
+would be maddening.
+
+But **geometry belongs in the `device` hive**, and the device hive is not shared. There is no
+cross-device conflict to resolve because there is no cross-device value.
+
+And that is right for its own reasons, not just for this one. A Steam Deck and a desktop have
+different screens; syncing window positions between them would be actively wrong, not merely
+unnecessary. **View state is device-scoped**, and any part of the design that assumed geometry lived
+in `user` was wrong ([README §4](./README.md), [roadmap A2.5](./roadmap.md)).
+
+So the settings that *are* shared — the ones in `user` — are exactly the ones where a silent
+overwrite would lose someone's intent. Rejecting is correct for all of them, which is why one rule
+covers the whole surface.
 
 ---
 

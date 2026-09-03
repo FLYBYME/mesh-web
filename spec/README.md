@@ -262,12 +262,16 @@ here would guarantee the two drift.
 Recommendations below are mine and one word from settled. They are recorded rather than left in a
 conversation so they are not lost.
 
-- **Does a headless Application have a lifecycle distinct from an Extension?** — **Proposed: yes,
-  keep them distinct.** The test that settles it is whether killing it leaves the system working. A
-  background process can be stopped and everything carries on; kill the auth Extension and
-  everything consuming it breaks. In OS terms an Extension is *installed* — a driver registered with
-  the kernel, singleton by nature — and an Application is *run*: a process in the process table,
-  with N possible instances, stoppable and restartable, listed in the process manager.
+- ~~**Does a headless Application have a lifecycle distinct from an Extension?**~~ **Decided: yes,
+  keep them distinct.** The test is whether killing it leaves the system working. A background
+  process can be stopped and everything carries on; kill the auth Extension and everything consuming
+  it breaks. In OS terms an Extension is *installed* — a driver registered with the kernel, singleton
+  by nature — and an Application is *run*: a process in the process table, with N possible instances,
+  stoppable and restartable.
+
+  The deciding reason was volume: **a handful of Extensions will ever be written, and many
+  Applications.** The contract used by the many should be the one with a real lifecycle, instances
+  and a process table; the contract used by the few can afford to be the rigid singleton.
 - ~~**`tile` as a slot name or a position in a split tree?**~~ **Decided: both**, in
   [Applications §6](./application.md). A split tree whose nodes may be named; `tile: 'header'`
   resolves to the node named `header`, and user-dragged splits create unnamed ones. That section also
@@ -278,7 +282,7 @@ conversation so they are not lost.
   showing one document twice works with no new concept — view state and application state are
   separate (§4). Instance identity is the view id plus a key from its params
   ([Applications §6](./application.md)).
-- **What does a caller do with a detected conflict?** — **Proposed:** a `conflict` field on a
-  setting declaration, defaulting to `reject`. Safe by default; window geometry opts into
-  last-write-wins explicitly rather than everything silently doing it. See
-  [storage and the registry](./storage-and-registry.md) §7.
+- ~~**What does a caller do with a detected conflict?**~~ **Decided: it rejects. One way, no
+  per-setting field.** The `conflict` declaration is withdrawn. The case that argued for
+  last-write-wins was window geometry — and geometry lives in the `device` hive, which is not shared,
+  so it never conflicts. See [storage and the registry](./storage-and-registry.md) §7.
