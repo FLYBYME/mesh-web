@@ -36,7 +36,7 @@ framework, the CDN and the API where they are meant to be, marked with what bloc
 | repo | branch | state |
 | --- | --- | --- |
 | **mesh** | master `1cb54e5` | Clean. v2.1.0 tagged. Nothing open. **Untouched by the reset.** |
-| **mesh-api** | master `e69aeb6` | **Emptied and pushed.** The old tree is tagged `archive/pre-rewrite` (`9a9e193`). |
+| **mesh-api** | master `3e39189` | **Rebuilding.** The exposure descriptor exists (C3.1a, 14 tests). Old tree tagged `archive/pre-rewrite` (`9a9e193`). |
 | **mesh-web** | master | **Emptied except `spec/` and `demo/`.** The spec is the repository. |
 | **surfdns** | master `9e70b25` | Clean and green, mesh-api pinned to `#9a9e193`, but **requires complete rework**. |
 | **surfdns-console** | master `772cdef` | Staged files only. Does not build. Superseded by the reset. |

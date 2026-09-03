@@ -173,8 +173,10 @@ sound; each item below is the interface *and* the implementation behind it.
       them `@ts-expect-error` — an unexposed action, a wrong input, another API's action, and a value
       read before its failure was considered all fail to compile.
 - [ ] **A3.1a-ii ★ The emitter** — exposure descriptor JSON → that file. Deliberately second: it
-      needed a target, and now it has one. Blocked on mesh-api having an exposure descriptor at all
-      ([C3.1](#)). **L** · [network §3](./network.md)
+      needed a target, and now it has one. **No longer blocked** — mesh-api's `describeExposure()`
+      (C3.1a) produces exactly the JSON this reads: a key, a method, a path, a gate, and JSON Schema
+      for input and output. What remains is JSON Schema → TypeScript, which is the whole of the work.
+      **L** · [network §3](./network.md)
 - [ ] **A3.1b Exposure hash checked in CI and reported by the API**, so a stale client cannot vouch
       for an API that has moved on. **M** · [network §6](./network.md)
 - [x] **A3.1c Errors are part of the type** — a call returns a result naming its failures, and the
@@ -439,7 +441,13 @@ is built against these specs. [auth.md](./auth.md).
 
 ### C3 — mesh-api adapted
 
-- [ ] **C3.1 The `api` ServiceModule** and the `exposure` collection. **M**
+- [x] **C3.1a The exposure descriptor.** `describeExposure()` turns a site's exposure list into JSON a
+      build can read with no cluster running — JSON Schema shapes, a gate per call, and a hash that
+      identifies the exposure rather than the file. Six mistakes fail the build: an ungated entry, two
+      gates on one entry, an `internal` contract, a duplicate, a route collision, and a schema that
+      cannot be described. 14 tests. **This is what A3.1a-ii reads.**
+- [ ] **C3.1b The `api` ServiceModule itself** — `onStart`, the port, `api_routes`, `api_status`, and
+      the `exposure` collection as the resolved cache C3.2 describes. **M**
 - [x] **C3.2 Exposure is the site's repo descriptor.** Decided 2026-09-03: the site's repository is
       the source, and the API's `exposure` collection is a resolved cache filled at boot. A list owned
       elsewhere drifts open, because nobody deleting a screen closes the route it used. Consequence:
