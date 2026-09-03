@@ -247,9 +247,12 @@ right; it is not decided, and it is §8.
 - **How large the generated file gets** for a real site, once types are structural rather than
   references. Probably fine; nobody has measured, and it is the kind of thing that is only a problem
   after it is a problem.
-- **Errors.** A call can fail with 401, 403, 404, a validation error or a transport failure. None of
-  that is in the contract's output schema, and a typed client that models only the happy path pushes
-  every caller into `try`/`catch` with an `unknown`. This wants designing and currently is not.
-- **Whether `net` should expose anything untyped at all.** An escape hatch for a third-party HTTP
-  API that has no mesh contract seems necessary; making it obviously separate from the typed surface
-  matters, so it is not reached for out of convenience.
+- ~~**Errors.**~~ **Decided** in [type-safety §5](./type-safety.md): a call returns a result that
+  names its failures, and `r.value` is only reachable after checking `r.ok`. A `Promise<T>` that can
+  fail five ways is not typed. Every call site handles it explicitly, which is more than ten lines
+  across a codebase and is exactly the trade that was accepted.
+- ~~**Whether `net` should expose anything untyped at all.**~~ **Decided** in
+  [type-safety §7](./type-safety.md): exactly one escape hatch, on a separate surface, returning
+  `unknown`, requiring explicit parsing, and declared as a capability so reaching for it is visible
+  in the manifest. `get<T>` and `post<T>` are deleted rather than deprecated —
+  [type-safety §2](./type-safety.md) is why.

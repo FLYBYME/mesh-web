@@ -17,6 +17,13 @@
 > - **`commands` and `keys` are declared, not registered in `start()`** — along with `layout`,
 >   `views`, `menus` and `settings`. See [application §2](../spec/application.md).
 >
+> **And `types/mesh-web.d.ts` violates [type-safety.md](../spec/type-safety.md) in six places**,
+> audited in its §8: `net.get<T>`/`post<T>`/`resource<T>` and `storage.get<T>` let the *caller*
+> assert a type nothing checks — `as Session` wearing generic syntax; `events.onNamed` subscribes by
+> bare string with an `unknown` payload; `Props` has an index signature so every prop typo is legal;
+> `windows.open` takes `Record<string, unknown>` params; `commands.run` takes any id and any args.
+> All six are deleted by that standard, not softened.
+>
 > Everything below about `needs()`, provider tokens, `vx.app`, headless Applications and the
 > `rejected.ts` assertions still holds. The files are kept as they are rather than rewritten twice:
 > the component vocabulary ([roadmap A7.1](../spec/roadmap.md)) has to be settled first.

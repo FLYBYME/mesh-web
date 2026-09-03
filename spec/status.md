@@ -15,6 +15,7 @@ This one is the index and the state of play.
 | **[input](./input.md)** | **Intents, the focus graph, modality, bindings, window mechanics** |
 | **[network](./network.md)** | **Typed calls, events and collections — the link to the mesh** |
 | **[testing](./testing.md)** | **What is pure, what needs fakes, what needs a browser** |
+| **[type-safety](./type-safety.md)** | **The standard the rest complies with. Read before writing an interface.** |
 | [storage-and-registry](./storage-and-registry.md) | Providers, hives, settings, policy |
 | [hosting](./hosting.md) | The builder, the CDN, hostnames, multi-tenancy, the proxy |
 | [auth](./auth.md) | Tickets, validation, passkeys, roles, organizations |

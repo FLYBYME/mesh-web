@@ -141,9 +141,15 @@ sound; each item below is the interface *and* the implementation behind it.
       compile. **L** · [network §3](./network.md)
 - [ ] **A3.1b Exposure hash checked in CI and reported by the API**, so a stale client cannot vouch
       for an API that has moved on. **M** · [network §6](./network.md)
-- [ ] **A3.1c Error typing.** 401, 403, 404, validation and transport failures are in no contract's
-      output schema, and a client modelling only the happy path pushes every caller into `catch`
-      with an `unknown`. Undecided. **M** · [network §8](./network.md)
+- [ ] **A3.1c Errors are part of the type** — a call returns a result naming its failures, and the
+      value is only reachable after the check. **Decided**, not open. **M** ·
+      [type-safety §5](./type-safety.md)
+- [ ] **A3.1d Typed accessors for everything string-keyed** — views, commands, settings, storage,
+      actions, events. One mechanism: a literal union of declared keys plus a mapped type to the
+      value. **M** · [type-safety §3](./type-safety.md)
+- [ ] **A3.1e One escape hatch, made unattractive** — separate surface, returns `unknown`, explicit
+      parsing, declared as a capability. `net.get<T>`/`post<T>` do not exist. **S** ·
+      [type-safety §7](./type-safety.md)
 - [ ] **A3.2 `events`** — the SSE bridge. It was written once and its only coverage lived in mesh-api,
       because the test stood up a real express server. Rebuild it with a test that does not need one.
       **M**
