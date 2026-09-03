@@ -194,10 +194,11 @@ none of it is deployed — but it would have been.
 supplied. `provider<T>` — declared and checked against `activate`'s return.
 `log`/`notifications` taking `unknown` — sinks, §2.
 
-**In `storage-and-registry.md`:** the provider interface passes `value: unknown` and
-`StoredValue.value: unknown`. That is correct at the *provider* layer — a provider genuinely stores
-opaque bytes — and wrong if it reaches a caller. The typed layer sits above it, driven by declared
-schemas, and the boundary needs stating in that document.
+**In `storage-and-registry.md`:** ✅ fixed. §4 now states the boundary — the provider interface is
+the only place a stored value is `unknown`, and nothing above it accepts or returns one — and §6's
+`store.get<Draft>(key)` is replaced by a declared store whose schema carries the type. Reads that
+fail the schema fall back loudly, which is the version-skew case no call-site care would have
+caught.
 
 ---
 

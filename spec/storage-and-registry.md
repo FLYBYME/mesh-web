@@ -173,6 +173,27 @@ Async throughout, including for the local provider. A synchronous local interfac
 asynchronous remote one are not swappable — every caller would have to know which it had, which
 defeats the entire purpose.
 
+### `unknown` stops here — **Decided**
+
+`write(..., value: unknown)` and `StoredValue.value: unknown` are **correct at this layer and wrong
+one layer up**, and the boundary has to be stated or it will leak.
+
+A provider stores opaque values. It does not know what a draft is, it must not parse one, and a
+provider that type-checked its contents could not be swapped for one that stores bytes in IndexedDB.
+`unknown` here is honest: it says *this layer does not know*.
+
+> **The provider interface is the only place in the storage system where a value is `unknown`.
+> Nothing above it accepts or returns one.**
+
+The typed layer sits directly on top and gets its types from declarations — §5 for settings, §6 for
+data — so no caller ever holds an `unknown` and no caller supplies a type parameter the framework
+cannot check ([type-safety §2](./type-safety.md)).
+
+Concretely, one place does the conversion: reads parse against the declared schema, and a value that
+fails **falls back to the default loudly** rather than being cast into the caller's hopes. That is
+also the only defence against a stored value written by an older version of the same Application,
+which is a case that will happen and cannot be prevented.
+
 ### Per-entry metadata — **Proposed**
 
 ```ts
@@ -304,15 +325,45 @@ its schema fall back to the default loudly instead of poisoning the app.
 
 For data rather than settings. Namespaced per contributor, bound to a hive, no layering.
 
+An earlier draft of this section had `store.get<Draft>('draft/123')`, which is exactly the pattern
+[type-safety §2](./type-safety.md) bans: the caller supplies a type nothing verifies, and the
+compiler then vouches for whatever happens to be on disk — including something written by a previous
+version of the same Application.
+
+So **a store is declared, like a setting**, and for the same reason: the declaration carries the
+type.
+
 ```ts
-const store = cx.storage.open('device');    // or 'user', 'session'
-await store.set('draft/123', { title, body });
-store.get<Draft>('draft/123');              // ReadonlySignal<Draft | undefined>
-await store.list('draft/');
+const Drafts = store({
+    name: 'drafts',
+    hive: 'device',
+    schema: z.object({ title: z.string(), body: z.string(), savedAt: z.number() }),
+});
+
+const drafts = cx.storage.open(Drafts);
+
+await drafts.set('123', { title, body, savedAt: Date.now() });   // checked against the schema
+drafts.get('123');            // ReadonlySignal<Draft | undefined> — no type parameter
+await drafts.list();          // ReadonlySignal<readonly EntryStat[]>
+await drafts.remove('123');
 ```
 
-This replaces the current `ScopedStorage`, whose synchronous `get<T>(key, fallback): T` cannot be
-backed by anything remote.
+Four things follow, and the third is the one that matters most in practice:
+
+- **No type parameter anywhere.** `Draft` comes from the declaration.
+- **Writes are validated**, so a bug cannot persist a malformed record that breaks the next read.
+- **Reads that fail the schema fall back loudly** rather than being cast. This is the version-skew
+  case: a user who ran last month's build has last month's shape on disk, and no amount of care at
+  the call site would have caught it.
+- **The store appears in the manifest**, so what an Application persists — and in which hive — is
+  visible without reading its code.
+
+This replaces the earlier `ScopedStorage`, whose synchronous `get<T>(key, fallback): T` was wrong
+twice over: synchronous, so nothing remote could back it
+([roadmap A1.3](./roadmap.md)), and caller-typed.
+
+**Migration is still open** (§9). A declared schema makes the problem *visible* — the read that
+fails is the moment you learn the shape changed — but it does not migrate anything.
 
 ---
 
