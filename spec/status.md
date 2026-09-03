@@ -75,8 +75,14 @@ forward except mesh-api issue #7, the task switcher hotkey bug, which is recorde
 **Code: none.** Both repositories are empty. There is no runtime, no contribution layer, no
 components, no build, no tests, no server.
 
-**Design: all of it.** The five documents beside this one, and the checklist in
+**Design: all of it.** The documents beside this one, and the checklist in
 [roadmap](./roadmap.md).
+
+**One exception, and it is not the framework:** [`demo/`](../demo) holds an Extension, two
+Applications and a declarations-only `mesh-web.d.ts` so they typecheck. Nothing behind it runs —
+every function in the `.d.ts` is a signature with nothing on the other side. It exists to show the
+shape and to prove the type-level guarantees hold, including a `rejected.ts` whose
+`@ts-expect-error` assertions fail the build if the narrowing ever widens.
 
 That is the entire state, and it is worth stating that plainly rather than in a table, because it is
 the one fact that changes how everything else here should be read. Nothing below is describing
