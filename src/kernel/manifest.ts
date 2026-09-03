@@ -12,6 +12,7 @@
 import type {
     CommandDecl, Declarations, KeyDecl, MenuDecl, SettingDecl, ViewDecl,
 } from '../contribution/contract.js';
+import type { AnyApiCall, Api } from '../net/api.js';
 
 export interface Contributed<T> {
     readonly by: string;
@@ -30,6 +31,14 @@ export interface Manifest {
     /** Keyed by the binding itself — `ctrl+n`, `gamepad:Y` — because that is what collides. */
     readonly bindings: ReadonlyMap<string, Contributed<KeyDecl>>;
     readonly menus: readonly Contributed<MenuDecl>[];
+    /**
+     * Every API a site's contributions declare, known before any of them runs.
+     *
+     * spec/network.md section 4: this is the list a review, a CSP or an audit wants, and the point
+     * of declaring the API rather than constructing a client inside `start()` is that it can be read
+     * without executing anything.
+     */
+    readonly apis: readonly Contributed<Api<Record<string, AnyApiCall>>>[];
     readonly settings: ReadonlyMap<string, Contributed<SettingDecl>>;
     /** Keyed `<contributor>/<view id>`; view ids are scoped, so two Applications may both have `main`. */
     readonly views: ReadonlyMap<string, Contributed<ViewDecl>>;
@@ -42,6 +51,7 @@ export function mergeManifests(
     const commands = new Map<string, Contributed<CommandDecl>>();
     const bindings = new Map<string, Contributed<KeyDecl>>();
     const menus: Contributed<MenuDecl>[] = [];
+    const apis: Contributed<Api<Record<string, AnyApiCall>>>[] = [];
     const settings = new Map<string, Contributed<SettingDecl>>();
     const views = new Map<string, Contributed<ViewDecl>>();
     const conflicts: Conflict[] = [];
@@ -85,6 +95,10 @@ export function mergeManifests(
             menus.push({ by: id, decl });
         }
 
+        // Not a claim on a shared name, so no conflict: two Applications may talk to the same API,
+        // and two APIs may coexist because a client is scoped to the one that declared it.
+        if (declarations.api !== undefined) apis.push({ by: id, decl: declarations.api });
+
         for (const decl of declarations.settings ?? []) {
             claim(settings, decl.path, id, decl, 'setting', (key, first, second) =>
                 `Setting "${key}" is declared by both ${first} and ${second}.`);
@@ -122,7 +136,7 @@ export function mergeManifests(
         }
     }
 
-    return { commands, bindings, menus, settings, views, conflicts };
+    return { commands, bindings, menus, apis, settings, views, conflicts };
 }
 
 /** One declaration may bind several devices to one command. Each is a separate collision surface. */

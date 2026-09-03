@@ -95,7 +95,18 @@ export interface CapabilityMap {
     readonly windows: Windows;
 }
 
-export type CapabilityName = keyof CapabilityMap;
+/**
+ * `net` is a capability name, and deliberately not a member of the map above.
+ *
+ * Every other capability has one type for everybody. `net` does not: it is typed by the API the
+ * contribution declared in its manifest, so `cx.net.call` accepts that API's actions and no others
+ * (spec/network.md section 4). A single entry here would have to be `NetClient<unknown>`, which is
+ * the untyped version of exactly the thing being built.
+ *
+ * The cost is this comment and one `Exclude` in `CapabilityContext`. The alternative costs the
+ * type parameter that makes `cx.net.call('resolver.query', { name })` check at all.
+ */
+export type CapabilityName = keyof CapabilityMap | 'net';
 
 /** Declares what a contribution needs. See spec/extension.md section 2 for why not `as const`. */
 export function needs<const T extends readonly CapabilityName[]>(...names: T): T {
@@ -111,5 +122,5 @@ export interface ContributionBase {
 }
 
 export type CapabilityContext<TNeeds extends readonly CapabilityName[]> = ContributionBase & {
-    readonly [K in TNeeds[number]]: CapabilityMap[K];
+    readonly [K in Exclude<TNeeds[number], 'net'>]: CapabilityMap[K];
 };

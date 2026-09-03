@@ -26,6 +26,8 @@ import type {
 } from '../contribution/capabilities.js';
 import type { ErasedContext } from '../contribution/contract.js';
 import type { ProviderToken } from '../contribution/provider.js';
+import type { AnyApiCall, Api } from '../net/api.js';
+import { createClient, fetchTransport, type NetClient } from '../net/client.js';
 
 export interface LogRecord {
     readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -70,6 +72,15 @@ export interface KernelServices {
     readonly commands: Map<string, { readonly owner: string; readonly run: CommandImpl }>;
     /** Which command ids each contributor declared. Checked when it tries to implement one. */
     readonly declaredCommands: Map<string, string>;
+    /**
+     * How a declared API becomes a client.
+     *
+     * The kernel owns this rather than each Application constructing its own, which is what lets a
+     * site attach a ticket once — the auth Extension wraps the transport, and no Application ever
+     * handles a credential (spec/network.md section 4). A test replaces it with a fake and needs no
+     * server.
+     */
+    netClient: (api: Api<Record<string, AnyApiCall>>, owner: string) => NetClient<unknown>;
 }
 
 /**
@@ -108,6 +119,10 @@ export function createServices(windows: WindowSink = recordingWindows()): Kernel
         windows,
         commands: new Map(),
         declaredCommands: new Map(),
+        // Same-origin by default: the page was served by the CDN and the API is behind the same
+        // proxy (spec/hosting.md section 1). A site pointing at another origin replaces this, which
+        // is also the seam the auth Extension wraps to attach a ticket.
+        netClient: (api) => createClient(api, { transport: fetchTransport() }) as NetClient<unknown>,
     };
 }
 
@@ -145,6 +160,7 @@ export function createContext(
     declaredConsumes: readonly ProviderToken<unknown>[],
     resolve: (token: ProviderToken<unknown>) => unknown,
     services: KernelServices,
+    declaredApi?: Api<Record<string, AnyApiCall>>,
 ): BrokerHandle {
     const { id, declaredBy } = identity;
     const scope: ReactiveScope = createScope();
@@ -176,10 +192,23 @@ export function createContext(
     // A switch rather than `capabilities[name] = build(name)`: TypeScript cannot correlate a union
     // key with its value type through a dynamic index, so the short version needs a cast. This is
     // the ten extra lines that spec/type-safety.md section 1 says to write.
-    const capabilities: { -readonly [K in CapabilityName]?: CapabilityMap[K] } = {};
+    const capabilities: { -readonly [K in keyof CapabilityMap]?: CapabilityMap[K] } = {};
+    let net: NetClient<unknown> | undefined;
 
     for (const name of declaredNeeds) {
         switch (name) {
+            // `net` is not in CapabilityMap: it is typed per contribution by the API declared in
+            // the manifest, so it is built here and merged separately (see capabilities.ts).
+            case 'net':
+                if (declaredApi === undefined) {
+                    throw new Error(
+                        `${id} declared needs('net') without declaring an api. ` +
+                        `A client with no API can call nothing, so this is a manifest mistake ` +
+                        `rather than a run-time condition worth tolerating.`,
+                    );
+                }
+                net = services.netClient(declaredApi, id);
+                break;
             case 'state':
                 capabilities.state = makeState(scope);
                 break;
@@ -198,7 +227,7 @@ export function createContext(
         }
     }
 
-    const context: ErasedContext = { ...base, ...capabilities };
+    const context: ErasedContext = { ...base, ...capabilities, ...(net === undefined ? {} : { net }) };
 
     return {
         context,

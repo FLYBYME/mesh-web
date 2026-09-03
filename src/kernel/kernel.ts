@@ -148,6 +148,7 @@ export class Kernel {
             contribution.consumes ?? [],
             (token) => this.#resolve(id, token),
             this.services,
+            contribution.api,
         );
         this.#handles.set(id, handle);
 
@@ -226,6 +227,7 @@ export class Kernel {
             contribution.consumes ?? [],
             (token) => this.#resolve(pid, token),
             this.services,
+            contribution.api,
         );
         this.#handles.set(pid, handle);
 

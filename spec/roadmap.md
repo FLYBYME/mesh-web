@@ -167,14 +167,21 @@ sound; each item below is the interface *and* the implementation behind it.
       descriptor, ticket attached by the auth Extension, not by each caller. **Fully typed**:
       `cx.net.call('credential.resolve', { id })` infers input and output exactly as mesh's
       `ctx.call` does. **L** · [network.md](./network.md) · [hosting §4](./hosting.md)
-- [ ] **A3.1a ★ The client generator** — emit **structural types, never `z.infer` references across a
-      package boundary** (surfdns #15), scoped to a declared API rather than `declare global`, and
-      generated from the site's **exposure descriptor** so calling something unexposed does not
-      compile. **L** · [network §3](./network.md)
+- [x] **A3.1a-i The shape the generator emits.** `defineApi` / `call<I, O, E>`, `createClient`, the
+      `net` capability, and `api` in the manifest. Structural types, no `z.infer` across a package
+      boundary, scoped rather than global, and only what the descriptor exposes. Twenty tests, six of
+      them `@ts-expect-error` — an unexposed action, a wrong input, another API's action, and a value
+      read before its failure was considered all fail to compile.
+- [ ] **A3.1a-ii ★ The emitter** — exposure descriptor JSON → that file. Deliberately second: it
+      needed a target, and now it has one. Blocked on mesh-api having an exposure descriptor at all
+      ([C3.1](#)). **L** · [network §3](./network.md)
 - [ ] **A3.1b Exposure hash checked in CI and reported by the API**, so a stale client cannot vouch
       for an API that has moved on. **M** · [network §6](./network.md)
-- [ ] **A3.1c Errors are part of the type** — a call returns a result naming its failures, and the
-      value is only reachable after the check. **Decided**, not open. **M** ·
+- [x] **A3.1c Errors are part of the type** — a call returns a result naming its failures, and the
+      value is only reachable after the check. **Done** with A3.1a-i: `Result<T, E>` as a
+      discriminated union, nine named transport failures rather than status codes, and a `declared`
+      case carrying the exposure's own error names as literals. `describe()` switches exhaustively
+      with no default, so a new failure is a compile error rather than an undefined in a toast.
       [type-safety §5](./type-safety.md)
 - [ ] **A3.1d Typed accessors for everything string-keyed** — views, commands, settings, storage,
       actions, events. One mechanism: a literal union of declared keys plus a mapped type to the

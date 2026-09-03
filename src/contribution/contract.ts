@@ -8,14 +8,30 @@
  */
 
 import type { CapabilityContext, CapabilityName } from './capabilities.js';
+import type { AnyApiCall, Api } from '../net/api.js';
+import type { NetClient } from '../net/client.js';
 import type { Consumer, ProviderToken, ProviderTokens } from './provider.js';
 import type { Json } from '../description/types.js';
 
-/** Capabilities plus resolved providers. One type parameter per declaration, each written once. */
+/**
+ * Capabilities, resolved providers, and the declared API. One type parameter per declaration, each
+ * written once.
+ *
+ * The third parameter is what makes `cx.net` worth having: it is the API this contribution declared
+ * as `api` in its manifest, so `cx.net.call` accepts that API's action names and infers their input
+ * and output (spec/network.md section 4). Declaring `net` in `needs` without an `api` gives a client
+ * over an empty action set — every call is a compile error, which is the correct answer to "I asked
+ * for the network and never said to where".
+ */
 export type Context<
     TNeeds extends readonly CapabilityName[],
     TConsumes extends ProviderTokens = readonly [],
-> = CapabilityContext<TNeeds> & Consumer<TConsumes>;
+    TApi = Api<Record<string, never>>,
+> = CapabilityContext<TNeeds> & Consumer<TConsumes> & NetContext<TNeeds, TApi>;
+
+/** `net` appears on the context only if it was asked for. */
+type NetContext<TNeeds extends readonly CapabilityName[], TApi> =
+    'net' extends TNeeds[number] ? { readonly net: NetClient<TApi> } : unknown;
 
 /** The API a contribution exposes, derived from its `provides` token. */
 export type ApiOf<TProvides> = TProvides extends ProviderToken<infer TApi> ? TApi : void;
@@ -98,6 +114,15 @@ export interface Declarations {
     readonly needs?: readonly CapabilityName[];
     readonly consumes?: ProviderTokens;
     readonly provides?: ProviderToken<unknown>;
+    /**
+     * The API this contribution talks to, declared like everything else the kernel needs before the
+     * contribution runs (spec/network.md section 4).
+     *
+     * Declaring it in the manifest earns the usual benefit: the kernel knows every API a site's
+     * Applications will contact before any of them has started, which is exactly the list a review,
+     * a CSP or an audit wants — and it is available without running anything.
+     */
+    readonly api?: Api<Record<string, AnyApiCall>>;
     readonly commands?: readonly CommandDecl[];
     readonly keys?: readonly KeyDecl[];
     readonly menus?: readonly MenuDecl[];

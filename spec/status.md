@@ -141,9 +141,16 @@ them. Eight tests in real Chromium: declared sizes in actual pixels, rows that s
 keeps receiving moves after the pointer leaves its handle, `minSize` enforced by real layout, a
 trusted click becoming a command, and `Enter` reaching a row with no pointer involved.
 
-**Still no code:** the window manager, real input, the registry and hives, the network client, the
-component vocabulary as designed, `net`/`events`/`keys`/`menus`/`models`/`storage` as capabilities,
-and all four server modules.
+**The network layer exists** ([network.md](./network.md), roadmap A3.1a-i and A3.1c). `defineApi` and
+`call<I, O, E>` are the shape the generator will emit; `createClient` turns one into requests and
+named results; `net` is a capability, typed by the API the contribution declared as `api` in its
+manifest. `cx.net.call('session.whoami')` infers its output, an unexposed action does not compile,
+and the manifest lists every API a site talks to before anything has started. What is missing is the
+*emitter* — descriptor JSON → that file — which needs an exposure descriptor from mesh-api to emit
+from.
+
+**Still no code:** real input, the registry and hives, the component vocabulary as designed,
+`events`/`keys`/`menus`/`models`/`storage` as capabilities, and all four server modules.
 
 Two guards in `test/boundaries.test.ts`, and both were **verified to fail when violated** rather than
 assumed: nothing in `src/` imports node, and nothing in `src/description/` names a DOM type. Adding a
@@ -314,8 +321,9 @@ made** and none of the framework decisions below block starting work.
 
 1. ~~**A browser test**~~ — done, [A0.5a](./roadmap.md). Open `npm run harness` and look at it, which
    is the part a test cannot do for you.
-2. **`net`, and the generated client** ([network.md](./network.md), roadmap A3.1a). It is the
-   capability everything real needs, and the generator is the piece the whole type story rests on.
+2. ~~**`net`**~~ — done (A3.1a-i, A3.1c). What remains is **the emitter**, A3.1a-ii, and it is
+   blocked on mesh-api having an exposure descriptor to emit from — which makes C3.1 the thing that
+   unblocks the rest of the type story.
 3. **A7.1, the component vocabulary** — now on the critical path, and gated on the focus graph
    because every primitive must satisfy "every action has a non-pointer path".
 
