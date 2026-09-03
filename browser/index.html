@@ -3,16 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>mesh-web — browser harness</title>
+<title>mesh-web harness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
+    /*
+     * Committed to one look, deliberately: this page is a screen — a desktop environment — and a
+     * window manager that repainted itself in the host's theme would be pretending to be a document.
+     * Every colour below is painted explicitly, so the page holds on any ground.
+     */
     :root {
         color-scheme: dark;
-        --bg: #14161a;
-        --chrome: #232830;
-        --line: #333a45;
-        --ink: #e6e9ef;
-        --dim: #8d97a8;
-        --accent: #6ea8fe;
+
+        --ground: #101318;
+        --surface: #191d24;
+        --raised: #212730;
+        --line: #2b323c;
+        --line-soft: #232a33;
+
+        --ink: #e2e6ec;
+        --dim: #8794a5;
+        --faint: #5d6878;
+
+        /* The one bold colour, spent only on focus and on things you can act on. */
+        --accent: #5b9dff;
+
+        /* State, which is not accent: these say what a post *is*, not what you may click. */
+        --draft: #d9a441;
+        --draft-bg: #33280f;
+        --live: #6fbf8b;
+        --live-bg: #16301f;
+
+        --sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+        --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+        --radius: 5px;
     }
 
     * { box-sizing: border-box; }
@@ -20,65 +46,176 @@
     body {
         margin: 0;
         height: 100vh;
-        display: flex;
-        flex-direction: column;
-        background: var(--bg);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 264px;
+        grid-template-rows: auto minmax(0, 1fr) 132px;
+        grid-template-areas: "bar bar" "desktop rail" "log rail";
+        background: var(--ground);
         color: var(--ink);
-        font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+        font: 400 13px/1.5 var(--sans);
         overflow: hidden;
     }
 
-    header {
-        flex: none;
-        padding: 8px 12px;
-        border-bottom: 1px solid var(--line);
+    /* ---------------------------------------------------------------- top bar */
+
+    .bar {
+        grid-area: bar;
         display: flex;
-        gap: 12px;
         align-items: baseline;
+        gap: 14px;
+        padding: 9px 16px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
     }
 
-    header strong { font-weight: 600; }
-    header span { color: var(--dim); }
-    header button {
-        margin-left: auto;
-        background: var(--chrome);
-        color: var(--ink);
+    .bar h1 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+    }
+
+    .bar .hint {
+        color: var(--faint);
+        font-size: 12px;
+    }
+
+    .bar kbd {
+        font: 500 11px/1 var(--mono);
+        background: var(--raised);
         border: 1px solid var(--line);
-        border-radius: 4px;
-        padding: 3px 10px;
-        cursor: pointer;
-    }
-
-    #desktop {
-        position: relative;
-        flex: 1;
-        overflow: hidden;
-    }
-
-    #log {
-        flex: none;
-        height: 84px;
-        overflow-y: auto;
-        border-top: 1px solid var(--line);
-        padding: 6px 12px;
-        font-family: ui-monospace, monospace;
-        font-size: 11px;
+        border-bottom-width: 2px;
+        border-radius: 3px;
+        padding: 3px 5px;
         color: var(--dim);
     }
 
-    /* ---- window chrome. The shell's, not the framework's: a real one is an Extension. ---- */
+    .bar .spacer { flex: 1; }
+
+    .bar button {
+        font: 500 12px/1 var(--sans);
+        background: var(--raised);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 6px 11px;
+        cursor: pointer;
+    }
+    .bar button:hover { border-color: var(--accent); color: var(--accent); }
+    .bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* ---------------------------------------------------------------- desktop */
+
+    #desktop {
+        grid-area: desktop;
+        position: relative;
+        overflow: hidden;
+        /* A faint grid, so a window being dragged reads as moving across something. */
+        background-image:
+            linear-gradient(var(--line-soft) 1px, transparent 1px),
+            linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+        background-size: 32px 32px;
+        background-position: -1px -1px;
+    }
+
+    /* ---------------------------------------------------------------- the rail */
+
+    .rail {
+        grid-area: rail;
+        border-left: 1px solid var(--line);
+        background: var(--surface);
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .rail section { padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
+
+    .rail h2 {
+        margin: 0 0 9px;
+        font: 500 10px/1 var(--sans);
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--faint);
+    }
+
+    .facts { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; }
+    .facts dt { color: var(--dim); font-size: 12px; }
+    .facts dd {
+        margin: 0;
+        font: 500 12px/1.4 var(--mono);
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+    }
+
+    /* A process table, because that is what a kernel has. */
+    .process {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 0;
+        border-top: 1px solid var(--line-soft);
+        font-size: 12px;
+    }
+    .process:first-of-type { border-top: 0; }
+    .process .pid { font: 500 11px/1 var(--mono); color: var(--accent); }
+    .process .app { color: var(--ink); }
+    .process .state { font-size: 11px; color: var(--dim); }
+    .process .state.running::before {
+        content: '';
+        display: inline-block;
+        width: 6px; height: 6px;
+        margin-right: 5px;
+        border-radius: 50%;
+        background: var(--live);
+        vertical-align: 1px;
+    }
+
+    .binding {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 5px 0;
+        font-size: 12px;
+        color: var(--dim);
+    }
+    .binding code { font: 500 11px/1 var(--mono); color: var(--ink); }
+
+    .empty { color: var(--faint); font-size: 12px; font-style: italic; }
+
+    /* ---------------------------------------------------------------- log */
+
+    #log {
+        grid-area: log;
+        border-top: 1px solid var(--line);
+        padding: 10px 16px;
+        overflow-y: auto;
+        font: 400 11.5px/1.7 var(--mono);
+        color: var(--dim);
+        background: var(--surface);
+    }
+    #log div { display: flex; gap: 10px; }
+    #log div::before {
+        content: '›';
+        color: var(--faint);
+    }
+    #log div:first-child { color: var(--ink); }
+
+    /* ---------------------------------------------------------------- windows */
 
     .window {
         position: absolute;
         display: flex;
         flex-direction: column;
-        background: var(--chrome);
+        background: var(--surface);
         border: 1px solid var(--line);
-        border-radius: 6px;
-        box-shadow: 0 10px 30px rgb(0 0 0 / 45%);
+        border-radius: var(--radius);
+        box-shadow: 0 12px 32px rgb(0 0 0 / 50%), 0 2px 6px rgb(0 0 0 / 35%);
         overflow: hidden;
     }
 
+    /* The one place the accent is spent on the desktop. */
     .window.focused { border-color: var(--accent); }
 
     .titlebar {
@@ -86,71 +223,118 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 5px 6px 5px 10px;
-        background: #1b1f26;
+        height: 30px;
+        padding: 0 5px 0 11px;
+        background: var(--raised);
         border-bottom: 1px solid var(--line);
         cursor: grab;
         user-select: none;
         touch-action: none;
     }
-
-    .titlebar .label { font-weight: 600; flex: 1; }
+    .titlebar:active { cursor: grabbing; }
+    .titlebar .label { flex: 1; font-size: 12px; font-weight: 500; }
     .titlebar button {
-        width: 20px; height: 20px;
-        border: 0; border-radius: 4px;
-        background: transparent; color: var(--dim);
+        width: 22px; height: 22px;
+        display: grid; place-items: center;
+        border: 0; border-radius: 3px;
+        background: transparent; color: var(--faint);
         cursor: pointer; font-size: 13px; line-height: 1;
     }
-    .titlebar button:hover { background: #2e343d; color: var(--ink); }
+    .titlebar button:hover { background: var(--line); color: var(--ink); }
+    .titlebar button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
     .content { flex: 1; overflow: auto; }
 
     .grip {
         position: absolute;
         right: 0; bottom: 0;
-        width: 16px; height: 16px;
+        width: 15px; height: 15px;
         cursor: nwse-resize;
         touch-action: none;
-        background: linear-gradient(135deg, transparent 50%, var(--line) 50%);
+        background: linear-gradient(135deg, transparent 52%, var(--line) 52%);
     }
 
-    /* ---- what the Application's view renders into. Class names come from its own props. ---- */
+    /* ------------------------------------------------- what the view renders */
 
-    .pane { display: flex; flex-direction: column; gap: 10px; padding: 10px; height: 100%; }
-    .posts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .pane { display: flex; flex-direction: column; gap: 10px; padding: 11px; height: 100%; }
+
+    .posts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+
     .post {
-        display: flex; align-items: center; gap: 8px;
-        padding: 6px 8px; border-radius: 4px; cursor: pointer;
-        background: #1b1f26;
+        display: flex; align-items: center; gap: 9px;
+        padding: 7px 9px;
+        border-radius: 4px;
+        background: var(--raised);
+        cursor: pointer;
     }
-    .post:hover { background: #2a303a; }
-    .post .title { flex: 1; }
-    .draft, .live { font-size: 10px; padding: 1px 6px; border-radius: 999px; }
-    .draft { background: #4a3a1c; color: #f0c674; }
-    .live { background: #1e3a2a; color: #8fd4a8; }
+    .post:hover { background: #262d38; }
+    .post .title { flex: 1; font-size: 12.5px; }
+
+    .draft, .live {
+        font: 500 10px/1 var(--sans);
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        padding: 4px 7px;
+        border-radius: 3px;
+    }
+    .draft { background: var(--draft-bg); color: var(--draft); }
+    .live { background: var(--live-bg); color: var(--live); }
+
     .actions { display: flex; gap: 6px; }
     .actions button {
-        background: #2a303a; color: var(--ink);
-        border: 1px solid var(--line); border-radius: 4px;
-        padding: 4px 8px; cursor: pointer;
+        font: 500 12px/1 var(--sans);
+        background: var(--raised);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 7px 10px;
+        cursor: pointer;
     }
-    .count { color: var(--dim); margin-top: auto; }
+    .actions button:hover { border-color: var(--accent); color: var(--accent); }
+    .actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .count {
+        margin-top: auto;
+        color: var(--faint);
+        font: 400 11px/1 var(--mono);
+        font-variant-numeric: tabular-nums;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
 </style>
 </head>
 <body>
-    <header>
-        <strong>mesh-web</strong>
-        <span>drag a title bar · resize from the corner · ctrl+N for a new post · click a post to toggle it</span>
-        <button id="stop">Stop the blog process</button>
-    </header>
+    <div class="bar">
+        <h1>mesh-web</h1>
+        <span class="hint">
+            Drag a title bar · resize from the corner · <kbd>Alt</kbd>+<kbd>N</kbd> for a new post ·
+            click a post to publish it
+        </span>
+        <span class="spacer"></span>
+        <button id="stop" type="button">Stop the blog process</button>
+    </div>
 
     <div id="desktop"></div>
+
+    <aside class="rail">
+        <section>
+            <h2>Manifest</h2>
+            <dl class="facts" id="manifest"></dl>
+        </section>
+        <section>
+            <h2>Process table</h2>
+            <div id="processes"></div>
+        </section>
+        <section>
+            <h2>Key bindings</h2>
+            <div id="bindings"></div>
+        </section>
+    </aside>
+
     <div id="log"></div>
 
-    <!--
-        The harness imports "@flybyme/mesh-web", the same specifier an Application author writes.
-        No bundler: every emitted import carries its .js extension, so dist/ loads as native ESM.
-    -->
     <script type="importmap">
         { "imports": { "@flybyme/mesh-web": "../dist/index.js" } }
     </script>

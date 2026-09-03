@@ -76,7 +76,7 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
         { id: 'blog.add', title: 'Blog: New Post' },
     ];
 
-    readonly keys = [{ command: 'blog.add', keys: 'ctrl+n', gamepad: 'Y' }];
+    readonly keys = [{ command: 'blog.add', keys: 'alt+n', gamepad: 'Y' }];
 
     readonly views = [
         {
@@ -198,7 +198,7 @@ const say = (message: string): void => {
     log.prepend(line);
 };
 
-const manager = new WindowManager({ width: window.innerWidth, height: window.innerHeight - 120 });
+const manager = new WindowManager({ width: root.clientWidth, height: root.clientHeight });
 const kernel = new Kernel();
 
 kernel.services.windows = windowSink(manager, (owner, view) => kernel.viewOf(owner, view));
@@ -356,16 +356,90 @@ effect(() => {
         frames.delete(id);
         say(`window ${id} closed`);
     }
+
+    // The rail reads the kernel, and the kernel changed if the windows did. Repainted from inside
+    // this effect so there is one thing driving the screen rather than two that can disagree.
+    paintRail();
 });
 
+/**
+ * The rail: the kernel's own state, on screen.
+ *
+ * The manifest and the process table are not decoration — they are the two things this design is
+ * actually about. The manifest is populated before anything runs, which is what lets a keypress
+ * start an Application that has not started yet (spec/kernel.md section 4); the process table is
+ * what makes an Application a *process* rather than an object (spec/application.md).
+ *
+ * Rendered by hand rather than through the framework, deliberately: this is shell chrome, and the
+ * shell is not an Application.
+ */
+function paintRail(): void {
+    const manifest = document.getElementById('manifest')!;
+    manifest.innerHTML = '';
+    const facts: readonly [string, string][] = [
+        ['Commands', String(kernel.manifest.commands.size)],
+        ['Key bindings', String(kernel.manifest.bindings.size)],
+        ['Views', String(kernel.manifest.views.size)],
+        ['Conflicts', String(kernel.manifest.conflicts.length)],
+        ['Windows', String(manager.windows().length)],
+    ];
+    for (const [term, value] of facts) {
+        const dt = document.createElement('dt');
+        dt.textContent = term;
+        const dd = document.createElement('dd');
+        dd.textContent = value;
+        manifest.append(dt, dd);
+    }
+
+    const processes = document.getElementById('processes')!;
+    processes.innerHTML = '';
+    if (kernel.processes.length === 0) {
+        const none = document.createElement('p');
+        none.className = 'empty';
+        none.textContent = 'Nothing running.';
+        processes.append(none);
+    }
+    for (const process of kernel.processes) {
+        const row = document.createElement('div');
+        row.className = 'process';
+        row.innerHTML =
+            `<span class="pid"></span><span class="app"></span><span class="state"></span>`;
+        row.querySelector('.pid')!.textContent = process.pid;
+        row.querySelector('.app')!.textContent = process.applicationId;
+        const state = row.querySelector('.state')!;
+        state.textContent = process.state;
+        state.className = `state ${process.state}`;
+        processes.append(row);
+    }
+
+    const bindings = document.getElementById('bindings')!;
+    bindings.innerHTML = '';
+    for (const [keys, binding] of kernel.manifest.bindings) {
+        const row = document.createElement('div');
+        row.className = 'binding';
+        row.innerHTML = `<code></code><span></span>`;
+        row.querySelector('code')!.textContent = keys;
+        row.querySelector('span')!.textContent = binding.decl.command;
+        bindings.append(row);
+    }
+}
+
 window.addEventListener('resize', () => {
-    manager.setViewport({ width: window.innerWidth, height: window.innerHeight - 120 });
+    manager.setViewport({ width: desktopSize().width, height: desktopSize().height });
+});
+
+const desktopSize = (): { width: number; height: number } => ({
+    width: root.clientWidth,
+    height: root.clientHeight,
 });
 
 // The manifest is populated before anything runs, which is what lets a keypress start an
 // Application that is not running yet (spec/kernel.md section 4).
 window.addEventListener('keydown', (event) => {
-    const combo = `${event.ctrlKey ? 'ctrl+' : ''}${event.key.toLowerCase()}`;
+    // spec/input.md §7.1: `ctrl+n` is the browser's, not ours. It was this harness's binding until
+    // someone pressed it and got a new browser window over the top of a command that had already
+    // fired. `alt+` is ours; the reserved set belongs to the host adapter, which A8 builds.
+    const combo = `${event.ctrlKey ? 'ctrl+' : ''}${event.altKey ? 'alt+' : ''}${event.key.toLowerCase()}`;
     const binding = kernel.manifest.bindings.get(combo);
     if (binding === undefined) return;
     event.preventDefault();
@@ -376,10 +450,14 @@ window.addEventListener('keydown', (event) => {
 // ---------------------------------------------------------------------------- boot
 
 async function main(): Promise<void> {
+    // Painted before anything starts, because the manifest is already populated — that is the
+    // property, not a loading order (spec/kernel.md section 4).
+    paintRail();
     say(`manifest: ${kernel.manifest.commands.size} commands, ${kernel.manifest.bindings.size} bindings`);
 
     const pid = await kernel.start('blog');
     say(`blog started as ${pid}`);
+    paintRail();
 
     const auth = kernel.extensions.find((e) => e.id === 'auth')!.api as AuthApi;
     auth.signIn();

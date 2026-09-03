@@ -137,9 +137,13 @@ constraint on writing the replacement, which is cheaper than the second round of
 
 The largest single piece, and the one everything visual waits on. Nothing here exists.
 
-- [ ] **A2.1 Geometry model and store.** `WindowGeometry`, `WindowState`, z-order, per-window mode.
-      Owned by the window manager, not the Application. **M** · [README §4](./README.md)
-- [ ] **A2.2 Windowed mode: move, resize, focus, z-order, min/max/restore.** The GIMP case. **L**
+- [x] **A2.1 Geometry model and store.** `WindowGeometry`, `WindowState`, z-order, per-window mode.
+      Owned by the window manager, not the Application. Pure functions — `move`, `resize`,
+      `clampSize`, `constrainToViewport`, `maximize`, `cascade`, `raise` — so the sign errors are
+      cheap to find. [README §4](./README.md)
+- [x] **A2.2 Windowed mode: move, resize, focus, z-order, min/max/restore.** The GIMP case. Verified
+      in real Chromium, not only jsdom: a drag that survives leaving its handle, `minSize` enforced
+      against real layout, and a window that moves without re-rendering its view.
 - [ ] **A2.3 Tiled mode as a split tree**, nodes optionally named. Layout-defined geometry, no
       min/max affordances. The website case. **L** · [application §6](./application.md)
 - [ ] **A2.4 Mode switching with no remount.** The whole point of separating view state from
@@ -150,8 +154,9 @@ The largest single piece, and the one everything visual waits on. Nothing here e
       because a Deck and a desktop have different screens. Through the registry, so windowed mode
       remembers position, size and z-order across a mode switch and across a reload.
       **S** · ⛔ A4.2
-- [ ] **A2.6 The `windows` capability implemented** against the above — `open`, `close`, `focus`,
-      `handle`. **M**
+- [x] **A2.6 The `windows` capability implemented** against the above — `open`, `close`, `focus`,
+      `handle`. A view opening under a name its Application never declared is caught at the sink,
+      and stopping a process closes every window it owns.
 - [ ] **A2.7 Switching is a privilege.** Mode switch is gated on policy; a locked deployment can strip
       floating mode from the build. **S** · [README §5](./README.md)
 - [ ] **A2.8 Two separately-bound hotkeys** — mode switch (dev/admin) and application switch
@@ -237,24 +242,24 @@ The contribution *types* were settled and type-checked once; the code is gone, a
 guarantees are the part to rebuild deliberately rather than approximate ([status §2](./status.md)).
 The kernel around them is new design and has never existed in any form.
 
-- [ ] **A5.1 ★ `Application` and `Extension`, capabilities, provider tokens.** `needs(...)`
+- [x] **A5.1 ★ `Application` and `Extension`, capabilities, provider tokens.** `needs(...)`
       narrows `CapabilityContext<TNeeds>` so an undeclared capability is a compile error, with
       `@ts-expect-error` assertions in CI that fail the build if the narrowing widens. **M**
-- [ ] **A5.2 The host constructs bundles** — load a module, `constructApplication` /
+- [x] **A5.2 The host constructs bundles** — load a module, `constructApplication` /
       `constructExtension` its default export, build the narrowed `CapabilityContext` from its
       `needs`, and refuse anything undeclared at runtime as well as at compile time. **M**
-- [ ] **A5.3 Provider wiring** — `provides` collected from `activate`'s return, `consumes` restricting
+- [x] **A5.3 Provider wiring** — `provides` collected from `activate`'s return, `consumes` restricting
       `cx.use`, resolution ordered by dependency, and a real error for a missing provider. **M**
-- [ ] **A5.4 The capability broker** — one context per contributor, built from its `needs` and
+- [x] **A5.4 The capability broker** — one context per contributor, built from its `needs` and
       **scoped to it**, so `log` is tagged, `storage` is namespaced, `windows` knows the owner, and
       disposal is the kernel's job rather than the contributor's. **M** · [kernel §4](./kernel.md)
-- [ ] **A5.5 Boot sequence** — descriptor, registry, construct all, resolve the graph, activate in
+- [x] **A5.5 Boot sequence** — descriptor, registry, construct all, resolve the graph, activate in
       dependency order, restore view state, start Applications, route. Construction is side-effect
       free and no Extension can run code during another's activation. **M** ·
       [kernel §3](./kernel.md)
-- [ ] **A5.6 The process table** — `pid` assigned by the kernel, not taken from the bundle;
+- [x] **A5.6 The process table** — `pid` assigned by the kernel, not taken from the bundle;
       `applicationId` + instance; N instances of one Application. **M** · [kernel §5](./kernel.md)
-- [ ] **A5.7 Lifecycle** — Extensions activate once and are never deactivated; Applications start,
+- [x] **A5.7 Lifecycle** — Extensions activate once and are never deactivated; Applications start,
       stop, restart and can rest in `failed`. **M** · [application §4](./application.md)
 - [ ] **A5.8 Fault containment** — the kernel catches at every boundary it calls across and nowhere
       else; a failed Extension cascades to its consumers as one error naming the root; a failed
@@ -265,13 +270,13 @@ The kernel around them is new design and has never existed in any form.
 - [ ] **A5.10 A kernel with no Extensions is a blank page with a working process table**, and that is
       a real testable state. It is the cheapest possible check that §2's kernel/Extension line is
       actually where the code puts it. **S** · [kernel §8](./kernel.md)
-- [ ] **A5.11 ★ The manifest** — `layout`, `views`, `commands`, `keys`, `menus`, `settings` read off
+- [x] **A5.11 ★ The manifest** — `layout`, `views`, `commands`, `keys`, `menus`, `settings` read off
       the constructed instance before anything activates or starts. **M** ·
       [application §2](./application.md)
-- [ ] **A5.12 Manifest merge and conflict resolution at load time** — two Applications claiming
+- [x] **A5.12 Manifest merge and conflict resolution at load time** — two Applications claiming
       `ctrl+n` is resolved before either runs, and the palette lists commands of Applications that
       have not started. **M** · [kernel §3](./kernel.md) steps 4–5
-- [ ] **A5.13 Command implementations checked against declared ids** — `implement` accepts only a
+- [x] **A5.13 Command implementations checked against declared ids** — `implement` accepts only a
       member of the literal union; a declared command with no implementation fails at start. **S** ·
       [application §2](./application.md)
 

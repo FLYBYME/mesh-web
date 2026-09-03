@@ -203,7 +203,7 @@ signal to a command, across device classes.
 
 ```
 bindings: [
-    { command: 'blog.newPost', keys: 'ctrl+n', gamepad: 'Y', gesture: 'two-finger-tap' },
+    { command: 'blog.newPost', keys: 'alt+n', gamepad: 'Y', gesture: 'two-finger-tap' },
 ]
 ```
 
@@ -216,6 +216,38 @@ of the registry with no new mechanism. A user rebinding `Y` is writing a registr
 survives because the Application declared the command rather than registering a handler for a key.
 
 Conflicts resolve at load time with everything else ([kernel §3](./kernel.md) step 4).
+
+### 7.1 Some bindings are not ours to take — **Decided**
+
+Found by someone opening the harness and pressing the key the docs told them to, 2026-09-03. **This
+document's own example was `ctrl+n`, and `ctrl+n` opens a browser window.** The handler ran, the
+command fired, and a new tab opened over the top of it.
+
+A page cannot prevent the browser's own accelerators. `preventDefault()` on `ctrl+n`, `ctrl+t`,
+`ctrl+w`, `ctrl+shift+n` and the rest is simply ignored — they are handled before the page sees the
+event, and no amount of being a framework changes that. §1 says the framework owns input *because it
+has no choice*; this is the boundary of that claim, and it belongs written down next to it rather
+than discovered per Application.
+
+So the binding layer has a third outcome besides bound and conflicting: **reserved**.
+
+- **A reserved binding is a load-time conflict**, reported like any other ([kernel §3](./kernel.md)
+  step 4). An Application declaring `ctrl+n` gets an error naming the reason, not a binding that
+  half works — a command that fires *and* opens a tab is worse than one that does not fire, because
+  it looks like it worked.
+- **The reserved set is per-host, not universal.** A page inside a browser tab loses far more than
+  the same framework in an Electron shell or a kiosk, and a locked deployment
+  ([README §5](./README.md)) may own the whole keyboard. So the set is a property of the host
+  adapter, not a constant in the framework.
+- **The fallback is the point of §7 anyway.** `blog.newPost` is reachable by `alt+n`, by `Y` on a
+  gamepad, by a two-finger tap, and from the command palette. One command, many ways to reach it —
+  losing one of them to the browser costs a route, not an action. That is only true because the
+  Application declared a *command* rather than registering a handler for a key.
+
+The general shape is worth naming because it will recur: the framework cannot own input it does not
+receive. `ctrl+n` is the first instance; full-screen entry, clipboard access and pointer lock are the
+same problem with different names, and each is a permission the host grants rather than a capability
+the kernel can hand out.
 
 ---
 
