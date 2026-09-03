@@ -469,19 +469,23 @@ is built against these specs. [auth.md](./auth.md).
       elsewhere drifts open, because nobody deleting a screen closes the route it used. Consequence:
       the client generator reads a file, needs no running cluster, and changing exposure is a deploy.
       [service-modules §2](./service-modules.md)
-- [ ] **C3.3 REST from contracts** — already the thing mesh-api does; it needs to read exposure rather
-      than a hand-maintained list. **M** · [hosting §4](./hosting.md)
+- [x] **C3.3 REST from contracts.** One route per exposed contract, and the route comes from the
+      contract's own `rest` metadata — so the path the browser calls and the path the server serves
+      have one source. Query input is coerced toward what the contract declares, because HTTP has one
+      type and contracts have many. A route collision or an ungated entry fails at mount rather than
+      per request. [hosting §4](./hosting.md)
 - [x] **C3.4 SSE from events.** Done, with spec/network.md §5.1 — scope is declared per event, an
       event that cannot be scoped is delivered to nobody, and a revoked ticket closes the stream.
       The archive delivered an unscopable event to every subscriber in every organization.
 - [ ] **C3.5 WebSockets**, the third named interface. **M**
 - [ ] **C3.6 Addressing is a deployment choice.** A process may have its own URL; nothing may assume
       sticky routing or require a load balancer. **S** · [hosting §4](./hosting.md)
-- [ ] **C3.7 Close the stale branches and PRs.** `spec/13-applications-and-extensions` (closed PR #6)
-      and `tony/33-slotted-surfaces` (open PR #5) both target a tree that no longer exists. Close #5
-      rather than merging it into nothing. **S**
-- [ ] **C3.8 Generated typed client** — surfdns #15, and the third option for the surfdns-console
-      schema boundary. **M**
+- [x] **C3.7 Close the stale branches and PRs.** Done 2026-09-03: PR #5 closed with the reason, both
+      stale branches deleted. Their commits stay reachable through `refs/pull/N/head`, and #5's
+      finding survives as A1.4.
+- [x] **C3.8 Generated typed client.** Done as A3.1a-ii — it lives in mesh-api because this package
+      sets `types: []` and a file-writing generator cannot compile here. surfdns #15 is answered:
+      structural types, no `z.infer` across a package boundary.
 - [ ] **C3.9 Keep issue #7 fixed.** The task switcher hotkey bug is the one finding carried out of the
       deleted code; it is A1.4, recorded here so mesh-api's issue can be closed against it. **S**
 
