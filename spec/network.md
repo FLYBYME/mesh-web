@@ -1,0 +1,222 @@
+# The network layer
+
+> "cred has full types and the 'network' needs to be the same. the network layer is what links the
+> mesh and the ui."
+
+**Status.** **Decided:** the browser's network calls are as fully typed as `ctx.call` is inside the
+mesh. **Proposed:** how, which is where it stops being a copy of what mesh does.
+
+Companions: [hosting](./hosting.md) · [Applications](./application.md) · [the kernel](./kernel.md) ·
+[authentication](./auth.md) · [service modules](./service-modules.md).
+
+---
+
+## 1. The requirement — **Decided**
+
+Inside the mesh this already works:
+
+```ts
+const cred = await ctx.call('credential.resolve', { id: input.credentialId });
+// cred: { status: 'pending' | 'validating' | 'active' | ...; kind: 'tls'; spec: {...}; ... }
+```
+
+The action is a string; the input is checked against that action's schema; the result is the full
+output type with every union member and optional field intact. No generic parameter, no cast, no
+`unknown`.
+
+**The browser gets the same.** Not "similar", not "typed at the edges" — the same. A view rendering
+a certificate's `status` gets the six literal values, and a typo in the action name is a compile
+error.
+
+---
+
+## 2. But the browser is not on the mesh — **Decided**
+
+The constraint that shapes everything below, and it is already settled:
+
+> **The browser never joins the mesh.** It speaks HTTP to a node's API.
+
+So this is not `ctx.call`. It is an HTTP request to mesh-api, which is the gatekeeper
+([auth §5](./auth.md)), and **it can only reach what this site exposes**
+([hosting §5](./hosting.md)). The typing has to survive that hop *and* respect that boundary.
+
+That second half is the interesting part, and it is where copying mesh's approach would go wrong.
+
+---
+
+## 3. How mesh does it, and what does not transfer
+
+mesh's generator emits `src/generated/api.ts`:
+
+```ts
+declare global {
+    interface IServiceToolRegistry {
+        'demo.hello': {
+            params:  z.input<typeof Contract_0.demoHelloContract['inputSchema']>,
+            returns: z.infer<typeof Contract_0.demoHelloContract['outputSchema']>
+        };
+        // …
+    }
+}
+```
+
+It works, and inside a mesh process it is the right design. Three properties do not survive the trip
+to a browser.
+
+### 3.1 `z.infer` across a package boundary is fragile — **Decided**
+
+Those types are not types; they are *references* that TypeScript must resolve through `typeof` into
+another package's zod. If the browser bundle ends up with a second copy or a different version of
+zod, `z.infer` resolves against a different declaration and quietly yields `unknown`.
+
+This is not hypothetical. It is **surfdns #15** — "generated client degrades to `unknown` when zod is
+duplicated" — already observed, and mesh-api already has a commit for a neighbouring symptom
+("Take z from `@flybyme/mesh/contracts`, not from zod").
+
+A browser is exactly where this bites: an import map, several packages, and a site that may not
+control every dependency's zod range.
+
+> **The generated browser types are structural TypeScript, not zod references.** The generator
+> resolves the schema and emits the finished type. Nothing at the call site imports zod, and there is
+> no version of the dependency graph in which the types silently degrade.
+
+The cost is a larger generated file and a generator that must render every zod construct correctly.
+That is a generator bug when it happens — visible, fixable, and in one place — rather than an
+environment-dependent collapse to `unknown` that looks like nobody's fault.
+
+### 3.2 `declare global` is wrong here — **Decided**
+
+Correct inside mesh, because mesh contracts genuinely are a global namespace: there is exactly one
+`credential.resolve` in a cluster, and [Extensions §2](./extension.md) already records that "a
+contract is a global declaration" is the actual mesh model.
+
+A browser page is not that. mesh-web is explicitly **many sites, many authors**
+([hosting §3](./hosting.md)), and a global interface is a namespace two independently-built things
+can collide in, with whichever augmentation loaded last winning silently.
+
+This is the same reasoning that rejected module augmentation for provider tokens
+([Extensions §4](./extension.md)) — and the two conclusions are consistent rather than contradictory,
+because the test is whether the namespace is *genuinely* global. Mesh contracts are. Provider ids
+and site APIs are not.
+
+### 3.3 Typing the whole contract set is worse than typing none — **Decided**
+
+mesh's registry lists every contract in the process. A browser that inherited it would autocomplete
+hundreds of actions the site does not expose, every one of which compiles and then fails at run time
+with a 403.
+
+**Autocomplete that offers you things you are not allowed to call is worse than no autocomplete**,
+because it moves a compile-time error to a production one.
+
+> **The browser's typed surface is generated from the site's exposure descriptor, not from the mesh's
+> contract set.** What a site exposes is what an Application can call, and calling anything else does
+> not compile.
+
+That is the exposure list [hosting §5](./hosting.md) already puts in the site's own repo, owned by
+the site's own team. It now has a second job: it is the type boundary.
+
+---
+
+## 4. The shape — **Proposed**
+
+The API a site talks to is **declared in the manifest**, like everything else the kernel needs before
+an Application runs ([Applications §2](./application.md)):
+
+```ts
+import { surfdnsApi } from '@surfdns/console-api';   // generated from the exposure descriptor
+
+export default class ConsoleApp implements Application<...> {
+    readonly needs = NEEDS;
+    readonly api   = surfdnsApi;          // ← part of the manifest
+
+    async start(cx: Context<typeof NEEDS, typeof CONSUMES, typeof surfdnsApi>) {
+        const cred = await cx.net.call('credential.resolve', { id });
+        //    ^ fully typed, exactly as ctx.call is inside the mesh
+    }
+}
+```
+
+The ergonomics are identical to `ctx.call` — a string action, inferred input, inferred output — and
+the namespace is scoped to the API this Application declared rather than to the page. An Application
+talking to two APIs declares two, and neither can shadow the other.
+
+Declaring it in the manifest earns the usual benefits: the kernel knows which APIs a site's
+Applications will contact before any of them runs, which is exactly the list a review, a CSP, or an
+audit wants.
+
+---
+
+## 5. The same treatment for the rest of the link — **Proposed**
+
+"The network layer is what links the mesh and the ui" is three things, not one, and all three come
+from the same generated descriptor:
+
+**Calls.** §4.
+
+**Events.** SSE and WebSocket subscriptions typed from event contracts:
+
+```ts
+cx.events.on('identity.ticket_revoked', (payload) => { /* payload typed */ });
+```
+
+Unknown event name → compile error. This matters more than calls, because a subscription with a
+mistyped payload fails silently rather than throwing.
+
+**Collections.** CRUD contracts are already generated as `create`/`find`/`get`/`update`/`delete` sets
+— mesh's own generated file shows them. The `models` capability exposes them as typed reactive
+collections, so a table binds to a query and re-renders on a `web.site_changed` event without
+anybody writing a fetch.
+
+One generator, three surfaces, one descriptor.
+
+---
+
+## 6. A stale client is a lie — **Proposed**
+
+The generated types assert what the API accepts. If the API changed and the client did not, the
+compiler now vouches for something false, which is worse than the untyped case where a developer
+would at least be suspicious.
+
+So: the descriptor carries a hash of the exposure it was generated from; CI regenerates and fails on
+a diff; and the API reports its exposure hash so a deployed client can be checked against a running
+server rather than against a file in a repo. That last one is what catches the case CI cannot — a
+client deployed against an API that has since moved on.
+
+**Which environment's exposure?** A site declares several ([hosting §5](./hosting.md)) and they need
+not expose identically. Generating against production and letting development add to it is probably
+right; it is not decided, and it is §8.
+
+---
+
+## 7. What this settles elsewhere
+
+- **surfdns #15** stops being a mystery and becomes a design rule: emit structural types, never zod
+  references across a boundary.
+- **The surfdns-console schema boundary** ([roadmap D.1](./roadmap.md)) is answered. The three
+  options were: declare shapes locally, publish a schema package, or generate a typed client. It is
+  the third, and the four symbols the console currently imports from surfdns
+  (`WhoamiOutputSchema`, `MembersOutputSchema`, `NodeStatusOutputSchema`, `roleSatisfies`) come from
+  the generated descriptor instead.
+- **mesh-api's `generate-client`** ([roadmap C3.8](./roadmap.md)) moves from a nice-to-have to the
+  thing the whole browser type story rests on.
+- **The exposure descriptor** gains a second job, which is an argument for it being the source of
+  truth rather than a cache ([service-modules §2](./service-modules.md) leaves that open).
+
+---
+
+## 8. Open
+
+- **Which environment's exposure the types are generated from**, per §6.
+- **Whether roles narrow the types.** Exposure records which roles may call what
+  ([auth §5](./auth.md)). Typing an admin-only action as unavailable to a public build is possible
+  and might be over-clever, since roles are runtime facts about a *user* and types are build-time
+  facts about a *bundle*.
+- **How large the generated file gets** for a real site, once types are structural rather than
+  references. Probably fine; nobody has measured, and it is the kind of thing that is only a problem
+  after it is a problem.
+- **Errors.** A call can fail with 401, 403, 404, a validation error or a transport failure. None of
+  that is in the contract's output schema, and a typed client that models only the happy path pushes
+  every caller into `try`/`catch` with an `unknown`. This wants designing and currently is not.
+- **Whether `net` should expose anything untyped at all.** An escape hatch for a third-party HTTP
+  API that has no mesh contract seems necessary; making it obviously separate from the typed surface
+  matters, so it is not reached for out of convenience.

@@ -55,6 +55,9 @@ export default class ConsoleApp implements Application<typeof NEEDS, typeof CONS
     readonly keys     = [ ... ];             // default bindings, overridable by the user
     readonly menus    = [ ... ];             // menubar, window, status, context
 
+    // ---- what it talks to
+    readonly api      = surfdnsApi;          // generated from the site's exposure — network.md
+
     // ---- how it is configured
     readonly settings = [ ... ];             // schema + defaults, read at boot
 
@@ -87,6 +90,10 @@ Run that test over what an Application would otherwise do imperatively inside `s
 - **settings** — hard-forced. Declared defaults are folded into the registry at
   [boot step 5](./kernel.md); the Application starts at step 10. A default that arrives at step 10 is
   five steps too late.
+- **api** — the generated descriptor for the API this Application talks to
+  ([network §4](./network.md)). Declaring it types every call, and it means the kernel knows every
+  API a site's Applications will contact before any of them runs — which is the list a review, a CSP
+  or an audit wants.
 
 Two things follow for free. **Conflict detection moves to load time** — two Applications claiming
 `ctrl+n` is resolvable before either runs. And **an Application can be inspected without executing

@@ -128,9 +128,19 @@ Ten capabilities, none implemented and none declared any more — the interfaces
 else. Their shapes are in history (`git show 4cd801d^:src/contribution/capabilities.ts`) and were
 sound; each item below is the interface *and* the implementation behind it.
 
-- [ ] **A3.1 `net`** — the HTTP abstraction over a site's API. Base URL from the deployment
-      descriptor, ticket attached by the auth Extension, not by each caller. **M** ·
-      [hosting §4](./hosting.md)
+- [ ] **A3.1 ★ `net`** — the HTTP abstraction over a site's API. Base URL from the deployment
+      descriptor, ticket attached by the auth Extension, not by each caller. **Fully typed**:
+      `cx.net.call('credential.resolve', { id })` infers input and output exactly as mesh's
+      `ctx.call` does. **L** · [network.md](./network.md) · [hosting §4](./hosting.md)
+- [ ] **A3.1a ★ The client generator** — emit **structural types, never `z.infer` references across a
+      package boundary** (surfdns #15), scoped to a declared API rather than `declare global`, and
+      generated from the site's **exposure descriptor** so calling something unexposed does not
+      compile. **L** · [network §3](./network.md)
+- [ ] **A3.1b Exposure hash checked in CI and reported by the API**, so a stale client cannot vouch
+      for an API that has moved on. **M** · [network §6](./network.md)
+- [ ] **A3.1c Error typing.** 401, 403, 404, validation and transport failures are in no contract's
+      output schema, and a client modelling only the happy path pushes every caller into `catch`
+      with an `unknown`. Undecided. **M** · [network §8](./network.md)
 - [ ] **A3.2 `events`** — the SSE bridge. It was written once and its only coverage lived in mesh-api,
       because the test stood up a real express server. Rebuild it with a test that does not need one.
       **M**
@@ -402,11 +412,10 @@ is now an empty repository, and its console imports `@flybyme/mesh-api/runtime`,
 is accepted, not a regression to repair — but it means Track D is a rewrite against the finished
 framework, and nothing here should start before A5 and A2.
 
-- [ ] **D.1 Decide the schema boundary** for surfdns-console: the client declares its own shapes /
-      surfdns publishes a schema package / a generated typed client. Four symbols
-      (`WhoamiOutputSchema`, `MembersOutputSchema`, `NodeStatusOutputSchema`, `roleSatisfies`) cross
-      what is about to become a network boundary. *Recommend: generated client (C3.10), with declared
-      shapes as the interim.* **S**
+- [x] **D.1 The schema boundary is decided: a generated typed client.** The four symbols
+      (`WhoamiOutputSchema`, `MembersOutputSchema`, `NodeStatusOutputSchema`, `roleSatisfies`) come
+      from the generated descriptor rather than from surfdns.
+      [network §7](./network.md) · depends on A3.1a
 - [ ] **D.2 Make surfdns-console a real package** — `package.json`, tsconfig, CI. **S**
 - [ ] **D.3 Port the six screens** off `defineApp` and `LayoutConfig` regions onto Applications and
       views. **M** · ⛔ A5.1, A2
