@@ -80,7 +80,8 @@ describe('control flow', () => {
             each(
                 () => posts(),
                 (p) => p.slug,
-                (p) => element('Row', { children: [text(p.title)] }),
+                // `p` is an accessor, not a value — a reused row must read its current item.
+                (p) => element('Row', { children: [text(() => p().title)] }),
             ),
         );
 
@@ -173,10 +174,10 @@ describe('a whole view renders without a browser', () => {
                         (p) => p.slug,
                         (p) =>
                             element('Row', {
-                                intents: { activate: { action: command('blog.open', p.slug) } },
+                                intents: { activate: { action: command('blog.open', p().slug) } },
                                 children: [
-                                    text(p.title),
-                                    when(!p.published, () => text(' — draft')),
+                                    text(() => p().title),
+                                    when(() => !p().published, () => text(' — draft')),
                                 ],
                             }),
                     ),

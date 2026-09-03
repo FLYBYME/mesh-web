@@ -1,7 +1,7 @@
 export type {
-    BrokerHandle, KernelServices, LogRecord, NotificationRecord, WindowRequest,
+    BrokerHandle, ContextIdentity, KernelServices, LogRecord, NotificationRecord, WindowSink,
 } from './broker.js';
-export { createContext, createServices } from './broker.js';
+export { createContext, createServices, recordingWindows } from './broker.js';
 
 export type { GraphNode, Ordered } from './graph.js';
 export { resolveOrder } from './graph.js';

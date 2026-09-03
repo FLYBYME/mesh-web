@@ -103,7 +103,7 @@ function flattenEach(node: EachNode<unknown>): readonly Flat[] {
         }
         seen.add(key);
 
-        for (const flat of flatten(node.render(item, () => index))) {
+        for (const flat of flatten(node.render(() => item, () => index))) {
             out.push(flat.kind === 'element' && flat.key === undefined ? { ...flat, key } : flat);
         }
     });

@@ -48,13 +48,44 @@ export interface SettingDecl {
     readonly description?: string;
 }
 
-export interface ViewDecl {
+/**
+ * What a view receives.
+ *
+ * `app` is whatever the Application's `start()` returned. It is here, rather than on the
+ * Application as a field, because a view mounts only after `start()` resolves — so the guarantee is
+ * carried by the types instead of by a definite-assignment assertion papering over a gap
+ * (spec/application.md section 6).
+ */
+export interface ViewContext<TParams = Record<string, never>, TApi = unknown> {
+    readonly params: TParams;
+    readonly app: TApi;
+    setTitle(title: string): void;
+    close(): void;
+    onDispose(fn: () => void): void;
+}
+
+/**
+ * A view type. Declared statically, because the kernel restores geometry before an Application
+ * starts and must already know what views exist (spec/application.md section 6).
+ *
+ * `render` returns a **description**, not DOM. `render` and not `mount`: a view is a pure function
+ * from application state to a description, and a view handed a container could hold logic
+ * (spec/view-layer.md section 1).
+ */
+export interface ViewDecl<TParams = Record<string, never>, TApi = unknown> {
     readonly id: string;
     readonly title: string;
+    /** Which named node of the layout's split tree, in tiled mode. Unused when windowed. */
     readonly tile?: string;
     readonly instances?: 'one' | 'many';
     readonly closable?: boolean;
+    readonly defaultSize?: { readonly width?: number; readonly height?: number };
+    readonly minSize?: { readonly width?: number; readonly height?: number };
+    render(vx: ViewContext<TParams, TApi>): DescriptionNode;
 }
+
+/** Imported as a type alias so this file does not depend on the description layer's runtime. */
+type DescriptionNode = import('../description/types.js').Node;
 
 /**
  * Everything the kernel reads off a constructed contribution before anything activates or starts.
@@ -71,7 +102,12 @@ export interface Declarations {
     readonly keys?: readonly KeyDecl[];
     readonly menus?: readonly MenuDecl[];
     readonly settings?: readonly SettingDecl[];
-    readonly views?: readonly ViewDecl[];
+    /**
+     * `never` for params: a view with concrete params stays assignable here through method
+     * bivariance, which is the same reason `EachNode`'s callbacks are methods rather than
+     * properties. As `unknown` it would reject every real view.
+     */
+    readonly views?: readonly ViewDecl<never, never>[];
 }
 
 // ---------------------------------------------------------------------------- the contracts

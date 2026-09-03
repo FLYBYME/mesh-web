@@ -189,7 +189,7 @@ describe('each is keyed, so a reorder moves nodes instead of rebuilding them', (
     const list = (posts: () => readonly { slug: string; title: string }[]) =>
         element('List', {
             children: [
-                each(posts, (p) => p.slug, (p) => element('ListItem', { children: [text(p.title)] })),
+                each(posts, (p) => p.slug, (p) => element('ListItem', { children: [text(() => p().title)] })),
             ],
         });
 
@@ -242,6 +242,58 @@ describe('each is keyed, so a reorder moves nodes instead of rebuilding them', (
         posts.set([]);
         tick();
         expect(html()).toBe('<ul></ul>');
+    });
+
+    it('updates a row whose key stayed the same but whose contents changed', () => {
+        // The case the other list tests structurally cannot reach. They add, remove and reorder,
+        // where a row is either created fresh or destroyed — so a row that is *kept* while its data
+        // changes is never exercised, and two real bugs hid there:
+        //
+        //   1. `render` received the item by value, so a reused row closed over stale data.
+        //   2. Rows were built inside the reconciling effect, which disposes the effects it created
+        //      before it re-runs — so every row went dead after the first list change.
+        //
+        // Both are invisible unless a row's content is reactive *and* its key survives.
+        const { host, components, dispatch } = setup();
+        const posts = signal([
+            { slug: 'a', title: 'First', published: true },
+            { slug: 'b', title: 'Second', published: false },
+        ]);
+
+        render(
+            element('List', {
+                children: [
+                    each(
+                        () => posts(),
+                        (p) => p.slug,
+                        (p) =>
+                            element('ListItem', {
+                                children: [
+                                    text(() => p().title),
+                                    when(() => !p().published, () => text(' — draft')),
+                                ],
+                            }),
+                    ),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const rows = [...host.querySelectorAll('li')];
+        expect(host.textContent).toBe('FirstSecond — draft');
+
+        posts.set(posts().map((p) => (p.slug === 'b' ? { ...p, published: true, title: 'Renamed' } : p)));
+        tick();
+
+        expect(host.textContent).toBe('FirstRenamed');
+        // Still the same element: updated in place, not replaced.
+        expect([...host.querySelectorAll('li')][1]).toBe(rows[1]);
+
+        // And it keeps working, which is what proves the row's effects were not disposed.
+        posts.set(posts().map((p) => (p.slug === 'b' ? { ...p, published: false } : p)));
+        tick();
+        expect(host.textContent).toBe('FirstRenamed — draft');
     });
 
     it('rejects a duplicate key', () => {

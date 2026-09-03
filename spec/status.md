@@ -87,13 +87,40 @@ forward except mesh-api issue #7, the task switcher hotkey bug, which is recorde
 | `src/render/` | **the DOM renderer.** Components to elements, fine-grained binding, `when` on comment markers, keyed `each`, device events to intents, scoped disposal. |
 | `src/contribution/` | the two contracts — `Extension`, `Application`, capabilities, provider tokens, `needs()`, `consumes()`, and `construct()`, which checks a bundle before trusting it. |
 | `src/kernel/` | **the kernel.** The capability broker, the provider graph, manifest merge with load-time conflict detection, the process table, lifecycle and fault containment. |
+| `src/window/` | **the window manager.** Pure geometry, z-order, move/resize/maximise/restore, the view host that renders a declared view, and the sink joining `windows` to it. |
 | package, tsconfig, vitest, CI | `types: []` on the browser build, so a node import will not compile. |
+
+**The path is joined end to end.** `test/endtoend.test.ts` boots a site, reads its manifest before
+anything starts, starts an Application, has it refuse a command while signed out, signs in, opens a
+window through a declared capability, renders the view's description into the DOM, clicks a row to
+run a command through the kernel, mutates application state and watches one row update in place,
+drags the window without re-rendering anything, and stops the process to see its windows and handlers
+disposed.
 
 Boot steps **3–7 and 10** of [kernel §3](./kernel.md) are real. Steps 1, 2, 8, 9 and 11 need the
 deployment descriptor, the registry, auth, view state and the router — none of which exist.
 
-**95 tests.** 73 of them need no DOM at all — which is the property the description layer and the
-kernel both exist to give ([testing §2](./testing.md)) — and the renderer's 22 run under jsdom.
+**123 tests.** 95 need no DOM at all — the property the description layer and the kernel both exist
+to give ([testing §2](./testing.md)) — and 28 run under jsdom.
+
+### Two bugs the end-to-end test found that 95 unit tests could not
+
+Worth recording, because they are the argument for writing it.
+
+Both live in one blind spot: **a list row whose key survives while its contents change.** The unit
+tests added, removed and reordered rows — cases where a row is created fresh or destroyed — and used
+static text inside them. A row that is *kept* while its data changes was never exercised.
+
+1. **`each`'s `render` received the item by value**, so a reused row closed over the object it was
+   built with. Editing a post in place left the old text on screen. `render` now receives an
+   accessor.
+2. **Rows and `when` branches were built inside the reconciling effect.** An effect disposes the
+   effects it created before it re-runs, so every row went dead after the first list change — nodes
+   still on screen, updates silently stopped. It looks like a reactivity bug and is an ownership bug.
+   Content is now built under the surrounding render's scope.
+
+The regression test for both is in `test/render.test.ts`, with a note saying why the neighbouring
+tests could not have caught it.
 
 **What the renderer's tests actually assert**, since "it renders" is not the claim:
 

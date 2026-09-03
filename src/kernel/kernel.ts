@@ -9,7 +9,7 @@
  * the deployment descriptor, the registry, auth, view state and the router, none of which exist.
  */
 
-import type { ErasedApplication, ErasedContribution, ErasedExtension } from '../contribution/contract.js';
+import type { ErasedApplication, ErasedContribution, ErasedExtension, ViewDecl } from '../contribution/contract.js';
 import { isApplication, isExtension } from '../contribution/contract.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import { createContext, createServices, type BrokerHandle, type KernelServices } from './broker.js';
@@ -50,10 +50,15 @@ export interface ExtensionEntry {
 export interface KernelOptions {
     /** Injected so tests are not at the mercy of the clock. */
     readonly now?: () => number;
+    /**
+     * Supplied to give the kernel a real window manager. The default records instead of rendering,
+     * so a kernel can be booted and exercised with no DOM at all.
+     */
+    readonly services?: KernelServices;
 }
 
 export class Kernel {
-    readonly services: KernelServices = createServices();
+    readonly services: KernelServices;
 
     #manifest: Manifest | undefined;
     #extensions = new Map<string, ExtensionEntry>();
@@ -67,6 +72,14 @@ export class Kernel {
 
     constructor(options: KernelOptions = {}) {
         this.#now = options.now ?? (() => Date.now());
+        this.services = options.services ?? createServices();
+    }
+
+    /** A view declaration, by the pid that owns it. What the window sink needs to size a window. */
+    viewOf(pid: string, viewId: string): ViewDecl<never, never> | undefined {
+        const entry = this.#processes.get(pid);
+        if (entry === undefined) return undefined;
+        return this.#applications.get(entry.applicationId)?.views?.find((v) => v.id === viewId);
     }
 
     get manifest(): Manifest {

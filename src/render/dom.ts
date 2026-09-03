@@ -12,8 +12,9 @@
  */
 
 import { effect } from '../reactivity/effect.js';
+import { signal } from '../reactivity/signal.js';
 import { createScope } from '../reactivity/scope.js';
-import type { ReactiveScope } from '../reactivity/types.js';
+import type { ReactiveScope, Signal } from '../reactivity/types.js';
 import type { Action, EachNode, ElementNode, Intents, Json, Node, Reactive } from '../description/types.js';
 import { isDynamic, read } from '../description/types.js';
 import { applyDefaultProp, type ComponentRegistry } from './component.js';
@@ -82,10 +83,10 @@ function build(node: Node, options: RenderOptions, scope: ReactiveScope): readon
             return [buildElement(single, options, scope)];
 
         case 'when':
-            return buildWhen(single.when, single.then, single.otherwise, options);
+            return buildWhen(single.when, single.then, single.otherwise, options, scope);
 
         case 'each':
-            return buildEach(single, options);
+            return buildEach(single, options, scope);
     }
 }
 
@@ -147,12 +148,19 @@ function buildElement(node: ElementNode, options: RenderOptions, scope: Reactive
  *
  * Markers rather than a wrapper element, because a wrapper would show up in the DOM and change
  * layout — a `when` inside a flex row must not introduce a box.
+ *
+ * **`owner` matters and is not decoration.** An effect disposes the effects created during its last
+ * run before running again. Content built *inside* the reconciling effect is therefore torn down the
+ * first time that effect re-fires — the nodes stay on screen and stop updating, which looks like a
+ * reactivity bug and is an ownership bug. Building under `owner` gives the content the lifetime of
+ * the surrounding render instead.
  */
 function buildWhen(
     condition: Reactive<boolean>,
     then: () => Node,
     otherwise: (() => Node) | undefined,
     options: RenderOptions,
+    owner: ReactiveScope,
 ): readonly ChildNode[] {
     const start = document.createComment('when');
     const end = document.createComment('/when');
@@ -176,10 +184,12 @@ function buildWhen(
             return;
         }
 
-        const inner = createScope();
-        branchScope = inner;
-        inner.run(() => {
-            branchNodes = build(source(), options, inner);
+        owner.run(() => {
+            const inner = createScope();
+            branchScope = inner;
+            inner.run(() => {
+                branchNodes = build(source(), options, inner);
+            });
         });
 
         insertBefore(branchNodes, end);
@@ -195,14 +205,27 @@ function buildWhen(
  * not destroy the parts that did not change — a focused input inside a row must survive a reorder,
  * and so must an open editor. `each()` requires a key for exactly this reason.
  */
-function buildEach(node: EachNode<unknown>, options: RenderOptions): readonly ChildNode[] {
+function buildEach(
+    node: EachNode<unknown>,
+    options: RenderOptions,
+    owner: ReactiveScope,
+): readonly ChildNode[] {
     const start = document.createComment('each');
     const end = document.createComment('/each');
 
     interface Row {
         readonly scope: ReactiveScope;
         readonly nodes: readonly ChildNode[];
-        index: number;
+        /**
+         * The row's current item and position, held as signals.
+         *
+         * This is what makes reuse correct rather than merely fast. A row whose key is unchanged is
+         * kept, and its contents may still have changed — so the row reads its item through an
+         * accessor and the reconciler writes the new one here. Passing the item by value would give
+         * every reused row a closure over stale data.
+         */
+        readonly item: Signal<unknown>;
+        readonly index: Signal<number>;
     }
 
     let rows = new Map<string | number, Row>();
@@ -225,22 +248,37 @@ function buildEach(node: EachNode<unknown>, options: RenderOptions): readonly Ch
 
             const existing = rows.get(key);
             if (existing !== undefined) {
-                existing.index = index;
+                existing.item.set(item);
+                existing.index.set(index);
                 next.set(key, existing);
                 ordered.push(existing);
                 rows.delete(key);
                 return;
             }
 
-            const scope = createScope();
             let nodes: readonly ChildNode[] = [];
-            scope.run(() => {
-                nodes = build(node.render(item, () => index), options, scope);
+            let row: Row | undefined;
+
+            // Built under `owner`, not under this effect — see buildWhen. A row created inside the
+            // reconciling effect is disposed the next time the list changes, which leaves its nodes
+            // on screen and dead.
+            owner.run(() => {
+                const scope = createScope();
+                scope.run(() => {
+                    const itemSignal = signal<unknown>(item);
+                    const indexSignal = signal(index);
+                    row = { scope, nodes: [], item: itemSignal, index: indexSignal };
+                    nodes = build(
+                        node.render(() => itemSignal(), () => indexSignal()),
+                        options,
+                        scope,
+                    );
+                });
             });
 
-            const row: Row = { scope, nodes, index };
-            next.set(key, row);
-            ordered.push(row);
+            const created: Row = { ...row!, nodes };
+            next.set(key, created);
+            ordered.push(created);
         });
 
         // Whatever is left in `rows` was not in the new list.

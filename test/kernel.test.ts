@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-    Kernel, construct, consumes, needs, provider,
+    Kernel, construct, consumes, createServices, needs, provider, recordingWindows, text,
     type Application, type Context, type Extension,
 } from '../src/index.js';
 import { flushSync } from '../src/reactivity/index.js';
@@ -39,7 +39,15 @@ class BlogApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES> {
 
     readonly commands = [{ id: 'blog.newPost', title: 'Blog: New Post' }];
     readonly keys = [{ command: 'blog.newPost', keys: 'ctrl+n', gamepad: 'Y' }];
-    readonly views = [{ id: 'editor', title: 'Editor', tile: 'content', instances: 'many' as const }];
+    readonly views = [
+        {
+            id: 'editor',
+            title: 'Editor',
+            tile: 'content',
+            instances: 'many' as const,
+            render: () => text('editor'),
+        },
+    ];
 
     started = 0;
     stopped = 0;
@@ -121,7 +129,8 @@ describe('capabilities are scoped to who asked', () => {
     });
 
     it('knows who opened a window', async () => {
-        const kernel = new Kernel();
+        const windows = recordingWindows();
+        const kernel = new Kernel({ services: createServices(windows) });
         kernel.boot([load('auth', new AuthExtension()), load('blog', new BlogApp())]);
 
         const pid = await kernel.start('blog');
@@ -130,8 +139,9 @@ describe('capabilities are scoped to who asked', () => {
 
         await kernel.services.commands.get('blog.newPost')!.run();
 
-        expect(kernel.services.windows).toHaveLength(1);
-        expect(kernel.services.windows[0]).toMatchObject({ owner: pid, view: 'editor' });
+        expect(windows.opened).toHaveLength(1);
+        // The caller never said who it was. The capability was already scoped to the instance.
+        expect(windows.opened[0]).toMatchObject({ owner: pid, view: 'editor' });
     });
 });
 

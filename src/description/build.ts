@@ -73,7 +73,7 @@ export function when(
 export function each<T>(
     items: Reactive<readonly T[]>,
     key: (item: T, index: number) => string | number,
-    render: (item: T, index: () => number) => Node,
+    render: (item: () => T, index: () => number) => Node,
 ): EachNode<T> {
     return { kind: 'each', items, key, render };
 }

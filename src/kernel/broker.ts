@@ -42,12 +42,18 @@ export interface NotificationRecord {
     dismissed: boolean;
 }
 
-export interface WindowRequest {
-    readonly id: string;
-    readonly owner: string;
-    readonly view: string;
-    readonly params?: Readonly<Record<string, Json>>;
-    closed: boolean;
+/**
+ * What `windows.open` does, without the broker knowing what a window is.
+ *
+ * The kernel supplies this, backed by the real WindowManager. Keeping the broker ignorant of
+ * geometry is what lets a headless test run an Application that opens windows.
+ */
+export interface WindowSink {
+    open(owner: string, view: string, params: Readonly<Record<string, Json>>): string;
+    close(id: string): void;
+    focus(id: string): void;
+    ownedBy(owner: string): readonly string[];
+    closeOwnedBy(owner: string): void;
 }
 
 /**
@@ -59,18 +65,47 @@ export interface WindowRequest {
 export interface KernelServices {
     readonly logs: LogRecord[];
     readonly notifications: NotificationRecord[];
-    readonly windows: WindowRequest[];
+    windows: WindowSink;
     /** Command implementations, by id, with the contributor that supplied each. */
     readonly commands: Map<string, { readonly owner: string; readonly run: CommandImpl }>;
     /** Which command ids each contributor declared. Checked when it tries to implement one. */
     readonly declaredCommands: Map<string, string>;
 }
 
-export function createServices(): KernelServices {
+/**
+ * A sink that records instead of rendering.
+ *
+ * The default, so a kernel can be booted and exercised with no window manager and no DOM at all —
+ * which most of the kernel's own tests want.
+ */
+export function recordingWindows(): WindowSink & { readonly opened: { id: string; owner: string; view: string; params: Readonly<Record<string, Json>>; closed: boolean }[] } {
+    const opened: { id: string; owner: string; view: string; params: Readonly<Record<string, Json>>; closed: boolean }[] = [];
+    let next = 0;
+
+    return {
+        opened,
+        open(owner, view, params) {
+            const id = `rec${++next}`;
+            opened.push({ id, owner, view, params, closed: false });
+            return id;
+        },
+        close(id) {
+            const entry = opened.find((w) => w.id === id);
+            if (entry !== undefined) entry.closed = true;
+        },
+        focus() {},
+        ownedBy: (owner) => opened.filter((w) => w.owner === owner && !w.closed).map((w) => w.id),
+        closeOwnedBy(owner) {
+            for (const w of opened) if (w.owner === owner) w.closed = true;
+        },
+    };
+}
+
+export function createServices(windows: WindowSink = recordingWindows()): KernelServices {
     return {
         logs: [],
         notifications: [],
-        windows: [],
+        windows,
         commands: new Map(),
         declaredCommands: new Map(),
     };
@@ -181,9 +216,7 @@ export function createContext(
             for (const [commandId, entry] of [...services.commands]) {
                 if (entry.owner === id) services.commands.delete(commandId);
             }
-            for (const window of services.windows) {
-                if (window.owner === id) window.closed = true;
-            }
+            services.windows.closeOwnedBy(id);
         },
     };
 }
@@ -286,28 +319,23 @@ function makeNotifications(owner: string, services: KernelServices, next: () => 
     };
 }
 
-/** Knows who opened a window, so ownership and cleanup need no bookkeeping from the caller. */
-function makeWindows(owner: string, services: KernelServices, next: () => string): Windows {
-    return {
-        open(options): WindowHandle {
-            const request: WindowRequest = {
-                id: next(),
-                owner,
-                view: options.view,
-                ...(options.params ? { params: options.params } : {}),
-                closed: false,
-            };
-            services.windows.push(request);
+/**
+ * Knows who opened a window, so ownership and cleanup need no bookkeeping from the caller.
+ *
+ * Note what is absent: no `move`, no `resize`, no `raise`. An Application never moves or resizes its
+ * own window (spec/input.md section 6) — those are kernel mechanics, and the reason is concrete
+ * rather than tidy: resizing under a d-pad needs a window-management mode driven by the kernel's own
+ * focus and input system.
+ */
+function makeWindows(owner: string, services: KernelServices, _next: () => string): Windows {
+    const handle = (id: string): WindowHandle => ({
+        id,
+        focus: () => services.windows.focus(id),
+        close: () => services.windows.close(id),
+    });
 
-            return {
-                id: request.id,
-                focus: () => {},
-                close: () => void (request.closed = true),
-            };
-        },
-        own: () =>
-            services.windows
-                .filter((w) => w.owner === owner && !w.closed)
-                .map((w) => ({ id: w.id, focus: () => {}, close: () => void (w.closed = true) })),
+    return {
+        open: (options) => handle(services.windows.open(owner, options.view, options.params ?? {})),
+        own: () => services.windows.ownedBy(owner).map(handle),
     };
 }

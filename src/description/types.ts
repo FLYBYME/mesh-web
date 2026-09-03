@@ -134,7 +134,15 @@ export interface EachNode<T = unknown> {
     readonly kind: 'each';
     readonly items: Reactive<readonly T[]>;
     key(item: T, index: number): string | number;
-    render(item: T, index: () => number): Node;
+    /**
+     * `item` is an **accessor, not a value**, and that is not decoration.
+     *
+     * A keyed list reuses a row when its key is unchanged. If `render` received the item by value,
+     * the row's closure would keep the object it was built with, and editing a post in place —
+     * same key, new contents — would leave the old text on screen. Found by an end-to-end test;
+     * the unit tests only added, removed and reordered, which never exposes it.
+     */
+    render(item: () => T, index: () => number): Node;
 }
 
 /** Nothing. The result of a `when` with no `otherwise`, and of an empty list. */
