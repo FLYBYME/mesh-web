@@ -341,6 +341,12 @@ half-typed message, selection, undo history.
 **The window manager owns:** position, size, z-order, mode, minimised/maximised, which tile a view
 occupies.
 
+**And the Application never sets any of it.** It declares view defaults and minimums as
+*preferences* the kernel may honour, and it may *observe* its size so a view lays out responsively —
+observing is reading, not control. Moving, resizing, stacking, minimising and closing are kernel
+mechanics, baked in, because they must work under a d-pad as well as a mouse
+([input §6](./input.md)).
+
 A mode switch, a move, a resize or a re-stack touches only the second. The Application is not
 notified, does not re-render, and does not remount. That is the whole mechanism behind "switching is
 dynamic", and it works because the two are stored separately rather than because anything is

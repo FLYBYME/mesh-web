@@ -233,7 +233,9 @@ then a missing component is a blocked Application — there is no `div` to fall 
 
 - [ ] **A7.1 ★ The primitive vocabulary** — audit the 13 from the deleted runtime against what a
       blog, a console and an IDE each need, together. Everybody uses the same form component with
-      different styles. **M** · [view-layer §11](./view-layer.md)
+      different styles. **M** · [view-layer §11](./view-layer.md) · ⛔ **gated by A8.2**: every
+      primitive must satisfy "every action has a non-pointer path"
+      ([input §3](./input.md)), which is a constraint on the audit rather than a later fix.
 - [ ] **A7.2 Theme tokens as registry values**, so a site restyles without forking components.
       **S** · ⛔ A4
 - [ ] **A7.3 The missing primitives** the audit names. **L**
@@ -247,6 +249,37 @@ then a missing component is a blocked Application — there is no `div` to fall 
       **M** · [view-layer §11](./view-layer.md)
 - [ ] **A7.7 Accessibility lives in the primitives.** If apps never write elements, the library owns
       every role, label and focus order — and an Application cannot patch around a mistake. **M**
+
+---
+
+### A8 — Input ★
+
+[input.md](./input.md). The framework owns input entirely, because an Application that never sees the
+DOM never sees a `PointerEvent`. Target hardware is tablets and Steam Decks alongside desktops, so
+none of this is speculative.
+
+- [ ] **A8.1 ★ The intent layer** — `activate`, `context`, `navigate`, `commit`, `dismiss`, `scroll`,
+      `zoom`. An Application receives what was meant, never what was pressed. **M** ·
+      [input §2](./input.md)
+- [ ] **A8.2 ★ Focus graph and directional navigation** — spatial scoring, **groups**, explicit
+      overrides. Groups are the part that makes it feel designed rather than computed. **L** ·
+      [input §3](./input.md)
+- [ ] **A8.3 Modality as a signal** — `pointer | touch | pen | directional`, with hysteresis, so one
+      component definition is correct on all of them and a Deck user plugging in a mouse switches
+      mid-session. **M** · [input §4](./input.md)
+- [ ] **A8.4 The renderer owns interaction feedback** — hover, press, focus movement, scroll momentum,
+      drag ghosts, resize previews. None of it reaches the Application, which is also the latency
+      answer for a hosted app. **L** · [input §5](./input.md)
+- [ ] **A8.5 Window mechanics, including a keyboard/gamepad window-management mode.** Move and resize
+      under a d-pad. Kernel, not a decoration Extension. **L** · [input §6](./input.md)
+- [ ] **A8.6 Bindings across device classes** — `keys` generalises; one command reachable by chord,
+      gamepad button or gesture. Profiles in the `device` hive. **M** · [input §7](./input.md) · ⛔ A4.2
+- [ ] **A8.7 Normalized pointer/pen streams** as opt-in data — pressure, tilt, id. Raw input is not
+      raw DOM. **M** · [input §2](./input.md)
+- [ ] **A8.8 Text entry requested, not assumed** — tablet keyboard and Steam OSK; composition stays
+      renderer-side and the Application receives committed text. **M** · [input §8](./input.md)
+- [ ] **A8.9 The gamepad poll loop** — only while connected, stopped when hidden, dead zones and
+      repeat shaping. It is battery on a handheld. **M** · [input §9](./input.md)
 
 ---
 

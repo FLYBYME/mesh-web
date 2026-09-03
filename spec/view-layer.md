@@ -108,6 +108,11 @@ constraint.
 Events travel the other way — renderer to Application — so they need identity that survives a
 boundary. A closure has none.
 
+**[input.md](./input.md) is the full model** — intents rather than device events, a first-class focus
+graph so everything works without a pointer, modality as framework state, and bindings across
+keyboard, gamepad, touch and pen. What follows here is only the identity mechanism the description
+needs.
+
 ### Two kinds, and a rule for which
 
 **Commands** are the Application's verbs. Declared in the manifest, implemented in `start()`.
@@ -269,11 +274,12 @@ Contributions declaring `dom` (§8) opt out, and that is a legible trade rather 
   function returning a description.
 - **Styling.** Tokens as registry values is the intent ([roadmap A7.2](./roadmap.md)); what a
   component's style API looks like to an author is undecided.
-- **Focus, selection and IME.** All three are stateful, latency-sensitive and live in the renderer.
-  A text editor across a worker boundary is the hard case, and §8's `dom` is the honest answer for
-  now.
+- **Focus, selection and IME.** Now largely answered by [input.md](./input.md) — focus is renderer
+  state with a first-class graph, and composition never crosses a boundary. A text editor with its
+  own selection model remains the hard case, and §8's `dom` is the honest answer for it.
 - **Accessibility.** If apps never write elements, the component library owns every role, label and
   focus order. That is an argument *for* this design, and it means the primitives must be right,
-  because an app cannot patch around them.
+  because an app cannot patch around them. [input §3](./input.md)'s "every action has a non-pointer
+  path" is most of this requirement already.
 - **List virtualisation.** A ten-thousand-row table cannot send ten thousand nodes. Windowing has to
   be a component the renderer understands, not something an app implements.

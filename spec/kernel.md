@@ -54,19 +54,29 @@ downward.
 | the capability broker | the process manager UI |
 | the provider registry (token → implementation) | the command palette |
 | the process table and lifecycle | the notification *surface* |
-| window geometry, z-order, mode, view state | window *decoration* and theme |
+| window geometry, z-order, mode, view state | window *appearance* and theme |
+| **move, resize, stack — the mechanics** | — |
 | **the renderer: description → DOM** | **the component library** |
+| **input: focus graph, intents, bindings** | — |
 | registry resolution and policy | the settings editor |
 | the event bus | the log viewer |
 | the router: URL → instance | — |
 
 Three rows are worth pausing on.
 
-**The window manager is split.** The geometry model, z-order, which view is in which tile, and the
-persistence of all that, are kernel: they are what [§4 of the model](./README.md) calls view state,
-they must survive the Application, and an Application must not be able to move another
-Application's window. How a window is *drawn* — its title bar, its resize handle, its shadow — is an
-Extension, which is what lets a blog and an IDE look nothing alike over identical mechanics.
+**The window manager is split — but not where an earlier draft put it.** The geometry model, z-order,
+which view is in which tile, and the persistence of all that, are kernel: they are what
+[§4 of the model](./README.md) calls view state, they must survive the Application, and an
+Application must not be able to move another Application's window.
+
+**So are the mechanics.** Moving, resizing and stacking are kernel, not a decoration Extension, and
+**an Application never resizes its own window either** ([input §6](./input.md)). The reason is
+concrete rather than tidy: resizing with a d-pad requires a window-management mode driven by the
+kernel's own focus and input system, which a decoration Extension has no access to. A broken or
+missing decoration Extension must not be able to make windows unresizable on a handheld.
+
+What remains an Extension is how a window is *drawn* — title bar, shadow, the visual affordance on a
+resize edge — which is what lets a blog and an IDE look nothing alike over identical mechanics.
 
 **The notification surface is not the notification capability.** `cx.notifications.info(...)` is
 kernel, because it must work before any chrome exists and must not be interceptable by whichever
