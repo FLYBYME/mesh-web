@@ -47,27 +47,45 @@ surface, whether the org model is absent or present-and-unused.
 
 ## Track A — The UI framework
 
-Where it is: the runtime is real and tested (182 tests); the contribution layer is types only; every
-capability except `state` is a declaration; nothing tiles, floats, moves or resizes.
+Where it is: **nothing.** The repository is `spec/` and a `.git`. Everything below is written from
+zero, which is the point of the reset — see [status §1](./status.md).
 
-### A1 — Correct what is already known wrong
+### A0 — Scaffolding
 
-Six items, all from [status §2](./status.md). Cheap, and they stop later work being built on a shape
-that is already retracted.
+- [ ] **A0.1 The browser package** — `package.json`, `tsconfig.json`, vitest, CI. Two constraints
+      that were load-bearing before and must be re-established, not remembered: **`types: []`** so a
+      node import is a compile error, and CI checking it again. **S**
+- [ ] **A0.2 State the boundary in the README: the browser never joins the mesh.** It speaks HTTP to
+      a node's API. A `MeshApp` over a WebSocket transport in a tab makes every browser a peer on the
+      cluster network. **S**
+- [ ] **A0.3 Reactivity** — signals, computeds, effects, resources, scopes. **M**
+- [ ] **A0.4 DOM layer** — `h()`, control flow, bindings, scopes. **M**
+- [ ] **A0.5 Router** — routing, scoped routers, scroll and focus restoration. **M**
 
-- [ ] **A1.1 `Application.surfaces` becomes optional**, and `constructApplication`'s guard for it
-      goes. A headless Application is a background process. **S** · [README §1](./README.md)
-- [ ] **A1.2 Move `WindowPreferences` off `Application` and onto the view.** A window holds a view, so
+These five are the parts of the deleted runtime with no design defect against them. They were
+deleted because the repository was emptied, not because they were wrong, and history is the
+reference: `git show 4cd801d^:src/reactivity/…`. Rebuilding *from* that code is fine; carrying
+`src/app/` forward is not.
+
+### A1 — The retractions, so they are not rebuilt
+
+Six shapes the deleted code had wrong ([status §2](./status.md)). None is a fix any more — each is a
+constraint on writing the replacement, which is cheaper than the second round of arguing them out.
+
+- [ ] **A1.1 `Application.surfaces` is optional.** A headless Application is a background process,
+      and there is no construct-time guard demanding a view. **S** · [README §1](./README.md)
+- [ ] **A1.2 `WindowPreferences` belongs to the view, not the Application.** A window holds a view, so
       defaults belong per view, not per process. **S** · [README §2](./README.md)
-- [ ] **A1.3 Make `ScopedStorage` async.** `get<T>(key, fallback): T` cannot be backed by anything
-      remote; it must return a signal or a promise. **S** · [storage §6](./storage-and-registry.md)
-- [ ] **A1.4 Fix the hotkey parser.** `setupTaskSwitcher` compares the configured binding against the
-      literal `` 'ctrl+`' ``, so any other binding silently never fires. **Now a blocker** — there are
-      two hotkeys (mode switch, application switch). **S** · mesh-api issue #7
-- [ ] **A1.5 Merge `LayoutConfig.regions` into the window manager.** They describe the same thing;
-      a tiled layout is windows arranged as tiles. Do this *as* A2, not before it. **M** ·
+- [ ] **A1.3 `ScopedStorage` is async.** A synchronous `get<T>(key, fallback): T` cannot be backed by
+      anything remote. **S** · [storage §6](./storage-and-registry.md)
+- [ ] **A1.4 One hotkey parser, and bindings are data.** The old task switcher compared the configured
+      binding against the literal `` 'ctrl+`' ``, so any other binding silently never fired. mesh-api
+      issue #7 — the single most concrete thing carried out of the deleted code. **S**
+- [ ] **A1.5 There is no `LayoutConfig.regions`.** Regions and windows are one concept; a tiled layout
+      is windows arranged as tiles. This is A2.3, not a separate migration. **—** ·
       [README §3](./README.md)
-- [ ] **A1.6 README correction** — already done, listed for completeness. ✅
+- [ ] **A1.6 No `defineApp`, no module-level app registry.** Resolved by deletion; listed so it is not
+      reintroduced as a convenience. **—** · A5
 
 ### A2 — The window manager ★
 
@@ -94,15 +112,16 @@ The largest single piece, and the one everything visual waits on. Nothing here e
 
 ### A3 — The capabilities
 
-Ten declared, one implemented. Each is an interface that already exists in
-`src/contribution/capabilities.ts`; the work is the implementation behind it plus tests.
+Ten capabilities, none implemented and none declared any more — the interfaces went with everything
+else. Their shapes are in history (`git show 4cd801d^:src/contribution/capabilities.ts`) and were
+sound; each item below is the interface *and* the implementation behind it.
 
 - [ ] **A3.1 `net`** — the HTTP abstraction over a site's API. Base URL from the deployment
       descriptor, ticket attached by the auth Extension, not by each caller. **M** ·
       [hosting §4](./hosting.md)
-- [ ] **A3.2 `events`** — the SSE bridge, already coded but **untested here**: its only coverage
-      (`events.test.ts`) stayed in mesh-api because it stands up a real express server. Needs a test
-      that does not. **S**
+- [ ] **A3.2 `events`** — the SSE bridge. It was written once and its only coverage lived in mesh-api,
+      because the test stood up a real express server. Rebuild it with a test that does not need one.
+      **M**
 - [ ] **A3.3 `commands`** — registration, invocation, argument typing, the palette's data source. **M**
 - [ ] **A3.4 `keys`** — binding registration and resolution, sharing one parser with A1.4. **S**
 - [ ] **A3.5 `menus`** — menubar, window, status and `context:*` targets. **M**
@@ -132,14 +151,15 @@ The NT-style part. All design, no code. [storage-and-registry.md](./storage-and-
       running page. A locked blog is a policy value, not a mechanism. **S** ·
       [storage §2](./storage-and-registry.md) · ⛔ B2
 
-### A5 — The contribution layer, made real
+### A5 — The contribution layer
 
-The types are settled and checked. Nothing constructs anything yet, and the *old* model is still in
-the tree beside the new one.
+The design here is settled and was type-checked once; the code is gone. The type-level guarantees are
+the part to rebuild deliberately rather than approximate — [status §2](./status.md) records what held
+up and the three interface faults only a typechecker found.
 
-- [ ] **A5.1 ★ Retire `defineApp` and `src/app/registry.ts`.** The module-level registry is the exact
-      pattern the contribution layer exists to replace, and it is still exported from `src/index.ts`.
-      Two models in one runtime is the thing to not ship. **M** · [README](../README.md)
+- [ ] **A5.1 ★ `Application` and `Extension`, capabilities, provider tokens.** `needs: [...] as const`
+      narrows `CapabilityContext<TNeeds>` so an undeclared capability is a compile error, with
+      `@ts-expect-error` assertions in CI that fail the build if the narrowing widens. **M**
 - [ ] **A5.2 The host constructs bundles** — load a module, `constructApplication` /
       `constructExtension` its default export, build the narrowed `CapabilityContext` from its
       `needs`, and refuse anything undeclared at runtime as well as at compile time. **M**
@@ -219,8 +239,9 @@ mesh-web's server half. **None of it exists** — no server, no builder, no `web
 
 ## Track C — The API and identity
 
-Two components. **mesh-identity does not exist.** mesh-api exists and is explicitly not a fixed
-point: mesh-web leads and mesh-api adapts. [auth.md](./auth.md).
+Two components, **neither of which exists**. mesh-identity was never written; mesh-api was written
+and then deleted rather than ported, because it was never a fixed point — mesh-web leads and mesh-api
+is built against these specs. [auth.md](./auth.md).
 
 ### C1 — mesh-identity
 
@@ -278,21 +299,22 @@ point: mesh-web leads and mesh-api adapts. [auth.md](./auth.md).
 - [ ] **C3.5 WebSockets**, the third named interface. **M**
 - [ ] **C3.6 Addressing is a deployment choice.** A process may have its own URL; nothing may assume
       sticky routing or require a load balancer. **S** · [hosting §4](./hosting.md)
-- [ ] **C3.7 Delete `src/runtime/`** once surfdns has switched imports. **S** · ⛔ Track D
-- [ ] **C3.8 Abandon `spec/13-applications-and-extensions`** — the branch of closed PR #6. Its shell
-      profiles are superseded; only issue #7 was worth keeping. **S**
-- [ ] **C3.9 Land or close PR #5** (`tony/33-slotted-surfaces`). Open and green; its fix is already
-      carried into mesh-web, so it only matters while surfdns still consumes
-      `@flybyme/mesh-api/runtime`. **S**
-- [ ] **C3.10 Generated typed client** — surfdns #15, and the third option for the surfdns-console
+- [ ] **C3.7 Close the stale branches and PRs.** `spec/13-applications-and-extensions` (closed PR #6)
+      and `tony/33-slotted-surfaces` (open PR #5) both target a tree that no longer exists. Close #5
+      rather than merging it into nothing. **S**
+- [ ] **C3.8 Generated typed client** — surfdns #15, and the third option for the surfdns-console
       schema boundary. **M**
+- [ ] **C3.9 Keep issue #7 fixed.** The task switcher hotkey bug is the one finding carried out of the
+      deleted code; it is A1.4, recorded here so mesh-api's issue can be closed against it. **S**
 
 ---
 
 ## Track D — surfdns and the console
 
-Trails the three tracks. Nothing here should start before A5 and A2, because the screens would be
-ported twice.
+**surfdns requires complete rework.** Five of its packages depend on `github:FLYBYME/mesh-api`, which
+is now an empty repository, and its console imports `@flybyme/mesh-api/runtime`, which is gone. This
+is accepted, not a regression to repair — but it means Track D is a rewrite against the finished
+framework, and nothing here should start before A5 and A2.
 
 - [ ] **D.1 Decide the schema boundary** for surfdns-console: the client declares its own shapes /
       surfdns publishes a schema package / a generated typed client. Four symbols
@@ -304,10 +326,10 @@ ported twice.
       views. **M** · ⛔ A5.1, A2
 - [ ] **D.4 Console deployment descriptor** — production host, production API, other environments.
       **S** · ⛔ B8
-- [ ] **D.5 Remove the UI from surfdns.** A coordinated change across surfdns, surfdns-console and the
-      serving layer. **M**
-- [ ] **D.6 Switch surfdns's imports and import map** — `@flybyme/mesh-api/runtime` →
-      `@flybyme/mesh-web`, in both `SHARED_MODULES` and `IMPORT_MAP_BASE`. **S**
+- [ ] **D.5 Remove the UI from surfdns.** No longer a coordinated migration — the thing it imported is
+      deleted, so this is removal, not a cutover. **M**
+- [ ] **D.6 Repoint surfdns's five packages** off `github:FLYBYME/mesh-api`. They will not install
+      until this is done and mesh-api is rebuilt. **M**
 - [ ] **D.7 Actually look at it.** Nobody has ever seen the console's header and footer render.
       Everything typechecks and builds; nothing has been witnessed. **S**
 - [ ] **D.8 surfdns #26** — nobody can be a platform operator. Blocks the `admin` role. **M**
@@ -320,6 +342,10 @@ ported twice.
 ## Milestones
 
 Four checkpoints, each a thing you can look at rather than a percentage.
+
+**M0 — It builds again.**
+A0
+*A package, a typecheck, a test run, reactivity and DOM.* Nothing visible; the floor.
 
 **M1 — A window you can drag.**
 A1 · A2.1 · A2.2 · A2.6 · A5.1 · A5.2

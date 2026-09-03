@@ -21,65 +21,95 @@ framework, the CDN and the API where they are meant to be, marked with what bloc
 
 ## 1. The repositories
 
-| repo | branch | head | state |
-| --- | --- | --- | --- |
-| **mesh** | master | `1cb54e5` | Clean. v2.1.0 tagged. Nothing open. |
-| **mesh-api** | `spec/13-applications-and-extensions` | `5d558de` | Clean, but on a stale branch — see below. |
-| **mesh-web** | master | this | 182 tests, typecheck 0, build 0. Pushed. |
-| **surfdns** | master | `cece581` | Clean, green, **still contains all the UI**. |
-| **surfdns-console** | master | `772cdef` | Staged files only. **Does not build.** |
+| repo | branch | state |
+| --- | --- | --- |
+| **mesh** | master `1cb54e5` | Clean. v2.1.0 tagged. Nothing open. **Untouched by the reset.** |
+| **mesh-api** | master | **Emptied.** Every file deleted. |
+| **mesh-web** | master | **Emptied except `spec/`.** These six documents are the whole repository. |
+| **surfdns** | master `cece581` | Clean and green, but **requires complete rework**. |
+| **surfdns-console** | master `772cdef` | Staged files only. Does not build. Superseded by the reset. |
 
 Both new repositories are private on GitHub:
 - https://github.com/FLYBYME/mesh-web
 - https://github.com/FLYBYME/surfdns-console
 
-### mesh-api is on a branch that should be abandoned
+### The reset — 2026-09-02
 
-`spec/13-applications-and-extensions` holds PR #6, which was **closed unmerged** — its shell-profile
-model was superseded (the workbench is an Extension over a real window manager, not a mode baked into
-the framework). The branch still exists locally. Nothing on it is worth keeping except the task
-switcher findings, which were filed separately as mesh-api issue #7.
+mesh-web's runtime and contribution layer (120 files, ~20k lines) and the whole of mesh-api
+(168 files, ~28.5k lines) were deleted. **Nothing was ported.** What remains of two repositories is
+this `spec/` directory.
 
-**mesh-api PR #5** (`tony/33-slotted-surfaces`) is still open and green. Its fix has already been
-carried into mesh-web, so merging it only matters if surfdns keeps consuming
-`@flybyme/mesh-api/runtime` in the meantime.
+This is not a loss of information — every deleted line is in git history on both remotes, and the
+branches are untouched. It is a decision about what to build *from*. The runtime carried the previous
+generation's model in its bones: `defineApp` and a module-level registry, `LayoutConfig.regions`
+alongside a window manager that would have replaced it, `Application.surfaces` required on a contract
+that had already been retracted, a synchronous `ScopedStorage` that no remote provider could back.
+Porting it forward meant carrying those decisions into the rewrite and then arguing them back out
+one at a time.
+
+So the specs lead and the code follows them, which is the order [hosting](./hosting.md) §1 already
+stated for mesh-api and is now simply true of both.
+
+**Consequence, accepted:** surfdns requires complete rework. Five of its packages depend on
+`github:FLYBYME/mesh-api`, which resolves to that repository's default branch — so surfdns's install
+breaks the moment mesh-api's empty master is pushed. Its console imports
+`@flybyme/mesh-api/runtime`, which no longer exists. Neither is a regression to fix; both are the
+rework.
+
+The abandoned mesh-api branches (`spec/13-applications-and-extensions`, holding closed PR #6, and
+`tony/33-slotted-surfaces`, holding open PR #5) are moot. Nothing on either is worth carrying
+forward except mesh-api issue #7, the task switcher hotkey bug, which is recorded in
+[roadmap](./roadmap.md) A1.4 as a thing not to reintroduce.
 
 ---
 
 ## 2. What is code, and what is only design
 
-**Code, working, tested:**
+**Code: none.** Both repositories are empty. There is no runtime, no contribution layer, no
+components, no build, no tests, no server.
 
-- The browser runtime, moved whole out of mesh-api — reactivity, DOM and 13 components, router,
-  manifest, app host and compositor, SSE event-bridge client. 182 tests.
-- The contribution layer's **types**: `Application`, `Extension`, capabilities, provider tokens,
-  `constructApplication` / `constructExtension`. Type-level guarantees verified with
-  `@ts-expect-error` and checked in CI.
-- `tsconfig.json` sets `types: []` so a node import in `src/` is a compile error.
+**Design: all of it.** The five documents beside this one, and the checklist in
+[roadmap](./roadmap.md).
 
-**Design only, no code:**
+That is the entire state, and it is worth stating that plainly rather than in a table, because it is
+the one fact that changes how everything else here should be read. Nothing below is describing
+something you can run.
 
-- Every capability except `state`. `net`, `events`, `commands`, `keys`, `menus`, `notifications`,
-  `models`, `windows`, `storage`, `log` are declarations.
-- The entire window manager. Nothing tiles, floats, moves, resizes or persists geometry.
-- The registry, all providers, hives, policy.
-- The builder and the CDN. mesh-web has no server half at all yet.
-- mesh-identity. Does not exist.
+### What the deleted code had settled
 
-**Known wrong in the code, per the specs:**
+Deleting the implementation does not delete what writing it established. These held up and should be
+rebuilt, not rediscovered:
 
-1. `Application.surfaces` is **required** and must become optional — a headless Application is a
-   background process ([README](./README.md) §1). The `constructApplication` guard that checks for it
-   goes too.
-2. `WindowPreferences` sits on `Application`. If a window holds a view, defaults belong per view.
-3. `ScopedStorage.get<T>(key, fallback): T` is synchronous and cannot be backed by anything remote
-   ([storage](./storage-and-registry.md) §6).
-4. `LayoutConfig.regions` and the window manager describe the same thing and must merge.
-5. The task switcher hotkey is compared against the literal `` 'ctrl+`' ``, so any other configured
-   binding silently never fires. mesh-api issue #7, moved here with the runtime. **Now a blocker**,
-   because there are two hotkeys.
-6. mesh-web's README still says the package is "everything that runs in a tab". It is also a server
-   process ([hosting](./hosting.md) §1).
+- **A bundle `export default`s a class; the host constructs it.** No `define*`, no module-level
+  registry. The type-level narrowing worked: `needs: [...] as const` produced a
+  `CapabilityContext<TNeeds>` on which an undeclared capability was a compile error, and
+  `@ts-expect-error` assertions in CI failed the build if the narrowing ever widened.
+- **Provider tokens carry a type across a boundary neither side imports over** — a `unique symbol`
+  phantom on `ProviderToken<T>`, with `provides` checked against `activate`'s return type.
+- **Erased contexts stay assignable** through method bivariance, so the host can hold heterogeneous
+  contributors without a cast. This was verified: the `as unknown as` cast the first draft needed
+  turned out to be unnecessary.
+- Three interface faults that only a typechecker finds: `needs?: TNeeds` rejects `as const` tuples
+  and wants `Readonly<TNeeds>`; an erased return type must not demand a full capability map; and
+  `implements` against an all-optional interface silently hits TypeScript's weak-type check.
+
+### What the deleted code had wrong
+
+The reason it was not worth porting. Each is now a roadmap item rather than a defect:
+
+1. `Application.surfaces` was **required**, on the argument that a destination appearing nowhere is
+   not a destination. That argument was wrong — an Application is a process, and a headless one is
+   ordinary ([README](./README.md) §1). → roadmap A1.1
+2. `WindowPreferences` sat on `Application`. A window holds a view, so defaults belong per view.
+   → A1.2
+3. `ScopedStorage.get<T>(key, fallback): T` was synchronous and could not be backed by anything
+   remote ([storage](./storage-and-registry.md) §6). → A1.3
+4. `LayoutConfig.regions` and the window manager described the same thing. → A1.5
+5. The task switcher compared the configured hotkey against the literal `` 'ctrl+`' ``, so any other
+   binding silently never fired. mesh-api issue #7. **A blocker by the time there are two hotkeys.**
+   → A1.4
+6. `defineApp` and a module-level app registry were still exported beside the contribution layer
+   built to replace them — two models in one runtime. Deletion resolves this one outright. → A5.1
 
 ---
 
@@ -190,27 +220,35 @@ Condensed. Each links to the reasoning.
 
 ---
 
-## 5. Pending work, not started
+## 5. Pending work
 
-**surfdns-console** is a copy, not a package. No `package.json`, no tsconfig, no CI, and every import
-still points into the surfdns monorepo. It was deliberately left there: the screens use `defineApp`
-and place themselves into `LayoutConfig` regions, and both are being replaced, so wiring it now means
-porting the screens twice.
+All of it. [`roadmap.md`](./roadmap.md) is the list; this is what specifically changed shape when the
+code was deleted.
 
-Its blocking question: the screens import four response schemas — `WhoamiOutputSchema`,
-`MembersOutputSchema`, `NodeStatusOutputSchema`, `roleSatisfies` — across what is about to become a
-network boundary. Three options, none chosen: the client declares its own shapes; surfdns publishes
-a schema package; or a generated typed client (surfdns issue #15).
+**mesh-web starts from nothing.** No `package.json`, no tsconfig, no CI. The first commits are
+scaffolding, and the constraints that scaffolding must re-establish are worth writing down now
+because they were load-bearing and are easy to omit: `types: []` in the browser package's
+`tsconfig.json`, so importing a node builtin is a compile error rather than a runtime surprise; and
+the rule that **the browser never joins the mesh** — it speaks HTTP to a node's API, and does not run
+a `MeshApp` over a WebSocket transport in a tab.
 
-**surfdns still has all its UI.** Nothing was removed. The removal is a coordinated change across
-surfdns, surfdns-console and whatever replaces the serving layer.
+**mesh-api starts from nothing**, and is rebuilt against [service-modules](./service-modules.md) §2
+rather than ported.
 
-**mesh-api still has `src/runtime/`.** The move to mesh-web was a copy. Deleting it breaks surfdns
-until surfdns switches its imports and its import map (`@flybyme/mesh-api/runtime` →
-`@flybyme/mesh-web`, in both `SHARED_MODULES` and `IMPORT_MAP_BASE`).
+**surfdns requires complete rework**, which is accepted rather than scheduled — see §1. Its five
+packages depend on `github:FLYBYME/mesh-api` and its console imports
+`@flybyme/mesh-api/runtime`; neither survives.
 
-**Nobody has seen the console's header and footer render.** agy's Playwright install failed and the
-Chrome extension was disconnected. Everything typechecks and builds; nothing was witnessed.
+**surfdns-console** is still a copy of screens written against `defineApp` and `LayoutConfig`
+regions. Both are now deleted rather than deprecated, so the port is a rewrite. Its blocking
+question survives the reset unchanged: four response schemas — `WhoamiOutputSchema`,
+`MembersOutputSchema`, `NodeStatusOutputSchema`, `roleSatisfies` — cross what is about to become a
+network boundary, and none of the three options is chosen.
+
+**Nobody has ever seen the console render.** agy's Playwright install failed and the Chrome
+extension was disconnected. It typechecked and built; it was never witnessed, and now the thing that
+built it is gone. Worth remembering as a standard to hold to next time — typechecks passing is not
+the same as having looked at it.
 
 ---
 
