@@ -2,9 +2,9 @@
 
 The part that is running before anything is loaded, and that everything else is loaded *by*.
 
-**Status.** Design, and newer than the rest — the kernel had not been named before this document, so
-most of it is **Proposed** rather than **Decided**. Where it restates something already settled it
-says so and links to it.
+**Status.** **Decided:** there is a kernel, it drives everything, and it cannot be replaced by what
+it loads. Most of the detail below is **Proposed** — the kernel had not been named before this
+document. Where it restates something already settled, it says so and links to it.
 
 Companions: [the model](./README.md) · [Extensions](./extension.md) · [Applications](./application.md)
 · [storage and the registry](./storage-and-registry.md) · [hosting](./hosting.md) ·
@@ -12,7 +12,7 @@ Companions: [the model](./README.md) · [Extensions](./extension.md) · [Applica
 
 ---
 
-## 1. Why there is a kernel at all — **Proposed**
+## 1. Why there is a kernel at all — **Decided**
 
 The framework already had a rule: an Extension declares `needs('net', 'commands')` and
 gets a context on which `cx.notifications` is a compile error. That rule is worth very little on its
@@ -33,7 +33,7 @@ what happens when a contributor throws.
 
 ---
 
-## 2. The line: kernel or built-in Extension — **Proposed**
+## 2. The line: kernel or built-in Extension — **Decided in shape, Proposed in detail**
 
 Not everything shipped with the framework is *in* the kernel. The process manager is built in, but
 it is an Extension — it has a window, it renders, and it uses ordinary capabilities.

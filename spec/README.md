@@ -103,9 +103,14 @@ Each view needs defaults for both modes, because it has to be reasonable in eith
 | `closable` | whether the user may close it. A blog's header is not closable |
 | `chrome` | which window controls it shows — see below |
 
-**Open:** whether `tile` should name a slot (`header`, `sidebar.primary`) or a position in a split
-tree. A slot is simpler and matches what exists; a split tree is what real tiling needs. These may
-need to be the same thing, with slots being named nodes in the tree.
+**Decided** — it was open here, and [Applications §6](./application.md) settled it: they are the same
+thing. An Application declares a **layout**, which is a split tree whose nodes may be named; `tile`
+names a node. Authors write names and never see a tree; a user dragging a split creates an unnamed
+node.
+
+That section also draws the line this one blurred: **a tile is a slot, a view is what fills it.**
+Several views may target one tile over an Application's life — a blog's `content` tile holds `post`
+while reading and `editor` while writing.
 
 ---
 
@@ -242,20 +247,13 @@ and removes the question of whether a visitor can reach it.
 
 ## 7. What this changes in the code
 
-Written down so it is not lost:
+**Nothing, now.** This section listed six defects in a runtime that has since been deleted
+([status §1](./status.md)) — `Application.surfaces` being required, `WindowPreferences` on the wrong
+thing, `LayoutConfig.regions` needing to merge with the window manager, and so on.
 
-1. **`Application.surfaces` must become optional.** A headless Application is a background process
-   and is legitimate. The current requirement, and the `constructApplication` guard that checks for
-   it, are both wrong and were argued from "a destination must appear somewhere" — the wrong framing.
-2. **`WindowPreferences` is on the wrong thing.** It sits on `Application` and assumes a window is a
-   whole Application. If a view is a window, defaults belong per view.
-3. **Regions and the window manager must merge.** `LayoutConfig.regions` and the compositor's region
-   placement describe tiled mode. They are not a separate concept from windows.
-4. **View state needs an owner and a store.** Nothing today persists geometry, z-order or mode.
-   [Storage and the registry](./storage-and-registry.md) gives it one.
-5. **A capability for mode control**, gated — an Application should not be able to switch the host's
-   mode just because it can see it.
-6. **A real hotkey parser**, before anything binds a second key. See §6.
+They survive as constraints on what replaces it rather than as fixes, and they live in one place:
+**[roadmap A1](./roadmap.md), "the retractions, so they are not rebuilt."** Keeping a second copy
+here would guarantee the two drift.
 
 ---
 
@@ -270,14 +268,16 @@ conversation so they are not lost.
   everything consuming it breaks. In OS terms an Extension is *installed* — a driver registered with
   the kernel, singleton by nature — and an Application is *run*: a process in the process table,
   with N possible instances, stoppable and restartable, listed in the process manager.
-- **`tile` as a slot name or a position in a split tree?** — **Proposed: both.** It is a split tree
-  whose nodes may be named. `tile: 'header'` resolves to the node named `header`; user-dragged
-  splits create unnamed nodes. A blog author writes names and never sees a tree; an IDE user drags
-  splits and never writes a name.
-- **Can one view live in two windows?** — **Proposed: no.** A view instance is in exactly one
-  window; a DOM element has one parent and anything else means mirroring. Two windows means two
-  instances. A split editor showing one document twice already works without a new concept, because
-  view state and application state are separate (§4): two view instances, one application state.
+- ~~**`tile` as a slot name or a position in a split tree?**~~ **Decided: both**, in
+  [Applications §6](./application.md). A split tree whose nodes may be named; `tile: 'header'`
+  resolves to the node named `header`, and user-dragged splits create unnamed ones. That section also
+  separates the tile (a slot) from the view (what fills it), which is the part this document had
+  conflated.
+- ~~**Can one view live in two windows?**~~ **Decided: no.** A view instance is in exactly one
+  window. Two windows means two instances over one application state, which is how a split editor
+  showing one document twice works with no new concept — view state and application state are
+  separate (§4). Instance identity is the view id plus a key from its params
+  ([Applications §6](./application.md)).
 - **What does a caller do with a detected conflict?** — **Proposed:** a `conflict` field on a
   setting declaration, defaulting to `reject`. Safe by default; window geometry opts into
   last-write-wins explicitly rather than everything silently doing it. See

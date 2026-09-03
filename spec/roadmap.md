@@ -30,9 +30,13 @@ D2–D4.
       `build_start`/`build_status`. *Recommend: subset at construction*, which is now what mesh-web
       needs to be deployable at all. [service-modules §3, §4](./service-modules.md)
 - [ ] **D2 Headless Application distinct from Extension** — *recommend yes*. [README §8](./README.md)
-- [ ] **D3 `tile` is a split tree with named nodes** — *recommend both*: named nodes for authors,
-      unnamed for dragged splits. [README §8](./README.md)
-- [ ] **D4 One view instance per window** — *recommend no sharing*. [README §8](./README.md)
+- [x] **D3 `tile` is a split tree with named nodes** — **decided: both.** An Application declares a
+      layout; `tile` names a node; dragged splits create unnamed ones. And a tile is a *slot*, not a
+      view — several views target one tile over an Application's life.
+      [application §6](./application.md)
+- [x] **D4 One view instance per window** — **decided: no sharing.** Two windows means two instances
+      over one application state; identity is the view id plus a key from its params.
+      [application §6](./application.md)
 - [ ] **D5 Conflict policy on a setting declaration, defaulting to `reject`** — *recommend yes*.
       [README §8](./README.md) · [storage §7](./storage-and-registry.md)
 - [ ] **D6 Does mesh-web's server half live in this repository?** — the `tsconfig.json` sets

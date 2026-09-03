@@ -37,7 +37,7 @@ framework, the CDN and the API where they are meant to be, marked with what bloc
 | --- | --- | --- |
 | **mesh** | master `1cb54e5` | Clean. v2.1.0 tagged. Nothing open. **Untouched by the reset.** |
 | **mesh-api** | master | **Emptied.** Every file deleted. |
-| **mesh-web** | master | **Emptied except `spec/`.** These six documents are the whole repository. |
+| **mesh-web** | master | **Emptied except `spec/` and `demo/`.** The spec is the repository. |
 | **surfdns** | master `cece581` | Clean and green, but **requires complete rework**. |
 | **surfdns-console** | master `772cdef` | Staged files only. Does not build. Superseded by the reset. |
 
