@@ -13,3 +13,4 @@
 
 export * from './reactivity/index.js';
 export * from './description/index.js';
+export * from './render/index.js';

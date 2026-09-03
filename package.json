@@ -30,6 +30,7 @@
     "private": true,
     "devDependencies": {
         "@types/node": "^26.4.1",
+        "jsdom": "^30.0.1",
         "typescript": "^5.9.3",
         "vitest": "^2.1.9"
     }

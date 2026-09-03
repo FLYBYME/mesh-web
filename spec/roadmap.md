@@ -87,8 +87,14 @@ zero, which is the point of the reset — see [status §1](./status.md).
 - [x] **A0.4 ★ The description layer** — elements, text, `when`, `each`, intents, actions, the
       handler table, and `flatten()` as the test renderer. Plain data throughout; a full render
       asserts with no DOM. [view-layer §2](./view-layer.md)
-- [ ] **A0.5 ★ The renderer** — description → DOM, with signals bound fine-grained at construction.
-      One path, no VDOM, no diffing. Kernel-owned. **L** · [view-layer §4](./view-layer.md)
+- [x] **A0.5 ★ The renderer** — description → DOM, signals bound fine-grained at construction, no
+      VDOM and no diffing. `when` anchored on comment markers so it introduces no wrapper element;
+      `each` keyed so a reorder moves the same nodes; device events mapped to intents; disposal by
+      reactive scope. Asserted by node identity, not by markup.
+      [view-layer §4](./view-layer.md)
+- [ ] **A0.5a Browser tests for the renderer.** jsdom covers reconciliation, binding, disposal and
+      intent mapping. It does not cover layout, focus, real input devices or anything measured, and
+      [testing §4](./testing.md) says that is where the risk is. **M**
 - [ ] **A0.6 Router** — routing, scoped routers, scroll and focus restoration. **M**
 
 A0.3 and A0.6 are parts of the deleted runtime with no design defect against them — deleted because
