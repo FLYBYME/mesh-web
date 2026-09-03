@@ -172,13 +172,18 @@ sound; each item below is the interface *and* the implementation behind it.
       boundary, scoped rather than global, and only what the descriptor exposes. Twenty tests, six of
       them `@ts-expect-error` — an unexposed action, a wrong input, another API's action, and a value
       read before its failure was considered all fail to compile.
-- [ ] **A3.1a-ii ★ The emitter** — exposure descriptor JSON → that file. Deliberately second: it
-      needed a target, and now it has one. **No longer blocked** — mesh-api's `describeExposure()`
-      (C3.1a) produces exactly the JSON this reads: a key, a method, a path, a gate, and JSON Schema
-      for input and output. What remains is JSON Schema → TypeScript, which is the whole of the work.
-      **L** · [network §3](./network.md)
-- [ ] **A3.1b Exposure hash checked in CI and reported by the API**, so a stale client cannot vouch
-      for an API that has moved on. **M** · [network §6](./network.md)
+- [x] **A3.1a-ii ★ The emitter.** Lives in **mesh-api** — this package sets `types: []`, so a
+      file-writing generator cannot compile here, and mesh-api owns the descriptor anyway.
+      JSON Schema → TypeScript, with one rule: **a schema that cannot be represented fails the
+      build**, because an `unknown` in a generated client type-checks everywhere and tells nobody.
+      Verified by compiling the emitted file against this package's real `defineApi`/`call` together
+      with a usage file whose every assertion is a type assertion.
+      Declared errors are emitted as a literal union, so a `switch` on `error.name` is checked.
+- [x] **A3.1b Exposure hash checked in CI and reported by the API.** Both halves exist:
+      `mesh-api-generate-client --check` fails a build on a stale client, the API reports
+      `x-exposure` on every response including refusals, and `createClient` refuses to speak to an
+      API serving a different hash. The descriptor verifies its own hash on read, so editing a gate
+      from `user` to `public` in the JSON is caught. [network §6](./network.md)
 - [x] **A3.1c Errors are part of the type** — a call returns a result naming its failures, and the
       value is only reachable after the check. **Done** with A3.1a-i: `Result<T, E>` as a
       discriminated union, nine named transport failures rather than status codes, and a `declared`
