@@ -17,10 +17,11 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { flushSync, signal } from '../src/reactivity/index.js';
+import { effect, flushSync, signal } from '../src/reactivity/index.js';
 import { command, each, element, empty, text, when, createHandlerTable } from '../src/description/index.js';
 import type { Action } from '../src/description/index.js';
 import { createRegistry, PRIMITIVES, render, type Dispatcher } from '../src/render/index.js';
+import { mountView } from '../src/window/host.js';
 
 /** Let batched effects run. See the note above. */
 const tick = (): void => flushSync();
@@ -412,5 +413,69 @@ describe('the same description renders both ways', () => {
         const { host, components, dispatch, html } = setup();
         render(element('Row', { children: [empty()] }), host, { components, dispatch });
         expect(html()).toBe('<div></div>');
+    });
+});
+
+/**
+ * The ownership bug a real user found, held down by a test.
+ *
+ * Reported as "when I click new post I only see it after I open a second window". The second window
+ * was a fresh mount reading current state; the first had been disposed by the very effect that
+ * created it — a shell paints its windows from an effect, so `mountView` is called from inside one,
+ * and an effect disposes the scopes created during its last run before running again.
+ *
+ * Nothing in the 95 unit tests could see it, because every one of them mounted from the top level.
+ * It only appears when something *else* re-runs.
+ */
+describe('a view mounted inside an effect is not owned by that effect', () => {
+    it("keeps updating after the effect that mounted it re-runs", () => {
+        const { host, components, dispatch } = setup();
+
+        const posts = signal<readonly string[]>(['first']);
+        const focused = signal('w1');
+        const mounted: { dispose(): void }[] = [];
+
+        // The shell: an effect that repaints on any window change and mounts the view while it does.
+        effect(() => {
+            focused();                       // the shell reads window state, as a shell does
+            if (mounted.length > 0) return;  // mount once, like a real shell keyed by window id
+
+            mounted.push(mountView(host, {
+                windowId: 'w1',
+                decl: {
+                    id: 'main',
+                    title: 'Posts',
+                    render: () => element('List', {
+                        children: [each(() => posts(), (p: string) => p, (p: () => string) =>
+                            element('ListItem', { children: [text(() => p())] }))],
+                    }),
+                } as never,
+                api: undefined,
+                params: {},
+                windows: { setTitle: () => {}, close: () => {} } as never,
+                render: { components, dispatch },
+                onCommand: () => {},
+            }));
+        });
+
+        tick();
+        expect(host.querySelectorAll('li')).toHaveLength(1);
+
+        // A focus change. Enough on its own to re-run the shell's effect — and, before the fix, to
+        // dispose the view it had mounted.
+        focused.set('w2');
+        tick();
+
+        posts.set(['first', 'second']);
+        tick();
+
+        expect(host.querySelectorAll('li')).toHaveLength(2);
+        expect(host.textContent).toBe('firstsecond');
+
+        // And the caller is still the owner: disposing really disposes.
+        mounted[0]!.dispose();
+        posts.set(['first', 'second', 'third']);
+        tick();
+        expect(host.querySelectorAll('li')).toHaveLength(0);
     });
 });

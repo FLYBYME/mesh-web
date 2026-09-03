@@ -13,4 +13,4 @@ export { computed } from './computed.js';
 export { effect } from './effect.js';
 export { batch, untrack, flushSync } from './batch.js';
 export { resource, type ResourceMutator } from './resource.js';
-export { createScope } from './scope.js';
+export { createScope, createDetachedScope } from './scope.js';

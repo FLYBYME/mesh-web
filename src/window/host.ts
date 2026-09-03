@@ -11,7 +11,7 @@
  * returned an API from `start()`, and a view is a pure function of that.
  */
 
-import { createScope } from '../reactivity/scope.js';
+import { createDetachedScope } from '../reactivity/scope.js';
 import type { ReactiveScope } from '../reactivity/types.js';
 import { createHandlerTable, type HandlerTable } from '../description/build.js';
 import type { Action, Json } from '../description/types.js';
@@ -45,7 +45,15 @@ export interface ViewInstance {
  * (spec/application.md section 6).
  */
 export function mountView(host: Element, options: ViewHostOptions): ViewInstance {
-    const scope: ReactiveScope = createScope();
+    // Detached, and this is load-bearing. A shell naturally paints its windows from an effect, so
+    // `mountView` is naturally called from inside one — and an effect disposes the scopes created
+    // during its last run before running again. A view mounted that way dies the first time the
+    // shell repaints for any reason at all (a focus change is enough), stays on screen, and stops
+    // updating. It reads exactly like a broken reconciler and is an ownership bug.
+    //
+    // This function returns a `dispose()`. That makes the caller the owner, and something with an
+    // explicit owner must not also have an implicit one.
+    const scope: ReactiveScope = createDetachedScope();
     const handlers = createHandlerTable(options.windowId);
     const cleanups: (() => void)[] = [];
 
