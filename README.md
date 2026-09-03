@@ -1,17 +1,25 @@
 # @flybyme/mesh-web
 
-The browser half of the mesh framework.
+The web half of the mesh framework: an abstract operating system in a browser, and the builder and
+CDN that serve it.
 
-The framework has three core parts:
+**Start with [`spec/status.md`](./spec/status.md)** — what exists, what was decided, what is open,
+and what to pick up next. The design is five documents; that one is the index.
 
 | | |
 |---|---|
 | **mesh** | the framework — services, contracts, broker, registry |
-| **mesh-api** | mesh constructs turned into interfaces — REST, SSE, MCP, OpenAPI |
-| **mesh-web** | everything that runs in a tab |
+| **mesh-api** | the gatekeeper: mesh constructs turned into interfaces — REST, SSE, MCP |
+| **mesh-identity** | people, credentials, tickets, roles. The only thing that issues. Not built. |
+| **mesh-web** | the browser framework, the builder, the CDN |
 
-This package was `@flybyme/mesh-api/runtime` until those three were separated. It is the same code,
-moved, plus the contribution layer.
+This package was `@flybyme/mesh-api/runtime` until those parts were separated. The browser runtime is
+the same code, moved, plus the contribution layer.
+
+**mesh-web is two things**, and only the first exists today: a browser framework, and a server
+process running its own HTTP server. See [`spec/hosting.md`](./spec/hosting.md) §1. The rule below
+about node builtins applies to the browser half; the server half will be a peer of it with its own
+build, and the two never import each other's internals.
 
 ## What is here
 
@@ -82,6 +90,11 @@ Extension contracts and the capability interfaces are settled, and only `state` 
 `net`, `events`, `commands`, `keys`, `menus`, `notifications`, `models` and `windows` are being
 built. They are written down first because a capability whose shape is decided after its consumers
 exist is a capability shaped by whoever called it first.
+
+The window manager, the registry, the builder and the CDN are design only. So is mesh-identity.
+[`spec/status.md`](./spec/status.md) §2 lists what is code, what is design, and the six things
+already known to be wrong in the code against the specs — including that `Application.surfaces`
+should be optional, since a headless Application is a background process.
 
 ## Rules
 
