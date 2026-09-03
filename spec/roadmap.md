@@ -78,16 +78,15 @@ zero, which is the point of the reset — see [status §1](./status.md).
 
 ### A0 — Scaffolding
 
-- [ ] **A0.1 The browser package** — `package.json`, `tsconfig.json`, vitest, CI. Two constraints
-      that were load-bearing before and must be re-established, not remembered: **`types: []`** so a
-      node import is a compile error, and CI checking it again. **S**
-- [ ] **A0.2 State the boundary in the README: the browser never joins the mesh.** It speaks HTTP to
-      a node's API. A `MeshApp` over a WebSocket transport in a tab makes every browser a peer on the
-      cluster network. **S**
-- [ ] **A0.3 Reactivity** — signals, computeds, effects, resources, scopes. **M**
-- [ ] **A0.4 ★ The description layer** — the node tree an Application produces. Plain data:
-      components and props, no DOM types, no closures crossing. **M** ·
-      [view-layer §2](./view-layer.md)
+- [x] **A0.1 The browser package** — `package.json`, `tsconfig.json` with `types: []`, vitest, CI.
+      Done 2026-09-03.
+- [x] **A0.2 The boundary is stated and guarded.** `src/index.ts` carries both rules;
+      `test/boundaries.test.ts` checks that nothing in `src/` imports node and nothing in
+      `src/description/` names a DOM type. Verified to fail when violated.
+- [x] **A0.3 Reactivity** — recovered from history rather than rewritten. 990 lines.
+- [x] **A0.4 ★ The description layer** — elements, text, `when`, `each`, intents, actions, the
+      handler table, and `flatten()` as the test renderer. Plain data throughout; a full render
+      asserts with no DOM. [view-layer §2](./view-layer.md)
 - [ ] **A0.5 ★ The renderer** — description → DOM, with signals bound fine-grained at construction.
       One path, no VDOM, no diffing. Kernel-owned. **L** · [view-layer §4](./view-layer.md)
 - [ ] **A0.6 Router** — routing, scoped routers, scroll and focus restoration. **M**

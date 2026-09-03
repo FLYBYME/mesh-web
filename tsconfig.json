@@ -1,0 +1,31 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "noFallthroughCasesInSwitch": true,
+        "exactOptionalPropertyTypes": false,
+
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "outDir": "dist",
+        "rootDir": "src",
+
+        "isolatedModules": true,
+        "verbatimModuleSyntax": true,
+        "useDefineForClassFields": true,
+        "skipLibCheck": true,
+
+        // types:[] so that importing a node builtin in src/ is a compile error rather than a
+        // runtime surprise (spec/status.md section 5). Do not add "node" here — tsconfig.check.json
+        // is where the tests get it.
+        "types": []
+    },
+    "include": ["src/**/*.ts"]
+}

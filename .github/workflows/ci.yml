@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # src/ alone, with types:[] — this is what makes a node import in src/ a compile error
+      # rather than a runtime surprise. It must run separately from the check config, which
+      # adds node types for the tests.
+      - name: Build (src only, no node types)
+        run: npm run build
+
+      - name: Typecheck (src and test)
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # The demo is illustrative and not part of the package, but it is the only place the
+      # contribution types are exercised, so it must keep compiling.
+      - name: Typecheck the demo
+        run: npx tsc -p demo/tsconfig.json

@@ -77,10 +77,26 @@ forward except mesh-api issue #7, the task switcher hotkey bug, which is recorde
 
 ## 2. What is code, and what is only design
 
-**Code: none.** Both repositories are empty. There is no runtime, no contribution layer, no
-components, no build, no tests, no server.
+**Code: the floor, as of 2026-09-03.** `npm run build`, `npm run typecheck` and `npm test` all pass.
 
-**Design: all of it.** The documents beside this one, and the checklist in
+| | |
+| --- | --- |
+| `src/reactivity/` | signals, computeds, effects, resources, scopes, batching. **Recovered from history** (`git show 4cd801d^`), not rewritten — it had no design defect against it. 990 lines. |
+| `src/description/` | **new.** The node tree an Application produces: elements, text, `when`, `each`, intents, actions, the handler table. Plain data throughout. |
+| `src/description/flatten.ts` | the test renderer — resolves every reactive value and expands control flow into a static tree. Also the server-rendering path. |
+| package, tsconfig, vitest, CI | `types: []` on the browser build, so a node import will not compile. |
+
+34 tests, no jsdom and no browser anywhere — which is the property the description layer exists to
+give ([testing §2](./testing.md)).
+
+Two guards in `test/boundaries.test.ts`, and both were **verified to fail when violated** rather than
+assumed: nothing in `src/` imports node, and nothing in `src/description/` names a DOM type. Adding a
+file with `HTMLElement` in it turns the second red.
+
+**Still no code:** the DOM renderer, every capability, the kernel, the window manager, input, the
+registry, the network client, the component vocabulary, and all four server modules.
+
+**Design: everything else.** The documents beside this one, and the checklist in
 [roadmap](./roadmap.md).
 
 **One exception, and it is not the framework:** [`demo/`](../demo) holds an Extension, two

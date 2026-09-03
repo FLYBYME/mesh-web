@@ -1,0 +1,36 @@
+{
+    "name": "@flybyme/mesh-web",
+    "version": "0.1.0",
+    "description": "The browser half of the mesh framework: an abstract operating system in a browser.",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc -p tsconfig.check.json --noEmit",
+        "test": "vitest run",
+        "test:watch": "vitest"
+    },
+    "keywords": [
+        "mesh",
+        "browser",
+        "framework"
+    ],
+    "license": "UNLICENSED",
+    "private": true,
+    "devDependencies": {
+        "@types/node": "^26.4.1",
+        "typescript": "^5.9.3",
+        "vitest": "^2.1.9"
+    }
+}
