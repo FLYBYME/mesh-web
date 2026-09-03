@@ -3,8 +3,9 @@
 The web half of the mesh framework: an abstract operating system in a browser, and the builder and
 CDN that serve it.
 
-**Start with [`spec/status.md`](./spec/status.md)** — what exists, what was decided, what is open,
-and what to pick up next. The design is five documents; that one is the index.
+**Start with [`spec/status.md`](./spec/status.md)** — what exists, what was decided, and what is
+open. Then [`spec/roadmap.md`](./spec/roadmap.md) — the checklist for the UI framework, the CDN and
+the API, ordered, with what blocks what.
 
 | | |
 |---|---|

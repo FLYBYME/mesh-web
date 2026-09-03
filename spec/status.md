@@ -12,6 +12,10 @@ The design lives in five documents. This one is the index and the state of play.
 | [hosting](./hosting.md) | The builder, the CDN, hostnames, multi-tenancy, the proxy |
 | [auth](./auth.md) | Tickets, validation, passkeys, roles, organizations |
 | [service-modules](./service-modules.md) | How the three server halves are structured |
+| **[roadmap](./roadmap.md)** | **The checklist — UI, CDN and API, ordered, with milestones** |
+
+This document is the state. [`roadmap.md`](./roadmap.md) is the work: every item to get the UI
+framework, the CDN and the API where they are meant to be, marked with what blocks it.
 
 ---
 
