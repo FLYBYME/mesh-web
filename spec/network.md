@@ -204,6 +204,66 @@ One generator, three surfaces, one descriptor.
 
 ---
 
+### 5.1 Scoping an event is a different problem from scoping a call — **Decided**
+
+Found while building mesh-api's SSE support, 2026-09-03, and it is the sharpest thing in this
+document because the previous implementation got it wrong in a way that fails **open**.
+
+**A call is scoped by a query filter.** mesh confines a request in `beforeCrud`, using
+`meta.user.tenant_id` — the scope the gate resolved from the caller's memberships. The database never
+sees the other organizations' rows. That works because a request has one caller and one scope, both
+known before the query runs.
+
+**An event has neither.** It is emitted once, to the whole mesh, by whatever caused it — a request, a
+daemon, a timer. It arrives at an API instance holding connections for many users in many
+organizations, and the instance must decide, per subscriber, whether this event is theirs. There is
+no query to filter, and the mesh does not carry the answer: a CRUD event payload is
+`{ domain, id, item }`, and nothing in it is *declared* to be a scope.
+
+`archive/pre-rewrite` guessed. `extractEventScope` searched the payload, then one level of nested
+objects, then packet meta, for any of `orgId`, `tenantId`, `tenant_id`, `organizationId` or `scope`.
+Then:
+
+```js
+if (isScoped && eventScope !== undefined && !sub.isOperator && eventScope !== sub.effectiveScope)
+    continue;   // ← skipped only when a scope was found
+```
+
+**When the guess failed, `eventScope` was `undefined` and the event went to every subscriber.** An
+event declared `scope: 'org'` whose payload happened to name its organization field something else —
+`org`, `ownerOrg`, nested two deep, or an arbitrary `item` from a generic `data.created` — fanned out
+to every connected browser in every organization. The replay path on reconnect had the same check and
+the same hole.
+
+That is a cross-tenant disclosure, arrived at by a name-guess, failing open.
+
+**So, decided:**
+
+1. **An event that cannot be scoped is not delivered.** Fail closed, always. The absence of a scope
+   is not evidence that the event is global.
+2. **Scope is declared, never inferred.** An exposed event names the path to its scope
+   (`scope: { field: 'organizationId' }`) or declares itself unscoped (`scope: 'global'`), and
+   `global` is a decision someone typed. There is no fallback that searches for likely field names —
+   that is the same mistake as extracting `requestedScope` from four caller-controlled keys across
+   three locations, except that the consequence is disclosure rather than confusion.
+3. **A declared field missing at run time is an error, not a broadcast.** It means the contract and
+   the payload disagree, and the safe reading of a disagreement is to deliver to nobody and say so
+   loudly.
+4. **The subscriber's scope comes from the gate**, exactly as a call's does — resolved from
+   memberships at subscribe time, never from a query parameter.
+5. **A revoked ticket closes the stream.** A subscription outlives the request that opened it, so
+   authorization has to be re-checked rather than assumed for the life of the connection. The ticket
+   cache already learns about revocation by event ([auth §3](./auth.md)); a stream holding a revoked
+   ticket is dropped rather than left running.
+
+**Replay is bounded by what one instance saw.** `Last-Event-ID` can only be honoured against that
+instance's own buffer, and [hosting §4](./hosting.md) forbids assuming sticky routing — so a
+reconnect landing elsewhere gets no replay. The honest answer is that the buffer is a
+convenience, not a delivery guarantee: a client that must not miss an event has to reconcile by
+calling, not by replaying. Stated here so nothing is built on the assumption that it can.
+
+---
+
 ## 6. A stale client is a lie — **Proposed**
 
 The generated types assert what the API accepts. If the API changed and the client did not, the

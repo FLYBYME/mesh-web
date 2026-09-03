@@ -455,7 +455,9 @@ is built against these specs. [auth.md](./auth.md).
       [service-modules §2](./service-modules.md)
 - [ ] **C3.3 REST from contracts** — already the thing mesh-api does; it needs to read exposure rather
       than a hand-maintained list. **M** · [hosting §4](./hosting.md)
-- [ ] **C3.4 SSE from events**, which the browser's `events` client already expects. **M**
+- [x] **C3.4 SSE from events.** Done, with spec/network.md §5.1 — scope is declared per event, an
+      event that cannot be scoped is delivered to nobody, and a revoked ticket closes the stream.
+      The archive delivered an unscopable event to every subscriber in every organization.
 - [ ] **C3.5 WebSockets**, the third named interface. **M**
 - [ ] **C3.6 Addressing is a deployment choice.** A process may have its own URL; nothing may assume
       sticky routing or require a load balancer. **S** · [hosting §4](./hosting.md)
