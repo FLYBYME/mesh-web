@@ -127,7 +127,98 @@ written, because it decides the constructor signature of all three.
 
 ---
 
-## 4. Open
+## 4. What the three processes actually look like — **Proposed**
+
+The module layout above says how the code is arranged. This says what runs.
+
+### The common shape
+
+Every one of them is a node process that does the same four things:
+
+1. `new MeshApp` → `use(RegistryModule)` → `use(DatabaseModule)` → `use(BrokerModule)`
+2. `await app.start()`
+3. **register its ServiceModule — after `start()`, never before.** `MeshApp`'s pending-module flush
+   is unawaited, so registering first is a race that usually works.
+4. optionally bind an HTTP listener
+
+Step 4 is the only real difference between them, and it is a bigger difference than it looks.
+
+### mesh-identity — no listener at all
+
+**Binds nothing. Faces nothing.** It is a pure mesh node answering `identity.*` contracts.
+
+This is the point, not an omission: **nothing outside the cluster can reach identity directly.** The
+browser talks to mesh-api; mesh-api makes a mesh call. There is no port to expose by accident, no
+route to forget to protect, and the "no internal bypass, no god token" rule
+([auth §5](./auth.md)) has one fewer place to be violated.
+
+Holds: users, organizations, memberships, teams, roles, grants, API tokens, tickets. Emits
+`identity.ticket_revoked`, `identity.principal_suspended`, `identity.grant_changed` — the fan-out
+everything else's cache invalidation depends on.
+
+The awkward part is the beginning. Identity must exist before anything can authenticate, including
+the nodes themselves, which is the node-credential bootstrapping problem already visible as
+surfdns #35 (`node.status` public, leaking `bootstrapCredential`). Not solved here.
+
+### mesh-api — a listener, and a cache
+
+**Binds a port.** Plain HTTP, no TLS, behind the surfdns proxy ([hosting §1](./hosting.md)).
+
+Turns exposed contracts into REST, SSE and WebSockets. Per request it is stateless; across requests
+it holds exactly two things:
+
+- **the exposure map** — which contracts are exposed, to which roles, on which routes
+- **the ticket cache** — validate on first sight, cache, invalidate by event
+  ([auth §3](./auth.md)). One mesh call per (ticket, instance), not per request.
+
+Plus live SSE and WebSocket connections, which is the only reason an instance is not entirely
+interchangeable mid-connection. Nothing may assume sticky routing
+([hosting §4](./hosting.md)), so a dropped connection reconnects anywhere and re-subscribes.
+
+### mesh-web — one module, two processes
+
+This is the one that does not fit the pattern, and it is worth being precise rather than tidy.
+
+The `web` domain covers **the CDN** and **the builder**, and they are not the same kind of process:
+
+| | CDN node | builder node |
+| --- | --- | --- |
+| binds | a port, behind the proxy | nothing |
+| triggered by | HTTP requests | mesh calls and events |
+| profile | small, stateless, many, everywhere | large, few, CPU and IO heavy |
+| mounts | `site_resolve`, `artifact_get` | `build_start`, `build_status` |
+| scaling | with traffic | with pushes |
+
+Running a builder inside every CDN node would put a build's memory and CPU next to page serving, and
+running one CDN because builds are expensive would defeat the point of ten of them.
+
+**So one ServiceModule, two assignments.** Which is the concrete case for §3's open question — and
+it argues for the first option, "a module can mount a subset of its tools, chosen at construction
+from the assignment." A CDN node constructs the `web` module with the serving tools; a builder node
+constructs it with the build tools. Same contracts, same code, different mount list.
+
+That is no longer an abstract preference. **It is what mesh-web needs to be deployable at all**, and
+it decides the constructor signature of all three modules.
+
+### The whole picture
+
+```
+browser ──HTTP──▶ surfdns proxy ──▶ mesh-api  :port A   typed calls, SSE, WS
+                              └──▶ mesh-web   :port W   html, js, assets  (CDN nodes)
+
+                        mesh-api ──mesh──▶ identity.ticket_validate
+                                 ──mesh──▶ whichever domain owns the contract
+                    mesh-web CDN ──mesh──▶ web.site_resolve
+                    mesh-identity          no listener
+                  mesh-web builder         no listener
+```
+
+Two ports, as decided early: **the API and the web interface are never on the same one.** Neither
+terminates TLS; both are containers behind the proxy.
+
+---
+
+## 5. Open
 
 - **§3, the assignment granularity question.** Decides the constructor signature.
 - **Whether `mesh-api`'s exposure is a collection or the deployment descriptor.** §2.

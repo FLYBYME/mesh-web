@@ -24,8 +24,11 @@ D2–D4.
 
 - [ ] **D1 ★ Assignment granularity** — a ServiceModule mounts a subset chosen at construction, or
       assignment moves to module granularity for these three.
-      *Recommend: subset at construction* — it keeps surfdns's per-unit placement and costs one
-      constructor parameter. [service-modules §3](./service-modules.md)
+      **No longer abstract:** the `web` domain covers the CDN and the builder, which are one module
+      and cannot be one process — a CDN node is small, stateless and everywhere; a builder is large,
+      few and CPU-heavy. A CDN node mounts `site_resolve`/`artifact_get`, a builder mounts
+      `build_start`/`build_status`. *Recommend: subset at construction*, which is now what mesh-web
+      needs to be deployable at all. [service-modules §3, §4](./service-modules.md)
 - [ ] **D2 Headless Application distinct from Extension** — *recommend yes*. [README §8](./README.md)
 - [ ] **D3 `tile` is a split tree with named nodes** — *recommend both*: named nodes for authors,
       unnamed for dragged splits. [README §8](./README.md)

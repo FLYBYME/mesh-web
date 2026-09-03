@@ -14,6 +14,7 @@ This one is the index and the state of play.
 | **[view-layer](./view-layer.md)** | **Descriptions not DOM, components, events, tiles** |
 | **[input](./input.md)** | **Intents, the focus graph, modality, bindings, window mechanics** |
 | **[network](./network.md)** | **Typed calls, events and collections — the link to the mesh** |
+| **[testing](./testing.md)** | **What is pure, what needs fakes, what needs a browser** |
 | [storage-and-registry](./storage-and-registry.md) | Providers, hives, settings, policy |
 | [hosting](./hosting.md) | The builder, the CDN, hostnames, multi-tenancy, the proxy |
 | [auth](./auth.md) | Tickets, validation, passkeys, roles, organizations |
