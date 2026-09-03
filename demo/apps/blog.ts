@@ -21,7 +21,7 @@ import {
     type ViewContext,
 } from '@flybyme/mesh-web';
 
-import { AUTH, type AuthApi } from '../contracts/auth.js';
+import { AUTH, type AuthApi, type Session } from '../contracts/auth.js';
 
 // ---------------------------------------------------------------------------- declarations
 
@@ -36,9 +36,19 @@ export interface Post {
     readonly published: boolean;
 }
 
+/**
+ * What this Application exposes — to other contributors, and to its own views.
+ *
+ * Views receive it as `vx.app`, which is why nothing below holds a half-initialised field. Note it
+ * re-exposes a *viewer*, not the whole `AuthApi`: the blog decides what its own surface is rather
+ * than leaking a dependency through it.
+ */
 export interface BlogApi {
     readonly posts: () => readonly Post[];
+    readonly viewer: () => Session | null;
+    readonly canWrite: () => boolean;
     openPost(slug: string): void;
+    signIn(): Promise<void>;
     refresh(): Promise<void>;
 }
 
@@ -54,11 +64,17 @@ export default class BlogApp implements Application<typeof NEEDS, typeof CONSUME
     /** Only one blog per site. An editor would leave this off. */
     readonly singleton = true;
 
-    // Set in start(). Views read through these rather than closing over start()'s locals, because
-    // a view can be mounted, unmounted and remounted while the Application keeps running.
-    #auth!: AuthApi;
-    #posts!: () => readonly Post[];
-    #open!: (slug: string) => void;
+    /*
+     * No fields, deliberately.
+     *
+     * An earlier draft of this file held `#auth!`, `#posts!` and `#open!` — JavaScript private
+     * fields with TypeScript's definite assignment assertion, because they are set in `start()`
+     * rather than in the constructor. The `!` was suppressing a real check: if a view ever mounted
+     * before `start()` resolved, all three would be `undefined` with no type error anywhere.
+     *
+     * Views receive `vx.app` instead, so "a view only mounts after start() resolves" is carried by
+     * the types rather than by a paragraph in the spec.
+     */
 
     /**
      * The catalogue of view *types*.
@@ -76,7 +92,21 @@ export default class BlogApp implements Application<typeof NEEDS, typeof CONSUME
             instances: 'one',
             closable: false,
             default: { height: 64 },
-            mount: (el, vx) => this.#mountHeader(el, vx),
+            mount: (el: HTMLElement, vx: ViewContext<never, BlogApi>) => {
+                el.append(
+                    h('header', { class: 'blog-header' },
+                        h('h1', null, 'A blog'),
+                        h('nav', null,
+                            // `when` re-evaluates because `viewer` is a signal underneath. There
+                            // is no subscription here to remember to tear down.
+                            when(() => vx.app.viewer() !== null, () =>
+                                h('span', null, `Hello, ${vx.app.viewer()?.displayName ?? ''}`)),
+                            when(() => vx.app.viewer() === null, () =>
+                                h('button', { onclick: () => void vx.app.signIn() }, 'Sign in')),
+                        ),
+                    ),
+                );
+            },
         }),
 
         view({
@@ -85,7 +115,18 @@ export default class BlogApp implements Application<typeof NEEDS, typeof CONSUME
             tile: 'sidebar',
             instances: 'one',
             default: { width: 240, minWidth: 180 },
-            mount: (el, vx) => this.#mountSidebar(el, vx),
+            mount: (el: HTMLElement, vx: ViewContext<never, BlogApi>) => {
+                el.append(
+                    h('ul', { class: 'blog-post-list' },
+                        each(vx.app.posts, (post) =>
+                            h('li', { onclick: () => vx.app.openPost(post.slug) },
+                                post.title,
+                                when(() => !post.published, () => h('em', null, ' — draft')),
+                            ),
+                        ),
+                    ),
+                );
+            },
         }),
 
         view({
@@ -95,7 +136,20 @@ export default class BlogApp implements Application<typeof NEEDS, typeof CONSUME
             instances: 'one',
             closable: false,
             default: { width: 760, minWidth: 320 },
-            mount: (el, vx) => this.#mountContent(el, vx),
+            mount: (el: HTMLElement, vx: ViewContext<never, BlogApi>) => {
+                el.append(
+                    h('article', { class: 'blog-content' },
+                        each(vx.app.posts, (post) =>
+                            when(() => post.published, () =>
+                                h('section', null,
+                                    h('h2', null, post.title),
+                                    h('div', { innerHTML: post.body }),
+                                ),
+                            ),
+                        ),
+                    ),
+                );
+            },
         }),
 
         view({
@@ -105,7 +159,7 @@ export default class BlogApp implements Application<typeof NEEDS, typeof CONSUME
             instances: 'one',
             closable: false,
             default: { height: 48 },
-            mount: (el) => {
+            mount: (el: HTMLElement) => {
                 el.append(h('p', { class: 'blog-footer' }, '© 2026 · built on mesh-web'));
             },
         }),
@@ -123,7 +177,25 @@ export default class BlogApp implements Application<typeof NEEDS, typeof CONSUME
             tile: 'content',
             instances: 'many',
             default: { width: 820, height: 620, minWidth: 400 },
-            mount: (el, vx: ViewContext<{ slug: string }>) => this.#mountEditor(el, vx),
+            mount: (el: HTMLElement, vx: ViewContext<{ slug: string }, BlogApi>) => {
+                // `params` is what makes this instance distinct from the other editor. Geometry
+                // persists per instance, so two editors remember their own sizes.
+                const existing = vx.app.posts().find((p) => p.slug === vx.params.slug);
+                vx.setTitle(existing ? `Editing: ${existing.title}` : 'New post');
+
+                el.append(
+                    h('form', { class: 'blog-editor' },
+                        h('input', { name: 'title', value: existing?.title ?? '', placeholder: 'Title' }),
+                        h('textarea', { name: 'body' }, existing?.body ?? ''),
+                        h('button', { type: 'submit', disabled: !vx.app.canWrite() }, 'Save'),
+                    ),
+                );
+
+                vx.onDispose(() => {
+                    // View-scoped teardown, called when this window closes — not when the
+                    // Application stops, and not on a mode switch, which remounts nothing.
+                });
+            },
         }),
     ];
 
@@ -132,16 +204,15 @@ export default class BlogApp implements Application<typeof NEEDS, typeof CONSUME
     async start(cx: Context<typeof NEEDS, typeof CONSUMES>): Promise<BlogApi> {
         // Typed across a boundary this file never imports over. Remove AUTH from CONSUMES above
         // and this line is a compile error.
-        this.#auth = cx.use(AUTH);
+        const auth: AuthApi = cx.use(AUTH);
 
         const posts = cx.state.signal<readonly Post[]>([]);
-        this.#posts = posts;
 
         const refresh = async (): Promise<void> => {
             posts.set(await cx.net.get<readonly Post[]>('/api/posts'));
         };
 
-        this.#open = (slug: string) => {
+        const openPost = (slug: string): void => {
             // A route and a click are the same operation — both ask the window manager for a view
             // instance. spec/application.md §9.
             cx.windows.open({ view: 'editor', params: { slug } });
@@ -153,7 +224,8 @@ export default class BlogApp implements Application<typeof NEEDS, typeof CONSUME
             id: 'blog.newPost',
             title: 'Blog: New Post',
             handler: () => {
-                if (!this.#auth.can('post.write')) {
+                // A hint, not a control. The API refuses it too — spec/storage-and-registry.md §2.
+                if (!auth.can('post.write')) {
                     cx.notifications.warn('You do not have permission to write posts.');
                     return;
                 }
@@ -177,7 +249,10 @@ export default class BlogApp implements Application<typeof NEEDS, typeof CONSUME
 
         return {
             posts,
-            openPost: this.#open,
+            viewer: () => auth.session(),
+            canWrite: () => auth.can('post.write'),
+            openPost,
+            signIn: () => auth.signIn(),
             refresh,
         };
     }
@@ -186,70 +261,5 @@ export default class BlogApp implements Application<typeof NEEDS, typeof CONSUME
         // Nothing. Windows, commands, bindings and subscriptions are disposed by the kernel,
         // because the case that has to work is the one that crashed before it could clean up.
         // `stop` is only for this Application's own concerns — an unsaved draft, an open stream.
-    }
-
-    // ------------------------------------------------------------------------ views
-
-    #mountHeader(el: HTMLElement, _vx: ViewContext): void {
-        el.append(
-            h('header', { class: 'blog-header' },
-                h('h1', null, 'A blog'),
-                h('nav', null,
-                    // `when` re-evaluates because `session` is a signal. No subscription to manage.
-                    when(() => this.#auth.signedIn(), () =>
-                        h('span', null, `Hello, ${this.#auth.session()?.displayName ?? ''}`)),
-                    when(() => !this.#auth.signedIn(), () =>
-                        h('button', { onclick: () => void this.#auth.signIn() }, 'Sign in')),
-                ),
-            ),
-        );
-    }
-
-    #mountSidebar(el: HTMLElement, _vx: ViewContext): void {
-        el.append(
-            h('ul', { class: 'blog-post-list' },
-                each(this.#posts, (post) =>
-                    h('li', { onclick: () => this.#open(post.slug) },
-                        post.title,
-                        when(() => !post.published, () => h('em', null, ' — draft')),
-                    ),
-                ),
-            ),
-        );
-    }
-
-    #mountContent(el: HTMLElement, _vx: ViewContext): void {
-        el.append(
-            h('article', { class: 'blog-content' },
-                each(this.#posts, (post) =>
-                    when(() => post.published, () =>
-                        h('section', null,
-                            h('h2', null, post.title),
-                            h('div', { innerHTML: post.body }),
-                        ),
-                    ),
-                ),
-            ),
-        );
-    }
-
-    #mountEditor(el: HTMLElement, vx: ViewContext<{ slug: string }>): void {
-        // `params` is what makes this instance distinct from the other editor. Geometry persists
-        // per instance, so two editors remember their own sizes.
-        const existing = this.#posts().find((p) => p.slug === vx.params.slug);
-        vx.setTitle(existing ? `Editing: ${existing.title}` : 'New post');
-
-        el.append(
-            h('form', { class: 'blog-editor' },
-                h('input', { name: 'title', value: existing?.title ?? '', placeholder: 'Title' }),
-                h('textarea', { name: 'body' }, existing?.body ?? ''),
-                h('button', { type: 'submit' }, 'Save'),
-            ),
-        );
-
-        vx.onDispose(() => {
-            // View-scoped teardown. Called when this window closes — not when the Application
-            // stops, and not on a mode switch, which does not remount anything at all.
-        });
     }
 }

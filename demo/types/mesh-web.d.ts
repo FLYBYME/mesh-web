@@ -213,14 +213,22 @@ declare module '@flybyme/mesh-web' {
 
     // ---------------------------------------------------------------- views
 
-    export interface ViewContext<TParams = Record<string, never>> {
+    export interface ViewContext<TParams = Record<string, never>, TApi = void> {
         readonly params: TParams;
+        /**
+         * The Application's own API — whatever `start()` returned.
+         *
+         * Present, not optional, because a view mounts only after `start()` resolves. That is what
+         * lets an Application declare views statically without holding half-initialised fields
+         * for them to read.
+         */
+        readonly app: TApi;
         setTitle(title: string): void;
         close(): void;
         onDispose(fn: () => void): void;
     }
 
-    export interface ViewDecl<TId extends string = string, TParams = Record<string, never>> {
+    export interface ViewDecl<TId extends string = string, TParams = Record<string, never>, TApi = void> {
         readonly id: TId;
         readonly title: string;
         /** Which named node of the layout's split tree, in tiled mode. Ignored when windowed. */
@@ -233,12 +241,15 @@ declare module '@flybyme/mesh-web' {
             readonly minWidth?: number;
             readonly minHeight?: number;
         };
-        mount(el: HTMLElement, vx: ViewContext<TParams>): void;
+        mount(el: HTMLElement, vx: ViewContext<TParams, TApi>): void;
     }
 
     /** Declares a view type. `const` so the id survives as a literal. */
-    export function view<const T extends ViewDecl<string, never>>(decl: T): T;
-    export function view<TParams, const T extends ViewDecl<string, TParams>>(decl: T): T;
+    export function view<const T extends ViewDecl<string, never, never>>(decl: T): T;
+    export function view<TParams, TApi, const T extends ViewDecl<string, TParams, TApi>>(decl: T): T;
+
+    /** The API an Application exposes, derived from its `provides` token. */
+    export type ApiOf<TProvides> = TProvides extends ProviderToken<infer TApi> ? TApi : void;
 
     // ---------------------------------------------------------------- contracts
 
@@ -263,9 +274,9 @@ declare module '@flybyme/mesh-web' {
         readonly consumes?: TConsumes;
         readonly provides?: TProvides;
         /** Optional. A headless Application is a background process. */
-        readonly views?: readonly ViewDecl<string, never>[];
+        readonly views?: readonly ViewDecl<string, never, ApiOf<TProvides>>[];
         readonly singleton?: boolean;
-        start(cx: Context<TNeeds, TConsumes>): Promise<TProvides extends ProviderToken<infer TApi> ? TApi : void>;
+        start(cx: Context<TNeeds, TConsumes>): Promise<ApiOf<TProvides>>;
         stop?(): Promise<void>;
     }
 }
