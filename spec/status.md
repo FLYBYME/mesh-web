@@ -263,24 +263,56 @@ Condensed. Each links to the reasoning.
 
 ---
 
-## 4. Open — the ones that block work
+## 4. What needs you
 
-**Decides a constructor signature, so wants answering first**
+Written 2026-09-03 at the end of a working session. **Track 0 is closed — all six decisions are
+made** and none of the framework decisions below block starting work.
 
-- **Assignment granularity** ([service-modules](./service-modules.md) §3). surfdns's runtime exists
-  because units must be individually assignable; a ServiceModule bundles them. Either a module mounts
-  a subset chosen from its assignment, or assignment moves to module granularity for these three.
+### One thing waiting on a yes
 
-**Five recommendations awaiting one word each** ([README](./README.md) §8)
+- **mesh-api's deletion is committed and not pushed.** The repository is empty locally and `ahead 1`.
+  Pushing it breaks surfdns's `npm install` immediately: five of its packages depend on
+  `github:FLYBYME/mesh-api`, which resolves to that default branch. surfdns needs complete rework
+  regardless, so this is timing rather than an objection — but it is a one-way door on a shared
+  remote and it is the only thing held back for a decision.
 
-1. Headless Application is distinct from an Extension — *recommend yes*
-2. `tile` is a split tree with named nodes — *recommend both*
-3. One view instance per window; two windows means two instances — *recommend no sharing*
-4. Conflict policy on a setting declaration, defaulting to `reject` — *recommend yes*
-5. Three lock levels (`locked` / `privileged` / `open`) — **superseded**: it is a policy value plus
-   who may write the path ([storage](./storage-and-registry.md) §2)
+### The honest risk
 
-**Genuinely undecided**
+- **Nobody has looked at any of this in a browser.** 123 tests, a clean build and a clean typecheck.
+  jsdom is not a browser, and [testing §4](./testing.md) is right that layout, focus and real input
+  devices need one. This is the exact property the deleted runtime had at 182 green tests
+  ([testing §6](./testing.md)), and it is worth breaking before adding more surface.
+  [roadmap A0.5a](./roadmap.md).
+
+### Worth reading, because they say something about the design
+
+- **The two bugs the end-to-end test found**, §2 above. Both were invisible to 95 unit tests because
+  those tests were written from the same mental model that produced the bugs. If the framework has
+  more of this, it will show up the same way — by combining pieces, not by testing them apart.
+- **[application §11](./application.md): which instance owns a command's implementation.** Found
+  while building the kernel. Commands are declared by the *Application* and implemented by a running
+  *instance*; with two blog windows open, which one does the palette's "Blog: New Post" run? Today
+  the first to start owns it. Defensible, probably not final.
+
+### Small, and want a word when convenient
+
+- **Who owns `artifact`** ([service-modules §2](./service-modules.md)). The builder writes it, the
+  CDN reads it constantly. *Recommend `cdn`*, so the read path has no extra hop.
+- **Whether mesh-api's exposure is a collection or the deployment descriptor**
+  ([service-modules §2](./service-modules.md)). The descriptor is where the site team owns it, which
+  argues for it being the source and the collection a resolved cache.
+
+### Where I would pick up
+
+1. **A browser test** — the risk above, and it is small.
+2. **`net`, and the generated client** ([network.md](./network.md), roadmap A3.1a). It is the
+   capability everything real needs, and the generator is the piece the whole type story rests on.
+3. **A7.1, the component vocabulary** — now on the critical path, and gated on the focus graph
+   because every primitive must satisfy "every action has a non-pointer path".
+
+---
+
+## 4a. Genuinely undecided, and not blocking
 
 - **Caching and offline writes** for remote providers ([storage](./storage-and-registry.md) §7).
   Reads are easy; writes and cross-device conflicts are not.
@@ -298,9 +330,10 @@ Condensed. Each links to the reasoning.
 - **Whether platform scope is a third surface** or the `cluster` role scope on ordinary routes.
 - **Whether the org model is absent by default or present and unused**, for projects with users and
   no organizations.
-- **Whether mesh-api's exposure is a collection or the deployment descriptor**
-  ([service-modules](./service-modules.md) §2).
-- **Whether mesh-web's server half lives in this repository**, given `types: []`.
+- ~~**Whether mesh-web's server half lives in this repository.**~~ **Decided** (D6): one repository,
+  several packages — `@flybyme/mesh-web` for the browser, `@flybyme/mesh-cdn`,
+  `@flybyme/mesh-builder`, and a types-only `@flybyme/mesh-web-protocol`. Drawn so an Application
+  author imports one package and never sees the other ([hosting §0](./hosting.md)).
 
 ---
 
