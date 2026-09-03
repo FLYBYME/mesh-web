@@ -131,21 +131,39 @@ tiles, as floating windows, or as a single maximised page.
 
 ## 3. What an Extension contributes — **Decided in shape, Proposed in detail**
 
-Through capabilities it declared, and nothing else:
+An Extension is a manifest with code attached, exactly as an Application is
+([Applications §2](./application.md)). The same rule decides which half a thing belongs in:
 
-| contribution | capability | notes |
-| --- | --- | --- |
-| commands | `commands` | id, title, typed arguments, a handler |
-| key bindings | `keys` | bindings are data, and one parser reads them ([roadmap A1.4](./roadmap.md)) |
-| menu items | `menus` | `menubar`, `window`, `status`, `context:*` |
-| views | `windows` | a view an Application or the user can put in a window |
-| providers | return value | the typed API other contributors consume |
-| notifications | `notifications` | as a caller; the *surface* is a different Extension |
-| storage providers | `storage` | a remote provider is an Extension contribution |
-| log scopes | `log` | already tagged with who logged |
+> **Anything the kernel needs before the Extension runs must be declared, not registered.**
 
-Every one of these is disposed by the kernel when the Extension stops. A contributor is not trusted
-to clean up after itself, because the case that matters is the one that crashed.
+**Declared, as data on the class — read at [boot step 3](./kernel.md), before anything activates:**
+
+| declaration | notes |
+| --- | --- |
+| `commands` | id and title. The body comes from `activate`, checked against the declared ids. |
+| `keys` | default bindings, overridable by the user through the registry. One parser reads them ([roadmap A1.4](./roadmap.md)). |
+| `menus` | `menubar`, `window`, `status`, `context:*` |
+| `views` | views an Application or the user can put in a window |
+| `settings` | schema and defaults, folded into the registry at [boot step 5](./kernel.md) |
+| `components` | the vocabulary an Extension adds ([view-layer §3](./view-layer.md)) |
+| `needs` / `consumes` / `provides` | what it uses and what it exposes |
+
+**Obtained at run time, through capabilities it declared:**
+
+| through | for |
+| --- | --- |
+| return value of `activate` | the provider API other contributors consume |
+| `notifications` | as a caller; the *surface* is a different Extension |
+| `storage` | including contributing a remote provider |
+| `net`, `events`, `models` | talking to the site's API |
+| `log` | already tagged with who logged |
+
+The distinction matters most for `keys`. A binding created by calling `cx.keys.bind()` **cannot be
+rebound by the user** without the Extension's cooperation; a binding declared as data is overridden
+by the registry like any other setting.
+
+Everything obtained at run time is disposed by the kernel when the Extension stops. A contributor is
+not trusted to clean up after itself, because the case that matters is the one that crashed.
 
 ---
 
@@ -257,7 +275,7 @@ authors ([hosting §3](./hosting.md)).
 ## 5. Activation order — **Proposed**
 
 The kernel topologically sorts Extensions by `consumes` against `provides`, then activates in that
-order ([kernel §3](./kernel.md) step 5).
+order ([kernel §3](./kernel.md) step 7).
 
 - **A cycle is a boot failure**, reported naming both ends. Not broken by lazy proxies: a cycle
   between two Extensions is a design error, and hiding it produces a system whose behaviour depends

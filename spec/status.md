@@ -10,7 +10,8 @@ This one is the index and the state of play.
 | [README](./README.md) | The model: processes, views, windows, view state |
 | **[kernel](./kernel.md)** | **What boots, what hands out capabilities, the process table** |
 | **[extension](./extension.md)** | **The Extension contract, providers, activation, lifecycle** |
-| **[application](./application.md)** | **The Application contract, instances, foreground, routing** |
+| **[application](./application.md)** | **The Application contract, the manifest, instances, routing** |
+| **[view-layer](./view-layer.md)** | **Descriptions not DOM, components, events, tiles** |
 | [storage-and-registry](./storage-and-registry.md) | Providers, hives, settings, policy |
 | [hosting](./hosting.md) | The builder, the CDN, hostnames, multi-tenancy, the proxy |
 | [auth](./auth.md) | Tickets, validation, passkeys, roles, organizations |

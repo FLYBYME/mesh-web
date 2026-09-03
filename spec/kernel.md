@@ -55,11 +55,12 @@ downward.
 | the provider registry (token → implementation) | the command palette |
 | the process table and lifecycle | the notification *surface* |
 | window geometry, z-order, mode, view state | window *decoration* and theme |
+| **the renderer: description → DOM** | **the component library** |
 | registry resolution and policy | the settings editor |
 | the event bus | the log viewer |
 | the router: URL → instance | — |
 
-Two rows are worth pausing on.
+Three rows are worth pausing on.
 
 **The window manager is split.** The geometry model, z-order, which view is in which tile, and the
 persistence of all that, are kernel: they are what [§4 of the model](./README.md) calls view state,
@@ -73,6 +74,13 @@ Extension happens to render toasts. Where the toast appears and what it looks li
 A site with no notification Extension still has working notifications; they just have nowhere good
 to go, which is a rendering problem and not a broken call.
 
+**The renderer is kernel; the components are not.** Turning a description into DOM is the one place
+DOM exists at all, and it must not be replaceable by the code it renders — an Extension that could
+substitute the renderer could read every other contributor's view and forge events into it. The
+*vocabulary* — `Button`, `Table`, `Form` and everything richer — is contributed
+([view-layer §3](./view-layer.md)), because that is what lets a design system ship as an Extension and
+a site restyle without touching an Application.
+
 ---
 
 ## 3. Boot — **Proposed**
@@ -84,22 +92,39 @@ Ordered, and the order is not arbitrary — each step needs the one before it.
 2. **Establish the registry.** Bind providers to hives, load `system` policy from the build and the
    server. Nothing user-specific yet, because there is no user yet.
    [storage §2](./storage-and-registry.md)
-3. **Construct Extensions.** Load each bundle, check its default export is constructable, construct
-   it. **No `activate` yet.** Construction must be side-effect free, which is exactly what the
-   class-export model buys over `defineExtension` — a host can hold a constructed Extension and
-   inspect what it needs before deciding to trust it.
-4. **Resolve the provider graph.** Order Extensions by their `consumes` against others' `provides`.
+3. **Construct everything, and read its manifest.** Load each bundle, check its default export is
+   constructable, construct it, and read the declarations off the instance — `needs`, `consumes`,
+   `provides`, `layout`, `views`, `commands`, `keys`, `menus`, `settings`
+   ([Applications §2](./application.md)). **No `activate`, no `start`.** Construction must be
+   side-effect free, which is exactly what the class-export model buys over `defineExtension`: a host
+   can hold a constructed contribution and inspect it before deciding to trust it.
+4. **Merge the manifests.** Command ids, key bindings and settings schemas from every contribution,
+   with **conflicts resolved here** — two Applications claiming `ctrl+n` is a load-time problem, not
+   a first-keypress problem. The palette and the keymap are now populated for Applications that have
+   not started, which is what lets a key press start one.
+5. **Fold settings defaults into the registry.** Declared schemas and defaults become the bottom of
+   the resolution order under build and system policy ([storage §2](./storage-and-registry.md)).
+   This is why settings must be declared: they are needed here, and `start()` is four steps away.
+6. **Resolve the provider graph.** Order Extensions by their `consumes` against others' `provides`.
    A cycle is a boot failure and names both ends.
-5. **Activate Extensions in that order**, each with a context narrowed to its `needs`.
+7. **Activate Extensions in that order**, each with a context narrowed to its `needs`.
    Providers returned by `activate` become available to the next.
-6. **Now there may be a user.** The auth Extension has activated, so `user` and `device` hives can
-   resolve and per-user settings become readable.
-7. **Restore view state** for this user and site: geometry, z-order, mode.
-8. **Construct and start Applications**, and foreground one — either the route's, or the last
-   foreground from view state.
-9. **Route.** The URL selects an Application instance and a view within it.
+8. **Now there may be a user.** The auth Extension has activated, so `user` and `device` hives can
+   resolve and per-user settings and key bindings become readable — the user's rebinding overrides
+   the defaults merged at step 4.
+9. **Restore view state**: geometry, z-order, mode, and per-view local state
+   ([view-layer §7](./view-layer.md)). Possible because the tile names and view types were declared
+   at step 3 rather than registered in `start()`.
+10. **Construct and start Applications**, and foreground one — either the route's, or the last
+    foreground from view state. `start()` supplies command implementations against ids already
+    declared at step 3; a declared command with no implementation fails here.
+11. **Route.** The URL selects an Application instance and a view within it.
 
-Steps 1–5 are the kernel booting. Steps 6–9 are the kernel running.
+Steps 1–7 are the kernel booting. Steps 8–11 are the kernel running.
+
+The shape of this is the argument for the manifest: **everything from step 3 to step 9 happens
+before a single line of Application logic runs.** A framework that learned about commands, keys,
+views and settings from `start()` could do none of it.
 
 The thing to preserve: **an Extension cannot observe another Extension being constructed**, and
 cannot run code between step 3 and its own step 5. Any hook that lets one contributor act during
@@ -260,11 +285,14 @@ Catching inside a contributor's own call stack hides bugs from the author who ca
 
 ## 9. Open
 
-- **Real isolation.** An iframe per Application would give each its own origin — which is exactly the
-  isolation [hosting §3](./hosting.md) already relies on between *sites* — at the cost of making
-  every capability call cross a postMessage boundary and making tiled layout much harder. A worker
-  per headless Application is cheaper and only helps the ones with no view. Neither is decided;
-  today's answer is one realm, and that answer is written down as a limit rather than a design.
+- **Real isolation — reachable now, not open-ended.** [view-layer.md](./view-layer.md) makes an
+  Application's output pure data and gives its events ids, which is exactly what a worker boundary
+  needs, so this is no longer blocked on a design question. **Decided:** the description is pure data
+  from the start, because that property is cheap to hold now and very expensive to retrofit.
+  **Not decided:** whether anything actually runs in a worker, and when. An iframe per Application
+  remains the stronger isolation and the more expensive one, since every capability call would cross
+  postMessage. Contributions declaring `dom` ([view-layer §8](./view-layer.md)) opt out of both, and
+  do so legibly — the kernel can see it in the manifest without running them.
 - **Workers as a capability.** Follows from §6, and probably wants to exist before anything does
   real work in a tab.
 - **Whether the kernel is replaceable at build time.** A locked-down blog build could use a smaller

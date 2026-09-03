@@ -36,39 +36,85 @@ them ([the model §6](./README.md)).
 
 Same shape as an Extension: **a bundle `export default`s a class, and the host constructs it.**
 
+**An Application is a manifest with code attached.** Almost everything about it is declared as data;
+`start()` holds only the logic.
+
 ```ts
-import { needs, consumes, view, type Application, type Context } from '@flybyme/mesh-web';
-import { AUTH } from '@surfdns/auth-contract';
-
-const NEEDS = needs('net', 'windows', 'commands');
-const CONSUMES = consumes(AUTH);
-const CONSOLE = provider<ConsoleApi>('surfdns.console');
-
 export default class ConsoleApp implements Application<typeof NEEDS, typeof CONSUMES, typeof CONSOLE> {
-    readonly needs = NEEDS;
+    // ---- what it needs
+    readonly needs    = NEEDS;
     readonly consumes = CONSUMES;
     readonly provides = CONSOLE;
 
-    // The catalogue of view *types*. Static, read before start(). See §6.
-    readonly views = [
-        view({ id: 'domains', title: 'Domains',  tile: 'content', default: { width: 900, height: 600 } }),
-        view({ id: 'sidebar', title: 'Navigate', tile: 'sidebar', default: { width: 240 } }),
-        view({ id: 'record',  title: 'Record',   tile: 'content', instances: 'many' }),
-    ];
+    // ---- what is shown
+    readonly layout   = tiles({ ... });      // named regions, a split tree — §6
+    readonly views    = [ ... ];             // view types that fill them — §6
 
-    async start(cx: Context<typeof NEEDS, typeof CONSUMES>): Promise<ConsoleApi> {
-        const auth = cx.use(AUTH);
-        return { reload: () => { ... } };
-    }
+    // ---- what can happen
+    readonly commands = [ ... ];             // ids + titles; bodies come from start()
+    readonly keys     = [ ... ];             // default bindings, overridable by the user
+    readonly menus    = [ ... ];             // menubar, window, status, context
 
+    // ---- how it is configured
+    readonly settings = [ ... ];             // schema + defaults, read at boot
+
+    // ---- the logic, and only the logic
+    async start(cx): Promise<ConsoleApi> { ... }
     async stop(): Promise<void> { ... }
 }
 ```
 
+### Why declared and not registered — **Decided**
+
+> "we must define views but i think things like commands and keys. and you can also include things
+> like the registry with app config/defaults"
+
+One rule covers all of it:
+
+> **Anything the kernel needs before the Application runs must be declared, not registered.**
+
+Run that test over what an Application would otherwise do imperatively inside `start()`:
+
+- **commands** — the palette must list what an Application can do *before* it is running, or you
+  cannot invoke an Application into existence.
+- **keys** — a binding must fire when the Application is not started. And bindings created by calling
+  `cx.keys.bind()` **can never be rebound by the user** without the Application's cooperation. As
+  data, the registry overrides them. That alone settles it.
+- **menus** — same argument.
+- **views and layout** — the kernel restores geometry at [boot step 9](./kernel.md) and starts
+  Applications at step 10, so it must already know what tiles and views exist and what they default
+  to, or every window appears at a default position and jumps. §6.
+- **settings** — hard-forced. Declared defaults are folded into the registry at
+  [boot step 5](./kernel.md); the Application starts at step 10. A default that arrives at step 10 is
+  five steps too late.
+
+Two things follow for free. **Conflict detection moves to load time** — two Applications claiming
+`ctrl+n` is resolvable before either runs. And **an Application can be inspected without executing
+it**, which the process manager and any gallery of installable Applications both require.
+
+This is the shape VS Code's `contributes` block has, and for the same reason: a shell must reason
+about an extension it has not run. Where this design diverges from VS Code is elsewhere — no
+activation events, no `deactivate` ([Extensions §6](./extension.md)), and no `Shell` god object.
+
+### Where a command's body lives — **Proposed**
+
+A declared command is an id and a title. `start()` supplies the implementation, and the ids are
+checked against the declaration:
+
+```ts
+type CommandId = ConsoleApp['commands'][number]['id'];   // a literal union
+cx.commands.implement('console.reload', () => { ... });  // only a declared id compiles
+```
+
+Same trick as the view ids in §6. A typo is a compile error; a declared command with no
+implementation fails at `start()` rather than the first time someone presses the key.
+
+This is also the answer to handler identity across an isolation boundary
+([view-layer §5](./view-layer.md)) — one mechanism, because it is the same problem twice.
+
 The reasoning behind the class-export model, `needs` narrowing and provider tokens is identical to
 [Extensions §2 and §4](./extension.md) and is not repeated — including why it is `needs('net', ...)`
 rather than `['net', ...] as const`, which was checked against a typechecker and is recorded there.
-What differs is everything below.
 
 ---
 
@@ -167,6 +213,37 @@ its sidebar, its content area and its footer.
 This is the decision that deletes most of the hard part: the window manager sees views and nothing
 under them, and there are no cross-level interactions to design.
 
+### A tile is a slot. A view fills it. — **Decided**
+
+> "the 'content' is almost a sub thing … what i did like was the 'ViewProvider' in mesh-ui"
+
+The demo had this wrong: it declared a *view* named `content` and a *tile* named `content`, which
+are not the same kind of thing.
+
+**The Application declares a layout** — a split tree whose nodes are named. Those names are tiles.
+**Each view declares which tile it targets.** Several views may target one tile over the
+Application's life, and the window manager decides which occupies it now.
+
+| | |
+| --- | --- |
+| **tiles** (the layout) | `header`, `sidebar`, `content`, `footer` |
+| **views** (what fills them) | `masthead`→header, `postList`→sidebar, `post`→content, `colophon`→footer, `editor`→content |
+
+`post` and `editor` both target `content`. Reading swaps one in, editing swaps the other. That is
+what `content` was reaching for by being "almost a sub thing" — it is not a view, it is where views
+go.
+
+This is mesh-ui's `ViewProvider` idea, which was the right one: a named slot that different providers
+fill, resolved at runtime. What it got wrong is in
+[view-layer §6](./view-layer.md) — four hard-coded panel locations, one instance per provider id, and
+author-managed disposables.
+
+In **windowed mode tile names are simply unused.** Every view is a window and the layout is whatever
+the user dragged. Same views, two geometries.
+
+`layout` is therefore part of the manifest (§2), not something built in `start()` — the kernel needs
+the tile names to restore geometry before the Application runs.
+
 ### View types are declared; view instances are created — **Proposed**
 
 The question this answers: does an Application register its views in `start()`, the way mesh-ui's
@@ -183,7 +260,7 @@ extensions called `shell.views.registerProvider(location, provider)` during acti
 | how many | fixed, small | zero to many |
 
 The reason types cannot wait for `start()` is not aesthetic — it is the boot order.
-[kernel §3](./kernel.md) restores view state at step 7 and starts Applications at step 8. Geometry,
+[kernel §3](./kernel.md) restores view state at step 9 and starts Applications at step 10. Geometry,
 z-order and mode are restored *before* the Application runs, so a window comes back where it was
 rather than appearing at a default position and jumping once the app finishes starting. That is only
 possible if the kernel already knows what views exist and what their defaults are. A registration
@@ -218,27 +295,20 @@ So `windows.open({ view: 'recrd' })` and a route pointing at a view that does no
 compile errors in the Application's own file. Checked against `tsc 5.9`, along with the rest of the
 contract.
 
-### What to keep from mesh-ui, and what not to — **Proposed**
+### A view renders. It does not mount. — **Decided**
 
-mesh-ui had `ViewProvider { id, name, resolveView(container, disposables) }` registered with
-`registerProvider(location, provider)`.
+An earlier draft of this document gave a view `mount(el, vx)`, taking mesh-ui's
+`resolveView(container, disposables)` as the shape to keep. That was wrong in one specific way: a
+view handed a container can construct DOM, and a view that can construct DOM can hold logic.
 
-**Keep the factory.** `resolveView(container)` — the framework owns the container and its lifecycle,
-the view fills it. That is the right shape and it is what makes a view mountable into a tile, a
-floating window or nothing at all without the view knowing which.
+**A view is a pure function from application state to a description.** No container, no
+`HTMLElement`, no `mount`. [view-layer.md](./view-layer.md) is the whole argument; what carries over
+here is that a view's output is data and the renderer is the kernel's.
 
-**Drop three things:**
-
-1. **The four hard-coded locations.** `'left-panel' | 'right-panel' | 'center-panel' | 'bottom-panel'`
-   is an IDE baked into the framework — the same mistake as the `Shell` god object
-   ([Extensions §2](./extension.md)), one level down. A view names a *tile* in its Application's own
-   layout, and in windowed mode the tile name is not used at all.
-2. **One instance per id.** mesh-ui kept `activeContainers: Map<providerId, HTMLElement>`, so a
-   provider could be mounted in exactly one place. Two editors were impossible, which is §3.
-3. **Author-managed disposables.** `resolveView(container, disposables)` made every view author
-   responsible for its own cleanup. The kernel scopes capabilities per contributor and disposes them
-   ([kernel §4](./kernel.md)); a view's subscriptions go with its instance, and the case that has to
-   work is the one that crashed before it could clean up.
+What mesh-ui got right — a named slot filled by different providers, resolved at runtime — is kept,
+and is the tile model above. What it got wrong is listed in
+[view-layer §6](./view-layer.md): four hard-coded panel locations, one instance per provider id, and
+author-managed disposables.
 
 Each view declares its own defaults, and they belong to the view rather than the Application
 ([roadmap A1.2](./roadmap.md)):

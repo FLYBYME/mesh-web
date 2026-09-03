@@ -1,5 +1,26 @@
 # demo
 
+> ## ⚠ Superseded in one important way
+>
+> These files were written before [`spec/view-layer.md`](../spec/view-layer.md), and they are wrong
+> where the two disagree. Specifically:
+>
+> - **`mount(el: HTMLElement, vx)` is gone.** A view is a pure function from state to a
+>   *description*. No container, no DOM types. The whole point of the layer is that an Application
+>   cannot construct a node, because a view that can construct a node can hold logic.
+> - **`h('div', …)` is gone.** An Application's vocabulary is components — `Stack`, `Text`,
+>   `Button` — never tags. Returning a description but writing `h('div')` is the same problem with
+>   extra steps.
+> - **`content` is a tile, not a view.** The blog declares a *layout* with named regions
+>   (`header`, `sidebar`, `content`, `footer`); `post` and `editor` are views that both target the
+>   `content` tile. Naming a view and a tile the same thing was the confusion.
+> - **`commands` and `keys` are declared, not registered in `start()`** — along with `layout`,
+>   `views`, `menus` and `settings`. See [application §2](../spec/application.md).
+>
+> Everything below about `needs()`, provider tokens, `vx.app`, headless Applications and the
+> `rejected.ts` assertions still holds. The files are kept as they are rather than rewritten twice:
+> the component vocabulary ([roadmap A7.1](../spec/roadmap.md)) has to be settled first.
+
 Illustrative code, to see the shape of the thing before it exists.
 
 **There is no framework behind this.** `types/mesh-web.d.ts` is declarations only — every function

@@ -66,13 +66,18 @@ zero, which is the point of the reset — see [status §1](./status.md).
       a node's API. A `MeshApp` over a WebSocket transport in a tab makes every browser a peer on the
       cluster network. **S**
 - [ ] **A0.3 Reactivity** — signals, computeds, effects, resources, scopes. **M**
-- [ ] **A0.4 DOM layer** — `h()`, control flow, bindings, scopes. **M**
-- [ ] **A0.5 Router** — routing, scoped routers, scroll and focus restoration. **M**
+- [ ] **A0.4 ★ The description layer** — the node tree an Application produces. Plain data:
+      components and props, no DOM types, no closures crossing. **M** ·
+      [view-layer §2](./view-layer.md)
+- [ ] **A0.5 ★ The renderer** — description → DOM, with signals bound fine-grained at construction.
+      One path, no VDOM, no diffing. Kernel-owned. **L** · [view-layer §4](./view-layer.md)
+- [ ] **A0.6 Router** — routing, scoped routers, scroll and focus restoration. **M**
 
-These five are the parts of the deleted runtime with no design defect against them. They were
-deleted because the repository was emptied, not because they were wrong, and history is the
-reference: `git show 4cd801d^:src/reactivity/…`. Rebuilding *from* that code is fine; carrying
-`src/app/` forward is not.
+A0.3 and A0.6 are parts of the deleted runtime with no design defect against them — deleted because
+the repository was emptied, not because they were wrong, and history is the reference
+(`git show 4cd801d^:src/reactivity/…`). **A0.4 and A0.5 are not:** the old DOM layer handed views
+`HTMLElement` and exported `h()` to Applications, which is exactly what
+[view-layer.md](./view-layer.md) exists to prevent. Rebuild those two, do not port them.
 
 ### A1 — The retractions, so they are not rebuilt
 
@@ -194,6 +199,15 @@ The kernel around them is new design and has never existed in any form.
 - [ ] **A5.10 A kernel with no Extensions is a blank page with a working process table**, and that is
       a real testable state. It is the cheapest possible check that §2's kernel/Extension line is
       actually where the code puts it. **S** · [kernel §8](./kernel.md)
+- [ ] **A5.11 ★ The manifest** — `layout`, `views`, `commands`, `keys`, `menus`, `settings` read off
+      the constructed instance before anything activates or starts. **M** ·
+      [application §2](./application.md)
+- [ ] **A5.12 Manifest merge and conflict resolution at load time** — two Applications claiming
+      `ctrl+n` is resolved before either runs, and the palette lists commands of Applications that
+      have not started. **M** · [kernel §3](./kernel.md) steps 4–5
+- [ ] **A5.13 Command implementations checked against declared ids** — `implement` accepts only a
+      member of the literal union; a declared command with no implementation fails at start. **S** ·
+      [application §2](./application.md)
 
 ### A6 — The built-ins
 
@@ -211,14 +225,28 @@ because they are written against the same interfaces an outside author gets.
 - [ ] **A6.5 Notification host** — the surface `notifications` renders into, themed per site. **S**
 - [ ] **A6.6 Command palette** over `commands` and `keys`. **S**
 
-### A7 — Components and theme
+### A7 — Components and theme ★
 
-- [ ] **A7.1 Audit the 13 components** against what a blog, a console and an IDE each need. Everybody
-      uses the same form component with different styles — that is the rule to hold.
-      **M** · [README §2](./README.md)
+**Now on the critical path, not a later audit.** If an Application's only vocabulary is components,
+then a missing component is a blocked Application — there is no `div` to fall back to
+([view-layer §3](./view-layer.md)).
+
+- [ ] **A7.1 ★ The primitive vocabulary** — audit the 13 from the deleted runtime against what a
+      blog, a console and an IDE each need, together. Everybody uses the same form component with
+      different styles. **M** · [view-layer §11](./view-layer.md)
 - [ ] **A7.2 Theme tokens as registry values**, so a site restyles without forking components.
       **S** · ⛔ A4
-- [ ] **A7.3 The missing components** the audit names. **L**
+- [ ] **A7.3 The missing primitives** the audit names. **L**
+- [ ] **A7.4 How an Extension contributes components** — a fourth contract, or a plain function
+      returning a description. Undecided. **M** · [view-layer §3](./view-layer.md)
+- [ ] **A7.5 The `dom` capability and `Surface`** — the escape hatch for Monaco, canvas and WebGL.
+      Needed on day one or the IDE case is blocked, and a contribution declaring it is legibly
+      opting out of isolation. **M** · [view-layer §8](./view-layer.md)
+- [ ] **A7.6 List virtualisation as a component** the renderer understands. Ten thousand rows cannot
+      be ten thousand nodes, and an Application cannot implement windowing if it cannot measure.
+      **M** · [view-layer §11](./view-layer.md)
+- [ ] **A7.7 Accessibility lives in the primitives.** If apps never write elements, the library owns
+      every role, label and focus order — and an Application cannot patch around a mistake. **M**
 
 ---
 
