@@ -211,7 +211,11 @@ describe('failures are named, not numbered', () => {
     });
 
     it('carries a failure the exposure declared', async () => {
-        const error = await failsWith(json(400, { error: 'revoked', message: 'That credential was revoked.' }));
+        const error = await failsWith(json(409, {
+            error: 'revoked',
+            message: 'That credential was revoked.',
+            declared: true,
+        }));
 
         expect(error).toEqual({ kind: 'declared', name: 'revoked', detail: 'That credential was revoked.' });
 
@@ -220,6 +224,34 @@ describe('failures are named, not numbered', () => {
             const name: 'revoked' = error.name;
             expect(name).toBe('revoked');
         }
+    });
+
+    /**
+     * The bug the first real request found.
+     *
+     * This used to read *any* body with a string `error` as a declared failure — and mesh-api answers
+     * a gate refusal with exactly that shape, `{ error: 'UNAUTHENTICATED', message }`. So every 401
+     * and 403 arrived as `kind: 'declared'` with `name: 'UNAUTHENTICATED'`, and a caller checking
+     * `error.kind === 'unauthorized'` to prompt a sign-in never fired.
+     *
+     * Neither side was wrong alone, and neither side's tests could see it: this file's fake server
+     * only ever produced one of the two shapes. It took one real browser calling one real API.
+     */
+    it('does not mistake a gate refusal for a declared failure', async () => {
+        expect(await failsWith(json(401, { error: 'UNAUTHENTICATED', message: 'Sign in.' })))
+            .toEqual({ kind: 'unauthorized' });
+
+        expect(await failsWith(json(403, { error: 'FORBIDDEN', message: 'No post.write.' })))
+            .toEqual({ kind: 'forbidden' });
+
+        // A declared failure is marked, so a site may answer one with whatever status suits it.
+        expect(await failsWith(json(404, { error: 'not_found', message: 'No such post.', declared: true })))
+            .toEqual({ kind: 'declared', name: 'not_found', detail: 'No such post.' });
+    });
+
+    it('reports the API’s own message rather than the raw body', async () => {
+        expect(await failsWith(json(400, { error: 'INVALID_INPUT', message: 'id: Required' })))
+            .toEqual({ kind: 'invalid', detail: 'id: Required' });
     });
 
     it('reports a transport failure rather than throwing', async () => {

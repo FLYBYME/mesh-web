@@ -22,18 +22,20 @@
  */
 
 import {
-    Kernel, WindowManager, command, consumes, createRegistry, each, effect, element, mountView,
-    needs, provider, text, when, windowSink, PRIMITIVES,
+    Kernel, WindowManager, command, consumes, createClient, createRegistry, each, effect, element,
+    fetchTransport, mountView, needs, provider, text, when, windowSink, withHeaders, describe,
+    PRIMITIVES,
     type Action, type Application, type Context, type Extension, type ViewContext, type ViewInstance,
 } from '@flybyme/mesh-web';
 
+// Generated from the API's own exposure list by `npm run example:client` in mesh-api. Structural
+// types, no zod, no import into the repo the contracts live in (spec/network.md §3.1).
+import { blogApi, type PostListOutputItem } from './generated/blog-api.js';
+
 // ---------------------------------------------------------------------------- a site
 
-interface Post {
-    readonly slug: string;
-    readonly title: string;
-    readonly published: boolean;
-}
+/** The API's shape, not a hand-written copy of it. */
+type Post = PostListOutputItem;
 
 interface AuthApi {
     readonly signedIn: () => boolean;
@@ -62,13 +64,17 @@ interface BlogApi {
 }
 const BLOG = provider<BlogApi>('demo.blog');
 
-const BLOG_NEEDS = needs('state', 'commands', 'windows', 'notifications');
+const BLOG_NEEDS = needs('state', 'commands', 'windows', 'notifications', 'net');
 const BLOG_CONSUMES = consumes(AUTH);
 
 class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, typeof BLOG> {
     readonly needs = BLOG_NEEDS;
     readonly consumes = BLOG_CONSUMES;
     readonly provides = BLOG;
+
+    // Declared in the manifest, so the kernel knows every API this site contacts before any of it
+    // runs — the list a review, a CSP or an audit wants (spec/network.md §4).
+    readonly api = blogApi;
 
     readonly commands = [
         { id: 'blog.open', title: 'Blog: Open Post' },
@@ -150,38 +156,58 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
         },
     ];
 
-    async start(cx: Context<typeof BLOG_NEEDS, typeof BLOG_CONSUMES>): Promise<BlogApi> {
+    async start(cx: Context<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, typeof blogApi>): Promise<BlogApi> {
         const auth = cx.use(AUTH);
-        const posts = cx.state.signal<readonly Post[]>([
-            { slug: 'a', title: 'A window you can drag', published: true },
-            { slug: 'b', title: 'Fine-grained, no diffing', published: false },
-            { slug: 'c', title: 'The kernel drives everything', published: false },
-        ]);
-
+        const posts = cx.state.signal<readonly Post[]>([]);
         let n = 0;
 
-        const publish = (slug: string): void =>
-            posts.set(posts().map((p) => (p.slug === slug ? { ...p, published: !p.published } : p)));
-
-        cx.commands.implement('blog.open', () => {
-            if (!auth.signedIn()) {
-                cx.notifications.warn('Sign in first.');
+        /**
+         * One place where a failure becomes something a person can read.
+         *
+         * `describe()` maps every named failure to a sentence, and its switch is exhaustive — so a
+         * new failure in the framework is a compile error here rather than an empty toast.
+         */
+        const refresh = async (): Promise<void> => {
+            const result = await cx.net.call('post.list', {});
+            if (!result.ok) {
+                cx.notifications.warn(describe(result.error));
                 return;
             }
+            // Inferred from the API's own output schema. Nothing here declares this shape.
+            posts.set(result.value.items);
+        };
+
+        cx.commands.implement('blog.open', () => {
             cx.windows.open({ view: 'sidebar' });
         });
 
-        cx.commands.implement('blog.publish', (slug) => publish(String(slug)));
-
-        cx.commands.implement('blog.add', () => {
-            n += 1;
-            posts.set([...posts(), { slug: `n${n}`, title: `Untitled ${n}`, published: false }]);
+        cx.commands.implement('blog.publish', async (slug) => {
+            const result = await cx.net.call('post.publish', { slug: String(slug) });
+            if (!result.ok) {
+                // A permission the caller does not have arrives as a 403 and is *expected*, not an
+                // error to hide: bob can read this site and cannot write to it.
+                cx.notifications.warn(describe(result.error));
+                return;
+            }
+            posts.set(posts().map((p) => (p.slug === result.value.slug ? result.value : p)));
         });
+
+        cx.commands.implement('blog.add', async () => {
+            n += 1;
+            const result = await cx.net.call('post.create', { title: `Untitled ${n}` });
+            if (!result.ok) {
+                cx.notifications.warn(describe(result.error));
+                return;
+            }
+            posts.set([...posts(), result.value]);
+        });
+
+        await refresh();
 
         return {
             posts,
             canWrite: () => auth.signedIn(),
-            publish,
+            publish: (slug) => void cx.commands.run('blog.publish', slug),
             add: () => void cx.commands.run('blog.add'),
         };
     }
@@ -202,6 +228,30 @@ const manager = new WindowManager({ width: root.clientWidth, height: root.client
 const kernel = new Kernel();
 
 kernel.services.windows = windowSink(manager, (owner, view) => kernel.viewOf(owner, view));
+
+/**
+ * Where the API is, and who is calling it.
+ *
+ * The origin is a deployment fact: in production the CDN and the API sit behind one proxy and this
+ * is `''` (spec/hosting.md §1). Here they are two ports, which is why the API has to declare this
+ * origin in `allowOrigins`.
+ *
+ * The ticket is attached by **wrapping the transport**, not by any Application handling it
+ * (spec/network.md §4). `withHeaders` takes a function rather than a value because a ticket is
+ * refreshed, and a value captured once goes stale in exactly the case that matters — here, signing
+ * in as somebody else without reloading.
+ */
+const API_ORIGIN = new URLSearchParams(location.search).get('api') ?? 'http://127.0.0.1:5005';
+
+let ticket: string | undefined = new URLSearchParams(location.search).get('ticket') ?? 'alice-ticket';
+
+kernel.services.netClient = (api) => createClient(api as never, {
+    transport: withHeaders(
+        fetchTransport(API_ORIGIN),
+        (): Readonly<Record<string, string>> =>
+            (ticket === undefined ? {} : { authorization: `Bearer ${ticket}` }),
+    ),
+});
 
 kernel.boot([
     { id: 'auth', contribution: new AuthExtension() as never },

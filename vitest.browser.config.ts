@@ -23,6 +23,13 @@ export default defineConfig({
             provider: 'playwright',
             name: 'chromium',
             headless: true,
+            // A fixed port, so an API can *declare* this origin. Which origins may call a site is
+            // part of what the site exposes (mesh-api's `allowOrigins`), and a page on a random
+            // port cannot be declared — only allowed by a wildcard, which is the thing that should
+            // not exist. Note this is `browser.api`, not Vite's `server.port`: the page is served
+            // by vitest's own server, and setting the wrong one leaves the page on :63315 with the
+            // config looking correct.
+            api: { port: 5174, strictPort: true },
             // Big enough for a desktop with windows on it. Not cosmetic: a drop point outside the
             // target element's box gets clamped, so a narrow viewport silently turns a 120px drag
             // into a drag to the middle of the page — which reads as a framework bug and is not one.

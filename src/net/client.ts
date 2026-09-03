@@ -147,10 +147,17 @@ function interpret(response: NetResponse): Result<unknown, CallError<string>> {
 
     if (response.status >= 200 && response.status < 300) return ok(parsed.value);
 
-    // A declared failure names itself in the body; the site's own errors are not status codes,
-    // because there are more of them than there are useful codes.
     const body = parsed.value;
-    if (isRecord(body) && typeof body['error'] === 'string') {
+
+    // A declared failure says so. It is **not** inferred from the shape of the body, and that
+    // distinction was found the hard way: the first time a real browser called a real API, every
+    // 401 and 403 arrived here as a declared failure, because a gate refusal is also
+    // `{ error: string, message: string }` and this used to read any such body as the site naming
+    // its own error. Both sides were reasonable alone; they meant different things by one shape.
+    //
+    // The marker is explicit so a site can answer a declared failure with whatever status suits it
+    // — 400, 409, 422 — and the caller still knows which kind of failure it has.
+    if (isRecord(body) && body['declared'] === true && typeof body['error'] === 'string') {
         return err({
             kind: 'declared',
             name: body['error'],
@@ -158,7 +165,11 @@ function interpret(response: NetResponse): Result<unknown, CallError<string>> {
         });
     }
 
-    const detail = typeof body === 'string' ? body : parsed.raw;
+    // The API's own message where it sent one, so a 400 says which field was wrong rather than
+    // handing the caller the raw body to parse a second time.
+    const detail = isRecord(body) && typeof body['message'] === 'string'
+        ? body['message']
+        : typeof body === 'string' ? body : parsed.raw;
 
     switch (response.status) {
         case 400: return err({ kind: 'invalid', detail });
