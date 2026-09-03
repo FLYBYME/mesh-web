@@ -1,0 +1,23 @@
+// The browser harness (roadmap A0.5a).
+//
+// The harness imports `@flybyme/mesh-web` by name rather than by relative path, so that it compiles
+// against the same public entry an Application author gets. `paths` points that at the built
+// declarations here; an import map in `browser/index.html` points it at the built JavaScript in the
+// browser. Nothing reaches into `src/`.
+//
+// It inherits `types: []` from the base config, so the harness is held to the package's rule: a node
+// builtin in here is a compile error.
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "rootDir": "browser",
+        "outDir": "browser/dist",
+        "declaration": false,
+        "declarationMap": false,
+        "baseUrl": ".",
+        "paths": {
+            "@flybyme/mesh-web": ["./dist/index.d.ts"]
+        }
+    },
+    "include": ["browser/**/*.ts"]
+}

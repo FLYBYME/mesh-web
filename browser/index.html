@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mesh-web — browser harness</title>
+<style>
+    :root {
+        color-scheme: dark;
+        --bg: #14161a;
+        --chrome: #232830;
+        --line: #333a45;
+        --ink: #e6e9ef;
+        --dim: #8d97a8;
+        --accent: #6ea8fe;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+        color: var(--ink);
+        font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+        overflow: hidden;
+    }
+
+    header {
+        flex: none;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+    }
+
+    header strong { font-weight: 600; }
+    header span { color: var(--dim); }
+    header button {
+        margin-left: auto;
+        background: var(--chrome);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 3px 10px;
+        cursor: pointer;
+    }
+
+    #desktop {
+        position: relative;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    #log {
+        flex: none;
+        height: 84px;
+        overflow-y: auto;
+        border-top: 1px solid var(--line);
+        padding: 6px 12px;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        color: var(--dim);
+    }
+
+    /* ---- window chrome. The shell's, not the framework's: a real one is an Extension. ---- */
+
+    .window {
+        position: absolute;
+        display: flex;
+        flex-direction: column;
+        background: var(--chrome);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        box-shadow: 0 10px 30px rgb(0 0 0 / 45%);
+        overflow: hidden;
+    }
+
+    .window.focused { border-color: var(--accent); }
+
+    .titlebar {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 6px 5px 10px;
+        background: #1b1f26;
+        border-bottom: 1px solid var(--line);
+        cursor: grab;
+        user-select: none;
+        touch-action: none;
+    }
+
+    .titlebar .label { font-weight: 600; flex: 1; }
+    .titlebar button {
+        width: 20px; height: 20px;
+        border: 0; border-radius: 4px;
+        background: transparent; color: var(--dim);
+        cursor: pointer; font-size: 13px; line-height: 1;
+    }
+    .titlebar button:hover { background: #2e343d; color: var(--ink); }
+
+    .content { flex: 1; overflow: auto; }
+
+    .grip {
+        position: absolute;
+        right: 0; bottom: 0;
+        width: 16px; height: 16px;
+        cursor: nwse-resize;
+        touch-action: none;
+        background: linear-gradient(135deg, transparent 50%, var(--line) 50%);
+    }
+
+    /* ---- what the Application's view renders into. Class names come from its own props. ---- */
+
+    .pane { display: flex; flex-direction: column; gap: 10px; padding: 10px; height: 100%; }
+    .posts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .post {
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 8px; border-radius: 4px; cursor: pointer;
+        background: #1b1f26;
+    }
+    .post:hover { background: #2a303a; }
+    .post .title { flex: 1; }
+    .draft, .live { font-size: 10px; padding: 1px 6px; border-radius: 999px; }
+    .draft { background: #4a3a1c; color: #f0c674; }
+    .live { background: #1e3a2a; color: #8fd4a8; }
+    .actions { display: flex; gap: 6px; }
+    .actions button {
+        background: #2a303a; color: var(--ink);
+        border: 1px solid var(--line); border-radius: 4px;
+        padding: 4px 8px; cursor: pointer;
+    }
+    .count { color: var(--dim); margin-top: auto; }
+</style>
+</head>
+<body>
+    <header>
+        <strong>mesh-web</strong>
+        <span>drag a title bar · resize from the corner · ctrl+N for a new post · click a post to toggle it</span>
+        <button id="stop">Stop the blog process</button>
+    </header>
+
+    <div id="desktop"></div>
+    <div id="log"></div>
+
+    <!--
+        The harness imports "@flybyme/mesh-web", the same specifier an Application author writes.
+        No bundler: every emitted import carries its .js extension, so dist/ loads as native ESM.
+    -->
+    <script type="importmap">
+        { "imports": { "@flybyme/mesh-web": "../dist/index.js" } }
+    </script>
+    <script type="module" src="./dist/harness.js"></script>
+</body>
+</html>

@@ -92,9 +92,19 @@ zero, which is the point of the reset — see [status §1](./status.md).
       `each` keyed so a reorder moves the same nodes; device events mapped to intents; disposal by
       reactive scope. Asserted by node identity, not by markup.
       [view-layer §4](./view-layer.md)
-- [ ] **A0.5a Browser tests for the renderer.** jsdom covers reconciliation, binding, disposal and
+- [x] **A0.5a Browser tests for the renderer.** jsdom covers reconciliation, binding, disposal and
       intent mapping. It does not cover layout, focus, real input devices or anything measured, and
-      [testing §4](./testing.md) says that is where the risk is. **M**
+      [testing §4](./testing.md) says that is where the risk is.
+      **Done** as a second vitest project (`npm run test:browser`, `vitest.browser.config.ts`):
+      Vite serves `src/` to a real Chromium, the test runs inside the page, and input arrives
+      through CDP rather than `dispatchEvent`. Eight tests, each one a claim jsdom cannot evaluate —
+      declared sizes in real pixels, rows that stack, a drag that survives leaving its handle,
+      `minSize` enforced against real layout, a trusted click becoming a command, and `Enter`
+      reaching a row without a pointer. Playwright uses the system Chrome (`channel: 'chrome'`), so
+      CI needs a browser rather than a 400MB download.
+- [ ] **A0.5b Extend the browser project to the rest of §4** — focus in the DOM beyond one
+      `activeElement` check, text entry and IME, pen and touch. Gated on A8 for the input adapters
+      and on A7.1 for the focus graph. **M** · [testing §4](./testing.md)
 - [ ] **A0.6 Router** — routing, scoped routers, scroll and focus restoration. **M**
 
 A0.3 and A0.6 are parts of the deleted runtime with no design defect against them — deleted because

@@ -133,10 +133,13 @@ tests could not have caught it.
   device event ([input §2](./input.md)).
 - a handler action reaches the renderer as an **id**; the renderer never calls the function.
 
-**The limit, stated:** jsdom is not a browser. [testing §4](./testing.md) is right that layout,
-focus, real input devices and anything measured need one. The renderer's tests cover reconciliation,
-binding, disposal and intent mapping — logic that happens to touch a DOM — and the browser tests
-that do not exist yet should cover what jsdom cannot rather than repeat this.
+**The limit, and what now covers it:** jsdom is not a browser. [testing §4](./testing.md) is right
+that layout, focus, real input devices and anything measured need one. The renderer's jsdom tests
+cover reconciliation, binding, disposal and intent mapping — logic that happens to touch a DOM — and
+a second vitest project (`npm run test:browser`) covers what jsdom cannot, rather than repeating
+them. Eight tests in real Chromium: declared sizes in actual pixels, rows that stack, a drag that
+keeps receiving moves after the pointer leaves its handle, `minSize` enforced by real layout, a
+trusted click becoming a command, and `Enter` reaching a row with no pointer involved.
 
 **Still no code:** the window manager, real input, the registry and hives, the network client, the
 component vocabulary as designed, `net`/`events`/`keys`/`menus`/`models`/`storage` as capabilities,
@@ -276,13 +279,18 @@ made** and none of the framework decisions below block starting work.
   regardless, so this is timing rather than an objection — but it is a one-way door on a shared
   remote and it is the only thing held back for a decision.
 
-### The honest risk
+### The honest risk, now partly closed
 
-- **Nobody has looked at any of this in a browser.** 123 tests, a clean build and a clean typecheck.
-  jsdom is not a browser, and [testing §4](./testing.md) is right that layout, focus and real input
-  devices need one. This is the exact property the deleted runtime had at 182 green tests
-  ([testing §6](./testing.md)), and it is worth breaking before adding more surface.
-  [roadmap A0.5a](./roadmap.md).
+- **The code runs in a real browser.** [A0.5a](./roadmap.md) is done: eight tests in real Chromium
+  (`npm run test:browser`), driving real pointer and keyboard input through CDP. A window has the
+  size its view declared, in pixels; a drag survives leaving its handle; a trusted click becomes a
+  command that changes application state and the DOM follows. That is the claim the deleted runtime
+  could never make at 182 green tests ([testing §6](./testing.md)).
+- **A human still has not looked at it.** Headless Chromium is a browser; it is not eyes. There is a
+  harness at `browser/index.html` for exactly that — `npm run harness`, then open
+  <http://localhost:8080/browser/>. It is one Application in a window you can drag and resize, with
+  an activity log of every command the kernel runs. Nobody has sat in front of it yet, and
+  [testing §6](./testing.md) is specifically about the difference.
 
 ### Worth reading, because they say something about the design
 
@@ -304,7 +312,8 @@ made** and none of the framework decisions below block starting work.
 
 ### Where I would pick up
 
-1. **A browser test** — the risk above, and it is small.
+1. ~~**A browser test**~~ — done, [A0.5a](./roadmap.md). Open `npm run harness` and look at it, which
+   is the part a test cannot do for you.
 2. **`net`, and the generated client** ([network.md](./network.md), roadmap A3.1a). It is the
    capability everything real needs, and the generator is the piece the whole type story rests on.
 3. **A7.1, the component vocabulary** — now on the critical path, and gated on the focus graph

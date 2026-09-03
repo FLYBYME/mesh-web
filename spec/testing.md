@@ -97,6 +97,30 @@ Small, concentrated, and unavoidable.
 | **gamepad** | the Gamepad API cannot meaningfully be synthesised |
 | **the builder and CDN** | integration, by nature |
 
+### How, concretely
+
+Two vitest projects, because the split is real and should cost nothing to run:
+
+| | `npm test` | `npm run test:browser` |
+| --- | --- | --- |
+| config | `vitest.config.ts` | `vitest.browser.config.ts` |
+| runs in | node, with `@vitest-environment jsdom` per file | real Chromium, via Playwright |
+| input | the test synthesises the event | the browser delivers it, over CDP |
+| holds | everything that can be answered without layout | `test/browser/**` only |
+
+Vitest browser mode serves `src/` with Vite and runs the test file **inside the page**, so a test
+imports the framework exactly as an Application would and there is no bundle step. Two details that
+are not obvious and cost an afternoon each:
+
+- **`channel: 'chrome'` uses the system Chrome**, so `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is safe and
+  CI needs a browser rather than a 400MB cache.
+- **Set a viewport.** `userEvent.dragAndDrop` clamps a drop point that falls outside the target
+  element's box, so a viewport narrower than the desktop under test silently turns a 120px drag into
+  a drag to the middle of the page — which reads exactly like a framework bug and is not one.
+
+A third thing to look at rather than run: `browser/` is a harness, not a demo — one Application in a
+window, `npm run harness`. §6 is why it exists.
+
 **You cannot unit test a Steam Deck.** The input model is designed so that most of it — bindings,
 intents, the focus graph — is pure and testable, and the part that genuinely needs the hardware is
 the adapter that turns a poll result into a signal. Keep that adapter thin, precisely because it is
