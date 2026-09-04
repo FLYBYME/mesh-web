@@ -468,10 +468,58 @@ nothing, and any chrome could close a permanent window by asking. It is enforced
 teardown still ignores it, because the flag means *the user may not dismiss this*, not *this window
 outlives its Application*.
 
-**Still open: where chrome draws.** An activity bar and a tab strip are the frame *around* the
-windows, not windows, and no capability offers a surface outside the window area. It must not be a
-DOM handle — §2 gives the kernel that the DOM exists at all, and it must not be replaceable by the
-code it renders. Roadmap A6.3d.
+### Where chrome draws: chrome describes the page, and says where the windows go — **Decided**
+
+An activity bar and a tab strip are the frame *around* the windows, not windows, so chrome needs a
+surface outside the window area. Three shapes were considered and two are wrong:
+
+**A DOM handle is wrong.** [kernel §2](./kernel.md) gives the kernel that the DOM exists at all, and
+it must not be replaceable by the code it renders. Handing chrome an element hands it that.
+
+**Named regions are wrong** — `top`, `bottom`, `left`, `right`, or worse `activityBar` and
+`statusBar`. That is PR #6's shell *profiles* returning in different clothes: a docking model baked
+into the framework, which every site then pays for and no site can escape. §8's whole argument is
+that the shell must not be a mode.
+
+**So the surface is inverted.** Chrome describes the **whole page**, and one node in that description
+says *the windows go here*:
+
+```ts
+activate(cx: CapabilityContext<typeof NEEDS>) {
+    return {
+        render: () => element('div', { class: 'shell' }, [
+            tabStrip(cx.chrome.windows()),
+            cx.chrome.host(),          // ← the window area, wherever chrome puts it
+            statusBar(cx.chrome.focused()),
+        ]),
+    };
+}
+```
+
+`cx.chrome.host()` returns an ordinary description node the kernel recognises. After mounting
+chrome's description the kernel finds it and mounts the window layer inside — so chrome lays out
+anything it likes around the windows, in any arrangement, and still never touches the DOM or the
+mounting. The framework gains exactly one new concept, *"the window area goes here"*, and names no
+layout at all. A site with no chrome Extension gets the window layer mounted at the root, which is
+what makes chrome genuinely optional rather than a mode with a default.
+
+Two constraints fall out and both are real:
+
+- **The host must be unconditional.** Inside a `when` or an `each` it would be destroyed and
+  recreated, re-parenting every window — and re-parenting resets scroll, which is the exact defect
+  the no-remount design exists to prevent ([the model](./README.md)). The kernel checks the host is
+  still attached after a reconcile, so this fails loudly rather than as mysterious scroll loss.
+- **Chrome that forgets the host is a broken site**, not a site with no windows, so it is refused at
+  boot rather than rendered.
+
+**What this found: the window layer is not in the framework yet.** A6.3 asks whether the workbench
+can be written as an Extension *over the window manager* — and the thing that paints windows is 900
+lines of `browser/harness.ts`, demo code, not part of the package at all. The manager tracks windows;
+nothing in `src/` renders them. So chrome cannot wrap the shell until the shell exists to be wrapped,
+and the order is: extract the window layer into the package (A6.3e), then chrome (A6.3d).
+
+That is not a detour. A framework whose only shell lives in its own demo has not shipped a shell, and
+this is how that gets noticed.
 
 ---
 
