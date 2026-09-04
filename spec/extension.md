@@ -377,10 +377,23 @@ are unavailable until then, so nothing may `consume` a deferred Extension.
 
 Three origins, one contract:
 
-**Built in.** Shipped with mesh-web: the workbench, the process manager, the command palette, the
-notification surface, the settings editor. Privileged only in being present by default —
-[kernel §2](./kernel.md) requires them to be written against the same interfaces an outside author
-gets, because that is the only honest test that those interfaces are usable.
+**Built in.** Shipped with mesh-web: the process manager, the command palette, the notification
+surface, the settings editor. Privileged only in being present by default — [kernel §2](./kernel.md)
+requires them to be written against the same interfaces an outside author gets, because that is the
+only honest test that those interfaces are usable.
+
+> **The workbench is not one of them — corrected 2026-09-04.** This list named it first, and that was
+> wrong twice over. **The IDE is a different product from the framework it is written with**, so a
+> blog installing `@flybyme/mesh-web` should no more receive an activity bar than it should receive a
+> docking system — which is the same argument §1 makes about the `Shell` object, one level up.
+>
+> And keeping it inside `src/` quietly weakened the only claim it exists to make. §8a's argument is
+> that the shell needs no privileged access; a file inside the package reaching into
+> `../contribution/capabilities.js` cannot demonstrate that, because it would have had that reach
+> whether or not the capability existed. Moved out to `browser/workbench.ts`, importing
+> `@flybyme/mesh-web` by name, **the proof became real and immediately failed**: `Chrome` and
+> `ChromeWindow` were never exported from the public entry, so no outside author could have written
+> this file at all. One minute outside the package found what a day inside it had not.
 
 **Site-supplied.** In the site's own repo or a repo it depends on. The auth Extension is the usual
 one: it holds the session, attaches the ticket, and handles the revocation event. One per site,

@@ -237,7 +237,14 @@ sound; each item below is the interface *and* the implementation behind it.
 - [ ] **A3.2 `events`** — the SSE bridge. It was written once and its only coverage lived in mesh-api,
       because the test stood up a real express server. Rebuild it with a test that does not need one.
       **M**
-- [ ] **A3.3 `commands`** — registration, invocation, argument typing, the palette's data source. **M**
+- [ ] **A3.3 `commands` — partial, and the item was misleading.** Registration and invocation are
+      **built and in use**: `cx.commands.implement(id, fn)` refuses an id this contribution did not
+      declare, `run(id, ...)` invokes anything the kernel knows, the manifest merges declarations
+      before anything starts, and A3.4 already answers a command to its bindings. The harness and the
+      workbench both run on it.
+      What is **not** built: **argument typing** — `CommandImpl` takes `...args: readonly Json[]`, so
+      `run('blog.publish', 42)` where a slug was meant is a run-time surprise — and **the palette's
+      data source**, which is A6.6's input. **S** (was **M**)
 - [x] **A3.4 `keys`** — binding resolution, sharing one parser with A1.4. `bindingTable()` answers
       both directions: a keypress to a command, and a command to its bindings so a menu can show the
       shortcut without anybody writing it twice. **Reserved bindings are enforced here**
@@ -246,8 +253,13 @@ sound; each item below is the interface *and* the implementation behind it.
       looks like it worked. The reserved set is a parameter — a tab loses `ctrl+n`, a kiosk loses
       nothing — not a constant.
 - [ ] **A3.5 `menus`** — menubar, window, status and `context:*` targets. **M**
-- [ ] **A3.6 `notifications`** — baked in, identical for a blog, a console and an IDE. Info, warning,
-      error, progress, actions, and a handle that can be updated and dismissed. **M**
+- [ ] **A3.6 `notifications` — partial, and the item was misleading.** Info, warning and error are
+      **built**, each returning a handle that updates and dismisses, the list is a signal, dismissing
+      removes rather than flags, and A6.5's host renders them — that gap was found the hard way, by a
+      capability recording notices nothing displayed.
+      What is **not** built: **progress** and **actions** — a notice with a button on it, which is
+      how "deploy failed · retry" is written and the reason a console needs this before it can be
+      ported. **S** (was **M**)
 - [ ] **A3.7 `models`** — typed collections over a site's CRUD contracts, reactive. **L**
 - [ ] **A3.8 `windows`** — see A2.6.
 - [ ] **A3.9 `storage`** — see A4.
@@ -563,6 +575,23 @@ mesh-web's server half. **None of it exists** — no server, no builder, no `web
       absent: **the tenant**, because a repo that could name its own owner could name someone else's,
       and anything about a filesystem. Consequence: the input hash is not knowable until after the
       fetch, since the policy is in the source. [hosting §5](./hosting.md)
+- [ ] **B8a ★ Serving a production hostname in development.** *A site is a hostname*
+      ([hosting §2](./hosting.md)) — which is right, and makes local development awkward in a way
+      nothing has yet addressed: a browser on `localhost:8080` sends `Host: localhost:8080`, and
+      **nobody controls what hostname a developer's browser sends.** The port is already handled
+      (`normalizeHostname` strips it), so `localhost` resolves; what does not work is serving
+      *`console.surfdns.net`'s own artifact* locally, which is the thing you actually want to look at.
+      Three shapes, and the third is the one to build:
+      **A second `local` environment in the descriptor** — what `mesh-web.json` does today. It works
+      and it is wrong as a general answer: the production environment is the one under test, and a
+      parallel entry is config that drifts from it silently.
+      **`trustForwardedHost`** — already exists, and is for the real proxy. Turning it on locally
+      makes the origin a caller's choice, which §3 spends a paragraph refusing.
+      **A dev alias map on the CDN node** — `{ 'localhost': 'console.surfdns.net' }`. The site record
+      stays production's, the descriptor stays honest, and the deviation is one line that names
+      itself. It must be **refused when `tenantId` is set** and must never be reachable from a
+      deployed node's config, because an alias is by construction a way to serve one hostname's
+      content under another — exactly what B6 exists to prevent. **S** · ⛔ nothing
 - [ ] **B9 Artifact storage and cache invalidation** across nodes. **M**
 - [ ] **B10 Build triggers** — push, manual, promotion between environments. **M**
 - [ ] **B11 Per-tenant quotas and abuse handling.** ⛔ genuinely open: a per-node limit is ten times
@@ -813,6 +842,21 @@ All fourteen are built and both halves run for real:
 **M4 — An outside author can write an Application.**
 A3 (the remaining capabilities) · A6.1 · A6.2 · A6.6 · A7 (all) · A0.6
 *Someone who is not the author of this framework builds a real screen without reaching past it.*
+
+> **The exit criterion is not my opinion — it is a cold agy run.** Set an agent with no context on
+> this project the task of writing an Application and an Extension against the published package, and
+> see where it flounders. Whatever it cannot do is what M4 still owes; whatever it invents is what the
+> types failed to forbid; whatever it asks is what the documentation failed to say.
+>
+> This is a better test than the checklist above because **I am the worst possible judge of whether
+> this framework is usable** — I know where every seam is and would route around a missing export
+> without noticing. Which is exactly what happened on 2026-09-04: moving the workbench out of `src/`
+> found in one minute that `Chrome` and `ChromeWindow` were never exported from the public entry, so
+> the file arguing that no privileged access is needed had been using privileged access to say it.
+> A cold agent has no such reach and cannot be polite about it.
+>
+> The first run is expected to fail badly, and **its failures are the requirements document.** Run it
+> before deciding what A3 and A7 owe, not after.
 
 **M5 — It proves itself.**
 A6.3a · B7 · B9–B12 · C1 (all) · C2 (all) · C3.5 · C3.6 · Track D

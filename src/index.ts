@@ -21,4 +21,3 @@ export * from './window/index.js';
 export * from './input/index.js';
 export * from './registry/index.js';
 export * from './auth/index.js';
-export * from './workbench/index.js';

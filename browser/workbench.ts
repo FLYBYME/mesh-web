@@ -1,6 +1,17 @@
 /**
  * The workbench — roadmap A6.3, spec/extension.md §8.
  *
+ * **Outside the package, deliberately.** §7 used to file this under *built in*; it is not, because
+ * the IDE is a different product from the framework it is written with. Two consequences, and the
+ * second is why this is a better place than `src/`:
+ *
+ * 1. `@flybyme/mesh-web` ships no workbench. A blog that installs the framework does not receive an
+ *    activity bar, which is the same rule that keeps a blog from receiving a docking system.
+ * 2. **It imports the framework by name**, through the public entry, exactly as an outside author
+ *    does. That matters for what this file is *for*: A6.3's claim is that the shell can be written
+ *    with no privileged access, and a file inside `src/` reaching into `../contribution/…` cannot
+ *    demonstrate that — it would have had access whether or not the capability existed.
+ *
  * > "i think i should be able to write an extention that would cover the 'workbench' idea too"
  *
  * This is that, and it is the point of the whole exercise. §8 calls it *the load-bearing test of the
@@ -13,19 +24,17 @@
  * reaching into the kernel, and no DOM. It declares four capabilities, returns a description, and
  * puts `cx.chrome.host()` where it wants the windows. Everything it does, an outside author can do —
  * which is the only honest test that the interfaces are usable, and the reason the built-ins are
- * required to be written against them ([kernel §2](../../spec/kernel.md)).
+ * required to be written against them ([kernel §2](../spec/kernel.md)).
  *
  * It is also deliberately *plain*. A tab strip, a mode button and a status line: enough to prove the
  * shape, and no more, because the interesting claim is that this file has no special powers rather
  * than that it looks like VS Code. A site with a designer replaces it and keeps the capability.
  */
 
-import { needs } from '../contribution/capabilities.js';
-import type { Chrome, ChromeWindow } from '../contribution/capabilities.js';
-import type { Context, Extension } from '../contribution/contract.js';
-import { command, each, element, text } from '../description/build.js';
-import type { Node } from '../description/types.js';
-import { PAGE_CHROME, type PageChrome } from '../window/page.js';
+import {
+    command, each, element, needs, text, PAGE_CHROME,
+    type Chrome, type ChromeWindow, type Context, type Extension, type Node, type PageChrome,
+} from '@flybyme/mesh-web';
 
 const NEEDS = needs('chrome', 'state', 'commands', 'log');
 
@@ -56,7 +65,7 @@ export class WorkbenchExtension implements Extension<typeof NEEDS, readonly [], 
      * done anything — the manifest is complete before anything runs (spec/kernel.md §4).
      *
      * `focusWindow` takes the window id as an argument, which is what makes a tab **scriptable**
-     * rather than only clickable ([view-layer §5](../../spec/view-layer.md)). It also means chrome
+     * rather than only clickable ([view-layer §5](../spec/view-layer.md)). It also means chrome
      * holds no callbacks: every affordance below is an `Action`, dispatched by the page, exactly as
      * in a view.
      */

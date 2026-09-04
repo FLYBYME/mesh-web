@@ -18,10 +18,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { userEvent } from '@vitest/browser/context';
 
 import {
-    Kernel, WindowManager, WorkbenchExtension, PAGE_CHROME, createRegistry, element, flushSync,
+    Kernel, WindowManager, PAGE_CHROME, createRegistry, element, flushSync,
     mountPage, needs, text, windowSink, PRIMITIVES,
     type Application, type Context, type Page,
 } from '../../src/index.js';
+
+// From `browser/`, not from the package. The workbench is not part of `@flybyme/mesh-web` — the IDE
+// is a different product — and importing it from where an outside author's code would live is part
+// of what this suite asserts.
+import { WorkbenchExtension } from '../../browser/workbench.js';
 
 // ---------------------------------------------------------------------------- a site
 

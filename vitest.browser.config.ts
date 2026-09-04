@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import { defineConfig } from 'vitest/config';
 
 /**
@@ -15,6 +17,16 @@ import { defineConfig } from 'vitest/config';
  * pointer belongs in the jsdom project, which is thirty times faster.
  */
 export default defineConfig({
+    // `browser/` code imports the framework **by name**, through the public entry, exactly as an
+    // outside author does — the harness has always done this through an import map, and since the
+    // workbench moved out of `src/` it does too. The alias is the same mapping `tsconfig.browser.json`
+    // makes for the compiler, so a test drives the workbench through the surface it actually ships
+    // against rather than through a relative path into the package's insides.
+    resolve: {
+        alias: {
+            '@flybyme/mesh-web': fileURLToPath(new URL('./src/index.ts', import.meta.url)),
+        },
+    },
     test: {
         name: 'browser',
         include: ['test/browser/**/*.test.ts'],
