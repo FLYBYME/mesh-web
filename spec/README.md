@@ -163,6 +163,32 @@ Application state — scroll position, form contents, an open connection, a runn
 half-typed message — belongs to the Application and is never touched by a mode switch, a move, a
 resize or a re-stack.
 
+### One correction, found by building it — **Decided**
+
+**A scroll offset is not preserved as a number across a resize, and cannot be.** Built as A2.4 on
+2026-09-04; the first browser test failed on exactly this and it was the test that was wrong.
+
+A window 120px tall, scrolled to 120px, becomes the 459px content tile on a switch to tiled. There is
+now only 42px of scroll left. The browser clamps, and it is right to — the reader cannot be 120px
+down a document that is only 42px taller than the viewport.
+
+So what the design owes here is narrower than "never touched", and worth stating exactly, because
+the difference is the whole feature:
+
+- **The view is not remounted.** Same nodes, same effects, same instance. This is absolute.
+- **Form contents, open connections and running queries survive unchanged.** No resize changes them.
+- **The scroll position is not reset**, and is kept as far as the new geometry allows.
+
+Restoring the *fraction* — keeping the reader at 40% of the document rather than at pixel 120 — is a
+sensible thing for a shell to do and is **not** a framework property. Left to the shell deliberately:
+a document reader wants the fraction, a log tailer wants to stay pinned to the bottom, and a
+spreadsheet wants the same cell in view. One of those is not the others.
+
+The related trap is in the same paragraph and is a real one:
+**re-parenting a node resets its scroll**, so a shell must *reposition* a window on a mode switch and
+never move it between parents. There is a browser test asserting the browser does that, because one
+`appendChild` looks harmless and silently breaks the property above.
+
 Windowed mode **remembers** position, size and z-index. Switching to tiled and back returns windows
 where they were. That memory is view state, keyed by view id, and it survives the round trip.
 

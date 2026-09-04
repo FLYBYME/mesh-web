@@ -37,6 +37,9 @@ export function windowSink(
                 view,
                 params,
                 title: decl.title,
+                // Read from the declaration at open time, like the sizes beside it — the manager
+                // must not know what a view is.
+                ...(decl.tile === undefined ? {} : { tile: decl.tile }),
                 ...(decl.defaultSize ? { size: decl.defaultSize } : {}),
                 ...(decl.minSize
                     ? { minSize: { width: decl.minSize.width ?? 0, height: decl.minSize.height ?? 0 } }

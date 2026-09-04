@@ -9,6 +9,7 @@
 
 import type { CapabilityContext, CapabilityName } from './capabilities.js';
 import type { AnyApiCall, Api } from '../net/api.js';
+import type { LayoutNode } from '../window/layout.js';
 import type { NetClient } from '../net/client.js';
 import type { Consumer, ProviderToken, ProviderTokens } from './provider.js';
 import type { Json } from '../description/types.js';
@@ -123,6 +124,18 @@ export interface Declarations {
      * a CSP or an audit wants — and it is available without running anything.
      */
     readonly api?: Api<Record<string, AnyApiCall>>;
+    /**
+     * The split tree this Application's views are arranged into, in tiled mode.
+     *
+     * In the manifest and not built in `start()`, for the same reason views are: the kernel restores
+     * geometry at boot step 9 and starts Applications at step 10, so it must already know the tile
+     * names. A layout assembled during `start()` is too late by construction — the window would
+     * appear at a default position and jump once the Application finished starting.
+     *
+     * Absent means the Application has no tiled arrangement, which is a perfectly ordinary thing for
+     * a single-window tool to be.
+     */
+    readonly layout?: LayoutNode;
     readonly commands?: readonly CommandDecl[];
     readonly keys?: readonly KeyDecl[];
     readonly menus?: readonly MenuDecl[];

@@ -18,12 +18,27 @@ import {
     cascade, clampSize, constrainToViewport, DEFAULT_MIN, maximize, move, raise, resize,
     type Rect, type ResizeEdge, type Size, type WindowState,
 } from './geometry.js';
+import { tileNames, tileRects, type LayoutNode } from './layout.js';
+
+/** Windowed or tiled. The same views serve both (spec/application.md §6). */
+export type WindowMode = 'windowed' | 'tiled';
+
+/** Space between panes in tiled mode. */
+export const TILE_GAP = 1;
 
 export interface WindowRecord {
     readonly id: string;
     /** The pid that opened it. Ownership, so disposal needs no bookkeeping from the caller. */
     readonly owner: string;
     readonly view: string;
+    /**
+     * The tile this window's view targets, from its declaration.
+     *
+     * Carried on the record rather than looked up, because the manager must not know what a view
+     * is — it is handed the tile name at open time, exactly as it is handed the default size.
+     * Undefined for a view that declared none: perfectly fine windowed, and not showable tiled.
+     */
+    readonly tile: string | undefined;
     readonly params: Readonly<Record<string, Json>>;
     readonly minSize: Size;
     title: string;
@@ -37,6 +52,8 @@ export interface WindowRecord {
 export interface OpenOptions {
     readonly owner: string;
     readonly view: string;
+    /** The tile the view declared, if any. */
+    readonly tile?: string;
     readonly title?: string;
     readonly params?: Readonly<Record<string, Json>>;
     readonly size?: Partial<Size>;
@@ -53,6 +70,20 @@ export class WindowManager {
     readonly focused: Signal<string | undefined>;
     readonly viewport: Signal<Size>;
 
+    /**
+     * Windowed or tiled.
+     *
+     * The same views serve both (spec/application.md §6). In windowed mode geometry is whatever the
+     * user dragged; in tiled mode it comes from the layout and the drag handles are not offered.
+     * **A window's `rect` is not overwritten when the mode changes** — that is what lets a switch
+     * back put every window exactly where it was, and it is why `rect` means "where the user put
+     * this" rather than "where this is".
+     */
+    readonly mode: Signal<WindowMode>;
+
+    /** The Application's declared split tree. Consulted only in tiled mode. */
+    readonly layout: Signal<LayoutNode | undefined>;
+
     #next = 0;
     #opened = 0;
 
@@ -61,6 +92,66 @@ export class WindowManager {
         this.order = signal<readonly string[]>([]);
         this.focused = signal<string | undefined>(undefined);
         this.viewport = signal(viewport);
+        this.mode = signal<WindowMode>('windowed');
+        this.layout = signal<LayoutNode | undefined>(undefined);
+    }
+
+    /**
+     * Where a window actually is, right now.
+     *
+     * The one function a shell should paint from. In windowed mode it is the record's own rect; in
+     * tiled mode it is the rect of the tile its view targets, and the record's rect is left alone
+     * so switching back restores it.
+     */
+    rectOf(id: string): Rect | undefined {
+        const record = this.get(id);
+        if (record === undefined) return undefined;
+        if (this.mode() === 'windowed') return record.rect;
+
+        const layout = this.layout();
+        if (layout === undefined || record.tile === undefined) return undefined;
+        return tileRects(layout, this.viewport(), { gap: TILE_GAP }).get(record.tile);
+    }
+
+    /**
+     * Which windows are on screen in the current mode, back to front.
+     *
+     * In tiled mode a tile holds **one** view at a time — several views may target one tile over an
+     * Application's life, and this is where "the window manager decides which occupies it now" is
+     * decided: the most recently focused. The others are not closed and not disposed; they are
+     * simply not shown, which is the whole point of the mode being a *view* concern.
+     */
+    visible(): readonly WindowRecord[] {
+        const stacked = this.stacked();
+        if (this.mode() === 'windowed') return stacked.filter((w) => w.state !== 'minimized');
+
+        const layout = this.layout();
+        if (layout === undefined) return [];
+
+        const available = new Set(tileNames(layout));
+        const occupant = new Map<string, WindowRecord>();
+
+        // `stacked` is back to front, so the later entry wins — which is the more recently focused.
+        for (const record of stacked) {
+            if (record.tile === undefined || !available.has(record.tile)) continue;
+            occupant.set(record.tile, record);
+        }
+
+        return stacked.filter((w) => occupant.get(w.tile ?? '') === w);
+    }
+
+    /** Windows the current mode cannot show. Not an error — something a shell may want to offer. */
+    hidden(): readonly WindowRecord[] {
+        const shown = new Set(this.visible().map((w) => w.id));
+        return this.windows().filter((w) => !shown.has(w.id));
+    }
+
+    setMode(mode: WindowMode): void {
+        this.mode.set(mode);
+    }
+
+    setLayout(layout: LayoutNode | undefined): void {
+        this.layout.set(layout);
     }
 
     get(id: string): WindowRecord | undefined {
@@ -92,6 +183,7 @@ export class WindowManager {
             id,
             owner: options.owner,
             view: options.view,
+            tile: options.tile,
             params: options.params ?? {},
             minSize: min,
             title: options.title ?? options.view,

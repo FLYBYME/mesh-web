@@ -144,12 +144,20 @@ The largest single piece, and the one everything visual waits on. Nothing here e
 - [x] **A2.2 Windowed mode: move, resize, focus, z-order, min/max/restore.** The GIMP case. Verified
       in real Chromium, not only jsdom: a drag that survives leaving its handle, `minSize` enforced
       against real layout, and a window that moves without re-rendering its view.
-- [ ] **A2.3 Tiled mode as a split tree**, nodes optionally named. Layout-defined geometry, no
-      min/max affordances. The website case. **L** · [application §6](./application.md)
-- [ ] **A2.4 Mode switching with no remount.** The whole point of separating view state from
-      application state: a switch re-parents DOM and reassigns geometry, and the Application never
-      learns it happened — scroll positions, form contents and open connections survive.
-      **M** · [README §4](./README.md)
+- [x] **A2.3 Tiled mode as a split tree**, nodes named. `tiles()` declares it, `tileRects()` places
+      it — pure functions over plain data, so a fraction that does not add up is caught without a
+      browser. Fixed sizes are taken before fractions are divided (a 40px header stays 40px on a
+      phone), and a layout naming one tile twice is refused when it is *written*, because a tile is
+      an address. `layout` is in the manifest, not built in `start()` — the kernel needs the tile
+      names before step 9. [application §6](./application.md)
+- [x] **A2.4 Mode switching with no remount.** `WindowManager` gains a mode; `rectOf()` answers from
+      the tile in tiled mode and from the record in windowed, and **a window's own rect is never
+      overwritten** — which is what lets a switch back put everything where the user had it. A tile
+      holds one view at a time, most recently focused; the others are *hidden*, never disposed.
+      Verified in a real browser, because scroll position is a rendering fact jsdom cannot have.
+      **Corrected the spec while building it** ([README §4](./README.md)): a scroll offset cannot
+      survive a resize as a *number*, and a shell must reposition rather than re-parent, because
+      moving a node between parents resets its scroll.
 - [ ] **A2.5 Geometry persistence** per (site, application) in the **`device` hive** — not `user`,
       because a Deck and a desktop have different screens. Through the registry, so windowed mode
       remembers position, size and z-order across a mode switch and across a reload.
