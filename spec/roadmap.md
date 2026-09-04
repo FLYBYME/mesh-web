@@ -163,10 +163,12 @@ The largest single piece, and the one everything visual waits on. Nothing here e
       **Corrected the spec while building it** ([README §4](./README.md)): a scroll offset cannot
       survive a resize as a *number*, and a shell must reposition rather than re-parent, because
       moving a node between parents resets its scroll.
-- [ ] **A2.5 Geometry persistence** per (site, application) in the **`device` hive** — not `user`,
-      because a Deck and a desktop have different screens. Through the registry, so windowed mode
-      remembers position, size and z-order across a mode switch and across a reload.
-      **S** · ⛔ A4.2
+- [x] **A2.5 Geometry persistence** per (site, application) in the **`device` hive** — not `user`,
+      because a Deck and a desktop have different screens. Position, size, state, stacking order and
+      the mode, saved debounced (a drag is hundreds of moves) and restored *awaited*, so a window
+      comes back where it was rather than appearing at a default and jumping. One corrupt entry drops
+      itself rather than the whole layout, and a hive that refuses a write is reported, never thrown
+      out of the effect that would tear down the shell's paint.
 - [x] **A2.6 The `windows` capability implemented** against the above — `open`, `close`, `focus`,
       `handle`. A view opening under a name its Application never declared is caught at the sink,
       and stopping a process closes every window it owns.
@@ -241,18 +243,33 @@ sound; each item below is the interface *and* the implementation behind it.
 
 The NT-style part. All design, no code. [storage-and-registry.md](./storage-and-registry.md).
 
-- [ ] **A4.1 The provider interface** — async throughout, with `stat`, `usage`, `ProviderCapabilities`
-      (including `durability: session | device | replicated`), `EntryStat.version` for conditional
-      writes, and `ProviderMetrics`. **M** · [storage §4](./storage-and-registry.md)
-- [ ] **A4.2 ★ Hives and resolution** — `system`, `user`, `device`, `session`, resolved build policy →
-      system policy → user → device → schema default. **M** · [storage §2](./storage-and-registry.md)
-- [ ] **A4.3 Reads return signals**, so a remote provider never makes first paint wait on the network.
-      **S** · [storage §4](./storage-and-registry.md)
-- [ ] **A4.4 Local providers** — memory, `localStorage`, IndexedDB — bound to hives by configuration.
-      **M**
+- [x] **A4.1 The provider interface** — async throughout, with `stat`, `usage`, `ProviderCapabilities`
+      (including `durability`), `EntryStat.version` for conditional writes, and `ProviderMetrics`.
+      `unknown` stops at this layer and nothing above it holds one.
+      [storage §4](./storage-and-registry.md)
+- [x] **A4.2 ★ Hives and resolution** — `system`, `user`, `device`, `session`, resolved build policy →
+      system → user → device → declared default. **`session` is deliberately not in the order**: a
+      tab-scoped value is asked for by name, never silently preferred over a saved choice. A value
+      from a hive this page cannot write is reported `locked` *with a reason*, which is the thing
+      every settings screen gets wrong. [storage §2](./storage-and-registry.md)
+- [x] **A4.3 Reads return signals**, so a remote provider never makes first paint wait on the network.
+      `read()` answers immediately with build policy or the declared default and updates in place.
+      `ready()` is the escape hatch for the one caller that genuinely must wait — the kernel
+      restoring geometry at boot step 9, before a window can appear and jump.
+- [x] **A4.4 Local providers** — memory and `localStorage`, bound to hives by configuration. Every
+      `localStorage` access is wrapped, because it throws on *access* in a private window and on
+      write when full: a registry that took the page down over a preference has the priority
+      backwards. Value and version are one envelope, so two tabs cannot write them separately and
+      disagree.
+- [ ] **A4.4b IndexedDB provider.** `localStorage` is synchronous under an async interface — correct,
+      but it caps a hive at a few megabytes and blocks the main thread on a large write. **M**
 - [ ] **A4.5 A remote provider** over `net`, which is what makes the abstraction worth having. **M**
-- [ ] **A4.6 Setting declarations** with schema and default. **No `conflict` field** — conflicts
-      always reject. **S** · [storage §7](./storage-and-registry.md)
+- [x] **A4.6 Setting declarations** with a parser and a default. **No `conflict` field** — conflicts
+      always reject. `setting()` infers its type from `parse`, so there is no type argument to supply
+      and no `get<Draft>(path)` to get wrong ([type-safety §2](./type-safety.md)). A stored value that
+      fails its declaration **falls back loudly** rather than being cast — the only defence against a
+      value written by an older version of the same Application.
+      [storage §7](./storage-and-registry.md)
 - [ ] **A4.7 Build-time policy injection** — policy originates at the build or the server, never the
       running page. A locked blog is a policy value, not a mechanism. **S** ·
       [storage §2](./storage-and-registry.md) · ⛔ B2

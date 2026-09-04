@@ -19,3 +19,4 @@ export * from './net/index.js';
 export * from './kernel/index.js';
 export * from './window/index.js';
 export * from './input/index.js';
+export * from './registry/index.js';
