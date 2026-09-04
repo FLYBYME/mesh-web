@@ -21,6 +21,7 @@
         "typecheck": "tsc -p tsconfig.check.json --noEmit",
         "test:browser": "vitest run --config vitest.browser.config.ts",
         "harness": "tsc -p tsconfig.json && tsc -p tsconfig.browser.json && npx --yes http-server . -p 8080 -c-1 -s",
+        "check:consumer": "node scripts/check-consumer.mjs",
         "test": "vitest run",
         "test:watch": "vitest"
     },

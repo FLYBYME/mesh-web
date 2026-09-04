@@ -927,19 +927,45 @@ A3 (the remaining capabilities) · A6.1 · A6.2 · A6.6 · A7 (all) · A0.6
       Splitting them recreates precisely the drift C3.2 and B8 exist to prevent: the site's repo is
       the source of truth for what it exposes and where it runs, and that only holds if there is one
       repo to be the source. **L** · ⛔ A6.8, A6.9
-- [ ] **A6.8 Make `@flybyme/mesh-web` installable.** The same defect B2b fixed one repository over:
-      `dist/` is gitignored and there is no `prepare` script, so `npm i github:FLYBYME/mesh-web`
-      yields a package whose `main` points at a directory that was never built. **Nobody can consume
-      the framework today**, which is a real gap independent of any test, and it is the first wall a
-      cold run hits. **S**
-- [ ] **A6.9 The public entry must be complete.** Proved incomplete on 2026-09-04 — `Chrome`,
-      `ChromeWindow` and `Credentials` were never exported, so the workbench could not have been
-      written by an outside author at all. There are almost certainly more, and **they cannot be
-      found by reading**: the thing that finds them is a project importing only the package name and
-      typechecking, where a compile error *is* the test. A6.7 is that project; this item is the
-      guarantee it stays true. Wants an `exports` map too, so `@flybyme/mesh-web/dist/kernel/broker.js`
-      is unreachable — D6 already decided the boundary is the package name, and the manifest should
-      enforce what the decision says. **S**
+- [x] **A6.8 Make `@flybyme/mesh-web` installable.** *(done 2026-09-04)* The same defect B2b fixed
+      one repository over: `dist/` is gitignored and there was no `prepare` script, so
+      `npm i github:FLYBYME/mesh-web` yielded a package whose `main` pointed at a directory that was
+      never built. **Nobody could consume the framework**, which was a real gap independent of any
+      test, and the first wall a cold run hits. One line — `"prepare": "npm run build"` — and an
+      install from a git ref now produces a built `dist/`, resolvable by name, with **no runtime
+      dependencies at all**: `src/` imports nothing outside itself, so a consumer adds one package
+      and pulls in nothing else. **S**
+- [ ] **A6.8a Installing the framework costs a full development install.** Measured 2026-09-04:
+      `npm i git+file:///…/mesh-web` into an empty project takes **~75 seconds** to deliver a
+      1 MB, zero-dependency package. The cause is structural, not incidental — npm cannot run
+      `prepare` without first installing every `devDependency`, so a consumer builds playwright,
+      vitest, jsdom and three git-ref mesh packages (each with a `prepare` of its own) in order to
+      run one `tsc`. **The package that ships has none of that in it.**
+
+      It matters because it is paid by exactly the person A6.7 is about: someone starting a site who
+      has not yet seen the framework do anything, on the slowest, least explicable step. Three
+      directions, none obviously right: split the browser test rig into its own package so `prepare`
+      needs only typescript; publish real tarballs so there is nothing to build on install; or
+      commit `dist/`, which the `.gitignore` comment argues against on principle and which would
+      still be the fastest. Decide it against a measurement, not a preference. **M**
+- [x] **A6.9 The public entry must be complete.** *(done 2026-09-04)* Proved incomplete on
+      2026-09-04 — `Chrome`, `ChromeWindow` and `Credentials` were never exported, so the workbench
+      could not have been written by an outside author at all. Such gaps **cannot be found by
+      reading**: what finds them is a project importing only the package name and typechecking,
+      where a compile error *is* the test. That is now `npm run check:consumer` — it packs the
+      package as npm would, installs the tarball into an empty project, and compiles
+      `browser/harness.ts` and `browser/workbench.ts` against it. Both compile clean, and the
+      `exports` map already present is verified to refuse `@flybyme/mesh-web/dist/kernel/kernel.js`
+      at both the type level and at runtime (`ERR_PACKAGE_PATH_NOT_EXPORTED`), which is D6's boundary
+      enforced rather than asserted.
+
+      Why a separate check rather than the compilers already here: `tsconfig.browser.json` maps the
+      package name with `paths` and the browser test config aliases it to `src/index.ts`. Both prove
+      the *entry* is complete; **neither can see the packaging around it**, and a package npm
+      assembles wrongly compiles perfectly under a `paths` mapping. `prepare` running, `files` not
+      dropping a declaration, and the `exports` map holding all live in that blind spot. It takes
+      about a minute, so it is not part of `npm test` — run it before anything outside this repo
+      depends on the package. **S**
 - [ ] **A6.10 The boot ceremony.** Starting a page today means `new Kernel()`, replacing
       `services.windows` with a `windowSink`, building a component registry, wiring a dispatcher to
       the command table, `boot([...])`, `mountPage(...)`, then `start(...)` — about sixty lines in the
