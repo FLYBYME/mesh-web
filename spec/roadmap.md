@@ -124,9 +124,14 @@ constraint on writing the replacement, which is cheaper than the second round of
       defaults belong per view, not per process. **S** · [README §2](./README.md)
 - [ ] **A1.3 `ScopedStorage` is async.** A synchronous `get<T>(key, fallback): T` cannot be backed by
       anything remote. **S** · [storage §6](./storage-and-registry.md)
-- [ ] **A1.4 One hotkey parser, and bindings are data.** The old task switcher compared the configured
+- [x] **A1.4 One hotkey parser, and bindings are data.** The old task switcher compared the configured
       binding against the literal `` 'ctrl+`' ``, so any other binding silently never fired. mesh-api
-      issue #7 — the single most concrete thing carried out of the deleted code. **S**
+      issue #7 — the single most concrete thing carried out of the deleted code.
+      **Done in `src/input/keys.ts`:** one function normalises a declaration, one normalises an event,
+      and they produce the same form — so `Shift+Ctrl+P`, `ctrl+shift+p` and a real keypress are one
+      value, and there is no string left to compare against a literal. The manifest normalises too,
+      so two Applications spelling one shortcut differently *collide* instead of both believing they
+      own it. Closes mesh-api #7.
 - [ ] **A1.5 There is no `LayoutConfig.regions`.** Regions and windows are one concept; a tiled layout
       is windows arranged as tiles. This is A2.3, not a separate migration. **—** ·
       [README §3](./README.md)
@@ -167,8 +172,12 @@ The largest single piece, and the one everything visual waits on. Nothing here e
       and stopping a process closes every window it owns.
 - [ ] **A2.7 Switching is a privilege.** Mode switch is gated on policy; a locked deployment can strip
       floating mode from the build. **S** · [README §5](./README.md)
-- [ ] **A2.8 Two separately-bound hotkeys** — mode switch (dev/admin) and application switch
-      (ordinary). **S** · ⛔ A1.4
+- [x] **A2.8 The mode-switch hotkey**, separately bound, resolving through the manifest's table. The
+      Application *declares* the command; the **shell implements it**, because the blog cannot switch
+      modes and cannot see which one it is in. Verified in a real browser: `alt+t` tiles,
+      `alt+shift+n` does not fire `alt+n`.
+- [ ] **A2.8b The application switcher hotkey** — the other of the two. Needs more than one
+      Application loaded, which is A5.9. **S** · ⛔ A5.9
 
 ### A3 — The capabilities
 
@@ -213,7 +222,13 @@ sound; each item below is the interface *and* the implementation behind it.
       because the test stood up a real express server. Rebuild it with a test that does not need one.
       **M**
 - [ ] **A3.3 `commands`** — registration, invocation, argument typing, the palette's data source. **M**
-- [ ] **A3.4 `keys`** — binding registration and resolution, sharing one parser with A1.4. **S**
+- [x] **A3.4 `keys`** — binding resolution, sharing one parser with A1.4. `bindingTable()` answers
+      both directions: a keypress to a command, and a command to its bindings so a menu can show the
+      shortcut without anybody writing it twice. **Reserved bindings are enforced here**
+      ([input §7.1](./input.md)): the manifest refuses one the host takes first and reports it as a
+      load-time conflict, because a binding that fires the command *and* opens a browser window
+      looks like it worked. The reserved set is a parameter — a tab loses `ctrl+n`, a kiosk loses
+      nothing — not a constant.
 - [ ] **A3.5 `menus`** — menubar, window, status and `context:*` targets. **M**
 - [ ] **A3.6 `notifications`** — baked in, identical for a blog, a console and an IDE. Info, warning,
       error, progress, actions, and a handle that can be updated and dismissed. **M**

@@ -22,9 +22,9 @@
  */
 
 import {
-    Kernel, WindowManager, command, consumes, createClient, createRegistry, each, effect, element,
-    fetchTransport, mountView, needs, provider, text, tiles, when, windowSink, withHeaders, describe,
-    PRIMITIVES,
+    Kernel, WindowManager, bindingTable, chordOf, command, consumes, createClient, createRegistry,
+    each, effect, element, fetchTransport, formatBinding, mountView, needs, provider, text, tiles,
+    when, windowSink, withHeaders, describe, PRIMITIVES,
     type Action, type Application, type Context, type Extension, type NetRequest, type NetResponse,
     type Transport, type ViewContext, type ViewInstance,
 } from '@flybyme/mesh-web';
@@ -722,16 +722,30 @@ const desktopSize = (): { width: number; height: number } => ({
 
 // The manifest is populated before anything runs, which is what lets a keypress start an
 // Application that is not running yet (spec/kernel.md section 4).
+/**
+ * One table, built from the manifest, resolving every keypress.
+ *
+ * This used to be a hand-assembled string — `ctrl+` if ctrlKey, `alt+` if altKey, then the key —
+ * which is the shape of the bug roadmap A1.4 names: it happened to work for `alt+n` and would have
+ * silently ignored `shift+`, `meta+`, and any binding whose declared spelling put the modifiers in
+ * another order. Now the declaration and the event meet in the same normal form, and there is no
+ * string to assemble.
+ */
+const keymap = bindingTable(
+    [...kernel.manifest.bindings].map(([binding, entry]) => ({ binding, command: entry.decl.command })),
+);
+
+// The manifest is populated before anything runs, which is what lets a keypress start an
+// Application that is not running yet (spec/kernel.md section 4).
 window.addEventListener('keydown', (event) => {
-    // spec/input.md §7.1: `ctrl+n` is the browser's, not ours. It was this harness's binding until
-    // someone pressed it and got a new browser window over the top of a command that had already
-    // fired. `alt+` is ours; the reserved set belongs to the host adapter, which A8 builds.
-    const combo = `${event.ctrlKey ? 'ctrl+' : ''}${event.altKey ? 'alt+' : ''}${event.key.toLowerCase()}`;
-    const binding = kernel.manifest.bindings.get(combo);
-    if (binding === undefined) return;
+    const command = keymap.resolve(event);
+    if (command === undefined) return;
+
+    // Safe to prevent, because the manifest refused any binding the host takes first
+    // (spec/input.md §7.1) — a reserved binding never reaches this table.
     event.preventDefault();
-    say(`key ${combo} → ${binding.decl.command}`);
-    void kernel.services.commands.get(binding.decl.command)?.run();
+    say(`key ${formatBinding(chordOf(event))} → ${command}`);
+    void kernel.services.commands.get(command)?.run();
 });
 
 // ---------------------------------------------------------------------------- boot

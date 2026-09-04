@@ -203,3 +203,53 @@ describe('a failure reaches the screen', () => {
         expect(doc.querySelector('.notice')).toBeNull();
     }, 30_000);
 });
+
+/**
+ * The hotkey, through the real binding table — roadmap A1.4 and A2.8.
+ *
+ * The declared spelling is `Alt+N`; the manifest stores `alt+n`; the event says `n` with altKey.
+ * Three spellings, one binding. The old task switcher compared a configurable binding against a
+ * literal and any other binding silently never fired, so this is the shape worth holding down.
+ */
+describe('a declared hotkey fires', () => {
+    it('runs the command the manifest bound, from a real keypress', async () => {
+        const doc = await open();
+        const before = doc.querySelectorAll('.post').length;
+
+        doc.defaultView!.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'n', altKey: true, bubbles: true, cancelable: true,
+        }));
+        await new Promise((r) => setTimeout(r, 150));
+
+        expect(doc.querySelectorAll('.post').length).toBe(before + 1);
+        expect(doc.getElementById('log')!.textContent).toContain('alt+n → blog.add');
+    }, 30_000);
+
+    it('switches mode from its own binding, which the shell implements', async () => {
+        const doc = await open();
+        expect(doc.querySelector('.window.tiled')).toBeNull();
+
+        doc.defaultView!.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 't', altKey: true, bubbles: true, cancelable: true,
+        }));
+        await new Promise((r) => setTimeout(r, 100));
+
+        // The Application declared `blog.mode`; the shell implemented it. The blog cannot switch
+        // modes and cannot see which one it is in.
+        expect(doc.querySelector('.window.tiled')).not.toBeNull();
+    }, 30_000);
+
+    it('ignores a keypress with a modifier the binding did not name', async () => {
+        const doc = await open();
+        const before = doc.querySelectorAll('.post').length;
+
+        // `alt+shift+n` is not `alt+n`. The hand-assembled string this replaced ignored shift
+        // entirely and would have fired.
+        doc.defaultView!.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'n', altKey: true, shiftKey: true, bubbles: true, cancelable: true,
+        }));
+        await new Promise((r) => setTimeout(r, 150));
+
+        expect(doc.querySelectorAll('.post').length).toBe(before);
+    }, 30_000);
+});

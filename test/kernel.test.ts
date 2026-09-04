@@ -38,7 +38,7 @@ class BlogApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES> {
     readonly consumes = APP_CONSUMES;
 
     readonly commands = [{ id: 'blog.newPost', title: 'Blog: New Post' }];
-    readonly keys = [{ command: 'blog.newPost', keys: 'ctrl+n', gamepad: 'Y' }];
+    readonly keys = [{ command: 'blog.newPost', keys: 'alt+n', gamepad: 'Y' }];
     readonly views = [
         {
             id: 'editor',
@@ -154,7 +154,7 @@ describe('manifests merge before anything runs', () => {
 
         expect(kernel.processes).toHaveLength(0); // nothing started
         expect(kernel.manifest.commands.get('blog.newPost')?.by).toBe('blog');
-        expect([...kernel.manifest.bindings.keys()].sort()).toEqual(['ctrl+n', 'gamepad:Y']);
+        expect([...kernel.manifest.bindings.keys()].sort()).toEqual(['alt+n', 'gamepad:Y']);
         expect(kernel.manifest.views.get('blog/editor')?.decl.title).toBe('Editor');
     });
 
@@ -164,14 +164,14 @@ describe('manifests merge before anything runs', () => {
         class Other implements Application<readonly []> {
             readonly needs = [] as const;
             readonly commands = [{ id: 'other.new', title: 'Other: New' }];
-            readonly keys = [{ command: 'other.new', keys: 'ctrl+n' }];
+            readonly keys = [{ command: 'other.new', keys: 'alt+n' }];
             async start(): Promise<void> {}
         }
 
         kernel.boot([load('auth', new AuthExtension()), load('blog', new BlogApp()), load('other', new Other())]);
 
         const conflict = kernel.manifest.conflicts.find((c) => c.kind === 'binding');
-        expect(conflict?.key).toBe('ctrl+n');
+        expect(conflict?.key).toBe('alt+n');
         expect(conflict?.claimants).toEqual(['blog', 'other']);
     });
 

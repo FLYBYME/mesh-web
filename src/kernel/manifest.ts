@@ -14,6 +14,7 @@ import type {
 } from '../contribution/contract.js';
 import type { AnyApiCall, Api } from '../net/api.js';
 import type { LayoutNode } from '../window/layout.js';
+import { BROWSER_TAB_RESERVED, normalizeBinding, reservedSet } from '../input/keys.js';
 
 export interface Contributed<T> {
     readonly by: string;
@@ -56,7 +57,16 @@ export interface Manifest {
 
 export function mergeManifests(
     contributions: readonly { readonly id: string; readonly declarations: Declarations }[],
+    /**
+     * Bindings the host takes first (spec/input.md §7.1).
+     *
+     * A parameter rather than a constant: a page in a browser tab loses `ctrl+n` and `ctrl+w`, an
+     * Electron shell loses far less, and a kiosk owns the whole keyboard. Defaults to a browser tab
+     * because that is where this runs today and the safe default is the most restrictive one.
+     */
+    reservedBindings: readonly string[] = BROWSER_TAB_RESERVED,
 ): Manifest {
+    const reserved = reservedSet(reservedBindings);
     const commands = new Map<string, Contributed<CommandDecl>>();
     const bindings = new Map<string, Contributed<KeyDecl>>();
     const menus: Contributed<MenuDecl>[] = [];
@@ -94,7 +104,31 @@ export function mergeManifests(
         }
 
         for (const decl of declarations.keys ?? []) {
-            for (const binding of bindingKeys(decl)) {
+            const invalid = (spec: string, reason: string): void => void conflicts.push({
+                kind: 'binding',
+                key: spec,
+                claimants: [id],
+                message: `${id} declared the binding "${spec}", which is not one: ${reason}`,
+            });
+
+            for (const binding of bindingKeys(decl, invalid)) {
+                // spec/input.md §7.1: a binding the host takes first is a load-time conflict, not a
+                // binding that half works. `ctrl+n` fires the command *and* opens a browser window,
+                // which looks like it worked and is worse than not firing.
+                if (reserved.has(binding)) {
+                    conflicts.push({
+                        kind: 'binding',
+                        key: binding,
+                        claimants: [id],
+                        message:
+                            `${id} bound "${binding}" to "${decl.command}", and the host takes that ` +
+                            `binding first — preventDefault on it is ignored. The command would fire ` +
+                            `*and* the host would act, which looks like it worked. Bind something else; ` +
+                            `the command stays reachable by its other bindings and from the palette.`,
+                    });
+                    continue;
+                }
+
                 claim(bindings, binding, id, decl, 'binding', (key, first, second) =>
                     `Binding "${key}" is claimed by ${first} and ${second}. ` +
                     `Resolved here rather than on the first keypress.`);
@@ -153,10 +187,28 @@ export function mergeManifests(
     return { commands, bindings, menus, apis, layouts, settings, views, conflicts };
 }
 
-/** One declaration may bind several devices to one command. Each is a separate collision surface. */
-function bindingKeys(decl: KeyDecl): readonly string[] {
+/**
+ * One declaration may bind several devices to one command. Each is a separate collision surface.
+ *
+ * Keyboard bindings go through `normalizeBinding`, so `Shift+Ctrl+P` and `ctrl+shift+p` are one
+ * entry and therefore collide. Without that they are two strings, two entries, and two Applications
+ * both believing they own the shortcut — which is the same class of bug as roadmap A1.4, where a
+ * configurable binding was compared against a literal and silently never fired.
+ *
+ * A binding that cannot be parsed is reported rather than dropped: an Application declaring
+ * `ctrl++n` should be told, not quietly given no shortcut.
+ */
+function bindingKeys(decl: KeyDecl, onInvalid: (spec: string, reason: string) => void): readonly string[] {
     const out: string[] = [];
-    if (decl.keys !== undefined) out.push(decl.keys);
+
+    if (decl.keys !== undefined) {
+        try {
+            out.push(normalizeBinding(decl.keys));
+        } catch (error) {
+            onInvalid(decl.keys, error instanceof Error ? error.message : String(error));
+        }
+    }
+
     if (decl.gamepad !== undefined) out.push(`gamepad:${decl.gamepad}`);
     if (decl.gesture !== undefined) out.push(`gesture:${decl.gesture}`);
     return out;
