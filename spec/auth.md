@@ -114,11 +114,76 @@ The cache is correctness-critical, so its failure modes need naming rather than 
   late will not have seen the revocation. So a cache entry needs a **TTL as a safety net** — short
   enough to bound the damage, long enough that it is not the primary mechanism. The event is the
   mechanism; the TTL is the backstop.
+  **→ §3.1 corrects this.** The mesh delivers at-most-once, so for any instance that was not
+  connected the TTL is not a backstop — it is the only mechanism there is.
 - **Subscription must be durable enough to survive a reconnect.** A restarting instance should
   re-validate rather than resume with a warm cache it cannot vouch for, or reconcile before serving.
 - **Negative results need caching too**, or an invalid ticket presented in a loop is a mesh call per
   request — which is a denial-of-service against mesh-identity written by the attacker.
 - **A cache entry must not outlive the ticket**, independent of the TTL.
+
+---
+
+## 3.1 The mesh does not deliver events at-least-once — **Decided, and it changes §3**
+
+C1.9 said to verify this in `mesh` rather than assume it. Verified 2026-09-04, and the assumption
+was wrong.
+
+**What mesh actually does.** `ServiceBroker.emit` triggers local handlers and then calls
+`MeshNetwork.publish`, which calls the transport's `publish`. For TCP that is:
+
+```ts
+for (const peer of this.peers.values()) {
+    if (peer.isAuthenticated) {
+        peer.socket.write(TCPFrameCodec.encode(...));
+    }
+}
+```
+
+A write to every peer **connected and authenticated at that instant**. There is no acknowledgement,
+no retry, no queue, no persistence, and nothing anywhere in `src/db` stores an event. A failed
+publish is caught and logged by `MeshNetwork.publish`, so the emitter is not told either. The
+browser transport's `publish` is an empty function.
+
+So the guarantee is **at-most-once, to whoever happened to be connected**. A node that was down,
+restarting, or partitioned when a revocation was emitted does not receive it late — it never
+receives it at all.
+
+### What that means for §3
+
+The sentence *"revocation is event-driven, so it is near-immediate rather than bounded by ticket
+lifetime"* is true **only for instances that were connected at that moment**. For any instance that
+was not, revocation is bounded by the cache TTL, and there is nothing else.
+
+**So the roles invert.** §3 above says "the event is the mechanism; the TTL is the backstop". Given
+what the transport actually does, the TTL *is* the mechanism for correctness and the event is a
+latency optimisation. That is not a small rewording — it decides how the TTL is chosen. A backstop
+can be generous; a mechanism cannot.
+
+### The fix, and it is small — **Proposed**
+
+**Pull for correctness, push for latency.** identity keeps a monotonic `revocationEpoch` and a list
+of what changed at each epoch. An API instance:
+
+1. **polls** `identity.revocations_since(epoch)` on a short interval, and on every reconnect
+2. **listens** for `identity.ticket_revoked` as well, which makes it fast when connected
+
+A poll is at-least-once by construction — it cannot be missed, only delayed — and it survives
+disconnection, restart and partition without any delivery guarantee from the transport. The event
+stops being load-bearing and becomes what it is good at: making the common case immediate.
+
+This also answers the reconnect case in §3 without dropping the whole cache: an instance that has
+been away asks what changed since the epoch it last saw, rather than re-validating every ticket it
+holds.
+
+**What this does not need:** any change to `mesh`. Adding at-least-once delivery to the transport
+would be a much larger piece of work — an outbox, acknowledgements, retry, deduplication — and it
+would be the wrong place to put it, because *this* consumer needs a durable answer and most event
+consumers do not.
+
+**Still open:** the poll interval and the cache TTL, which are the same two numbers §9 already lists
+as undecided — but they are now correctness parameters rather than tuning, so they need choosing
+deliberately rather than defaulting.
 
 ---
 

@@ -479,9 +479,17 @@ is built against these specs. [auth.md](./auth.md).
       [auth §6](./auth.md)
 - [ ] **C1.8 Revocation events** — `identity.ticket_revoked`, `identity.principal_suspended`,
       `identity.grant_changed`. **S**
-- [ ] **C1.9 ⛔ Check the mesh's actual delivery guarantees** for those events. C2 depends on
-      at-least-once and ordered; that needs verifying in `mesh`, not assuming. **S** ·
-      [auth §9](./auth.md)
+- [x] **C1.9 Checked the mesh's actual delivery guarantees.** Verified 2026-09-04, and **the
+      assumption was wrong**: `TCPTransport.publish` writes to peers connected and authenticated at
+      that instant, with no acknowledgement, retry, queue or persistence, and `MeshNetwork.publish`
+      swallows the failure so the emitter is not told either. **At-most-once**, not at-least-once.
+      An instance that was down when a revocation was emitted never receives it.
+      Recorded as [auth §3.1](./auth.md), which inverts §3: the TTL is the mechanism and the event is
+      a latency optimisation. Fixed by **pull for correctness, push for latency** —
+      `identity.revocations_since(epoch)`, polled and on reconnect, which is at-least-once by
+      construction and needs no change to `mesh`.
+- [ ] **C1.9a `revocations_since(epoch)`** — the monotonic epoch, the change list, and the API-side
+      poll. This is what makes revocation correct rather than likely. **M** · [auth §3.1](./auth.md)
 - [ ] **C1.10 mesh-identity stands alone.** It is a foundation for any project needing an API and a
       web front with identity — no surfdns import, ever. Enforce with a dependency check in CI.
       **S** · [auth §2](./auth.md)
