@@ -417,11 +417,18 @@ mesh-web's server half. **None of it exists** — no server, no builder, no `web
       depends on the other; both may depend on the protocol package precisely because it has no
       runtime. Its own tsconfig with node types, so the browser package keeps `types: []` and a node
       import there stays a compile error. [hosting §0](./hosting.md)
-- [ ] **B1a The `cdn` ServiceModule**, paas layout. CRUD `site`, `artifact`; tools `site_resolve`,
-      `artifact_get`; event `cdn.site_changed`. **M** · [service-modules §2](./service-modules.md)
-- [ ] **B1b The `builder` ServiceModule.** CRUD `build`; tools `build_start`, `build_status`; events
-      `builder.build_started` / `_completed` / `_failed`. **M** ·
-      [service-modules §2](./service-modules.md)
+- [x] **B1a The `cdn` ServiceModule**, paas layout. Done 2026-09-03: domain `cdn`, binds the port in
+      `onStart`, owns `site` — `site_resolve`, `site_put`, `site_list`, `site_delete`, `status` — and
+      emits `cdn.site_changed`, which every node handles by dropping that hostname. Artifacts are read
+      through the builder's published contracts and cached by digest, so the hop is once per file per
+      node. `site` is tools rather than `defineCrud` because a collection needs a database and a CDN
+      node that will not start without mongo is a worse CDN node — **B5a** is what makes it a
+      collection. [service-modules §2](./service-modules.md)
+- [x] **B1b The `builder` ServiceModule.** Done 2026-09-03: domain `builder`, **binds nothing**.
+      `build_start`, `build_status`, and `artifact_get` / `artifact_blob` as B1c's published contract.
+      A failed build is returned, not thrown, because an exception loses the log. Publishing is a call
+      to `cdn.site_put` — the builder does not own `site` — and the tenant comes from the caller's
+      resolved scope, never from the repository. [service-modules §2](./service-modules.md)
 - [x] **B1c Who owns `artifact` — the builder**, reached through a published contract. Decided
       2026-09-03; the rule it produced is now the one all four modules follow: *a module owns what it
       writes and publishes contracts for what others need*. The hop is paid once per artifact per
@@ -463,9 +470,13 @@ mesh-web's server half. **None of it exists** — no server, no builder, no `web
       caller would be wrong. A cold cache is slower, not wrong. [hosting §4](./hosting.md)
 - [ ] **B5a `site` as a mesh CRUD collection**, replacing the injected `SiteSource`. The interface is
       the seam; this is the implementation behind it. **S** · [hosting §7](./hosting.md)
-- [ ] **B8 The deployment descriptor** — a repo declares its environments, its production host, its
-      API, its exposure list and its build config, and the site's own team owns what it exposes and to
-      whom. **M** · [hosting §5](./hosting.md)
+- [x] **B8 The deployment descriptor** — done 2026-09-03. `mesh-web.json` in the site's own repo:
+      application, environments, and per environment a host, an api, a policy and a build. The builder
+      reads it out of the workspace it fetched, so a build says *"production of this ref"* and cannot
+      say what production means — the same decision C3.2 made for exposure. Two things are deliberately
+      absent: **the tenant**, because a repo that could name its own owner could name someone else's,
+      and anything about a filesystem. Consequence: the input hash is not knowable until after the
+      fetch, since the policy is in the source. [hosting §5](./hosting.md)
 - [ ] **B9 Artifact storage and cache invalidation** across nodes. **M**
 - [ ] **B10 Build triggers** — push, manual, promotion between environments. **M**
 - [ ] **B11 Per-tenant quotas and abuse handling.** ⛔ genuinely open: a per-node limit is ten times
