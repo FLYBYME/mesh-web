@@ -72,6 +72,42 @@ a token, consumers get its components typed, and swapping the Extension restyles
 touching an Application. That keeps the framework small and puts the vocabulary where the site team
 owns it, consistent with [hosting §5](./hosting.md).
 
+### Two kinds of contributed component — **Decided 2026-09-04**
+
+Roadmap A7.4 asked whether a contributed component is *"a fourth contract, or a plain function
+returning a description"* and left it undecided. It is **both**, because two different things were
+being called one word, and separating them makes most of the question disappear.
+
+| | **composition** | **a new primitive** |
+| --- | --- | --- |
+| what it is | `Card`, `Toolbar`, a form layout | a virtualised list (A7.6), a `Surface` for Monaco or canvas (A7.5) |
+| what it does | returns a description built from primitives | tells the renderer how to *create and update* an element |
+| how it is written | a plain function | a `ComponentDefinition`, registered |
+| declared in the manifest? | **no** — there is nothing for the kernel to know | **yes** — the kernel must know it before render |
+| how a consumer reaches it | `cx.use(DESIGN_SYSTEM).Card({ … })` | `element('VirtualList', { … })` |
+| typed? | **already, for free** — it is a function call | **no**, and this is the open part |
+
+**Composition needs nothing from the framework.** No registration, no declaration, no conflict rule,
+and it is checked today because a function call is checked. An Extension hands its components out
+through the token it already provides. This is almost certainly the majority of what anyone would
+call a component library, and the right answer for it is *the framework stays out of the way.*
+
+**A new primitive is a real contribution** and follows every rule the others do. The kernel has to
+know it before anything renders — the same reason commands, keys, views and layout are declared —
+and two contributors claiming one name is a load-time conflict, which
+[`ComponentRegistry.register`](../src/render/component.ts) already refuses rather than resolving
+last-one-wins. There is a working precedent in the framework itself: `mountPage` registers
+`windowHostComponent` into the site's registry at boot ([extension §8](./extension.md)).
+
+**What stays open is narrower than A7.4 implied.** Only the second kind needs typing, because only
+the second kind is reached by a *string*. `element('VirtualList')` compiles today whether or not
+anything provides it, and you find out at render. That is the same problem as A3.1d — typed accessors
+for everything string-keyed — and it should be solved once for views, commands, settings and
+components together rather than four times.
+
+The split also has a pleasant consequence: the contributed-*primitive* path stays small, and small is
+what makes a load-time refusal on a duplicate name tolerable rather than obstructive.
+
 ---
 
 ## 4. Reactivity — **Proposed**

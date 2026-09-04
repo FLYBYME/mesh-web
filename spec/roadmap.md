@@ -476,8 +476,27 @@ then a missing component is a blocked Application — there is no `div` to fall 
 - [ ] **A7.2 Theme tokens as registry values**, so a site restyles without forking components.
       **S** · ⛔ A4
 - [ ] **A7.3 The missing primitives** the audit names. **L**
-- [ ] **A7.4 How an Extension contributes components** — a fourth contract, or a plain function
-      returning a description. Undecided. **M** · [view-layer §3](./view-layer.md)
+- [x] **A7.4 How an Extension contributes components — decided 2026-09-04: both, for two different
+      things.** The question asked "a fourth contract, or a plain function returning a description"
+      and the answer is that one word covered two things.
+      **Composition** — `Card`, `Toolbar`, a form layout — is a plain function returning a
+      description, needs *nothing* from the framework, and is already typed because a function call is
+      typed. An Extension hands them out through the token it provides. That is most of what anyone
+      calls a component library, and the right answer is that the framework stays out of the way.
+      **A new primitive** — a virtualised list (A7.6), a `Surface` (A7.5) — tells the renderer how to
+      create and update an element, so it is a real contribution: a `ComponentDefinition`, registered,
+      **declared in the manifest** so the kernel knows it before render, and refused at load time if
+      two contributors claim one name — which `ComponentRegistry.register` already does. `mountPage`
+      registering `windowHostComponent` is the framework doing exactly this today.
+      [view-layer §3](./view-layer.md)
+- [ ] **A7.4a `components` in the manifest**, for the second kind only. `Declarations` has no such
+      field, so a contributed primitive cannot be declared and the kernel cannot know it before
+      render — the one rule every other contribution follows. **S** · [view-layer §3](./view-layer.md)
+- [ ] **A7.4b Typing a component reached by name.** `element('VirtualList')` compiles whether or not
+      anything provides it; you find out at render. Only contributed *primitives* have this problem,
+      because only they are reached by a string — composition is a function call and is checked
+      already. Same problem as **A3.1d**, and it should be solved once across views, commands,
+      settings and components rather than four times. **M** · ⛔ A3.1d
 - [ ] **A7.5 The `dom` capability and `Surface`** — the escape hatch for Monaco, canvas and WebGL.
       Needed on day one or the IDE case is blocked, and a contribution declaring it is legibly
       opting out of isolation. **M** · [view-layer §8](./view-layer.md)
