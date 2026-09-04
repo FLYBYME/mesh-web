@@ -1,5 +1,5 @@
 /**
- * Build this repository through the real builder and serve it from the real CDN.
+ * Build a repository through the real builder and serve it from the real CDN.
  *
  * Everything the CDN has served so far came from a two-line `build.sh` in a test fixture. The
  * pipeline is file-type agnostic, so there was no *reason* a real bundle would differ — and "no
@@ -10,15 +10,20 @@
  * needs the network and takes a minute or two; a unit suite that did it would be a unit suite nobody
  * runs. What it produces is a URL to open.
  *
- *     node scripts/deploy.mjs [--ref HEAD] [--environment local] [--port 8080]
+ *     node scripts/deploy.mjs [--repo .] [--ref HEAD] [--environment local] [--port 8080]
  *
  * It builds from a **commit**, not from the working tree, because that is what a deploy is. Anything
  * uncommitted is not in the site, and that is the correct surprise to have here rather than in
  * production.
+ *
+ * `--repo` is what makes this a deployer rather than a self-test. It defaults to this repository,
+ * which is how it was written, and pointing it at another one — `--repo ../surfdns-console` — is the
+ * whole of what a real deployment does differently. The builder never knew the difference; it takes
+ * a source reference and a commit, and this script was simply hard-wired to one.
  */
 
 import { execFile } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -31,13 +36,16 @@ import { createBuilderModule } from '../server/dist/builder/src/index.js';
 import { createCdnModule } from '../server/dist/cdn/src/index.js';
 
 const run = promisify(execFile);
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const here = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const flag = (name, fallback) => {
     const at = process.argv.indexOf(`--${name}`);
     return at === -1 ? fallback : process.argv[at + 1];
 };
 
+// The repository being deployed, which is this one only by default. `resolve` so a relative
+// `--repo ../surfdns-console` is meaningful from wherever this was invoked.
+const root = resolve(here, flag('repo', '.'));
 const ref = flag('ref', 'HEAD');
 const environment = flag('environment', 'local');
 const port = Number(flag('port', '8080'));
@@ -47,6 +55,7 @@ const port = Number(flag('port', '8080'));
 const { stdout: commit } = await run('git', ['rev-parse', ref], { cwd: root });
 const { stdout: subject } = await run('git', ['log', '-1', '--format=%s', ref], { cwd: root });
 
+console.log(`deploying ${root}`);
 console.log(`building ${commit.trim().slice(0, 8)} — ${subject.trim()}`);
 console.log('(a commit, not the working tree: anything uncommitted is not in this site)\n');
 
@@ -69,8 +78,8 @@ const call = (tool, params) => app.call(tool, params);
 
 const started = Date.now();
 const result = await call('builder.build_start', {
-    // The repository is this checkout, by path. A git remote works identically; a local path is what
-    // makes this runnable with no forge.
+    // A checkout, by path. A git remote works identically; a local path is what makes this runnable
+    // with no forge.
     source: { kind: 'git', repository: root, ref: commit.trim() },
     environment,
     publish: true,

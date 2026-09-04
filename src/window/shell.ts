@@ -106,6 +106,19 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
     const frame = options.frame ?? defaultFrame;
     const announce = options.onWindow ?? (() => {});
 
+    /**
+     * The window area has to be a containing block, for the same reason as A6.3f below.
+     *
+     * Windows are positioned absolutely, so a `static` host silently sends them to the nearest
+     * positioned ancestor — the viewport, usually — and they escape the area the chrome set aside
+     * for them. **Only when it is `static`**: a site that already chose `relative`, `absolute` or
+     * `fixed` made a decision, and overriding it would be the framework arguing with a stylesheet
+     * it cannot see.
+     */
+    if (typeof getComputedStyle === 'function' && getComputedStyle(root).position === 'static') {
+        (root as HTMLElement).style.position = 'relative';
+    }
+
     interface Mounted {
         readonly frame: Frame;
         readonly instance: ViewInstance;
@@ -123,6 +136,23 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
         }
 
         const built = frame({ id: record.id, drag, manager });
+
+        /**
+         * **Whoever writes `left` owns `position`** — roadmap A6.3f.
+         *
+         * The paint below sets `left`, `top`, `width` and `height` from the manager, and until this
+         * line existed it never said the box was positioned. A stylesheet that did not happen to
+         * declare `position: absolute` got every window laid out as an ordinary block: stacked down
+         * the left edge in document order, at the right *sizes*, with no error and nothing in the
+         * console. The framework's own harness had the rule and the first outside site did not, so
+         * the framework was relying on a CSS line it never mentioned.
+         *
+         * Set here rather than in `defaultFrame` because it belongs to whichever code writes the
+         * coordinates, and that is this file. A site supplying its own `frame` should not have to
+         * know how the shell chose to position it — which is the whole point of frames being
+         * replaceable.
+         */
+        (built.root as HTMLElement).style.position = 'absolute';
 
         built.root.addEventListener('pointerdown', () => { manager.focus(record.id); }, true);
         root.appendChild(built.root);

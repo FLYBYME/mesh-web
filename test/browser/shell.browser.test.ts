@@ -80,10 +80,16 @@ async function boot(frame?: FrameChrome): Promise<Site> {
     document.body.appendChild(root);
 
     // The default chrome ships no stylesheet — the framework says which element is the title bar and
-    // never what one looks like — so the test supplies the positioning a site would.
+    // never what one looks like — so the test supplies the *appearance* a site would.
+    //
+    // It no longer supplies `position: absolute`, and that line is the point: it used to, which is
+    // how this suite hid A6.3f from itself for as long as the shell existed. The test was providing
+    // the one CSS rule the framework silently depended on, so every assertion below passed while a
+    // site without that rule got a vertical stack of windows. The shell sets it now; leaving it out
+    // here is what keeps that true.
     const style = document.createElement('style');
     style.textContent = `
-        .window, .slab { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; background: #fff; border: 1px solid #999; }
+        .window, .slab { box-sizing: border-box; display: flex; flex-direction: column; background: #fff; border: 1px solid #999; }
         .titlebar, .lozenge { height: 24px; flex: 0 0 auto; background: #eee; cursor: move; }
         .content, .belly { flex: 1 1 auto; overflow: auto; }
         .grip, .corner { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: se-resize; }
@@ -272,5 +278,83 @@ describe('what broken chrome cannot do', () => {
         flushSync();
 
         expect(created.shell.hostOf(beta.id)?.isConnected).toBe(true);
+    });
+});
+
+/**
+ * Roadmap A6.3f — **whoever writes `left` owns `position`.**
+ *
+ * The paint sets `left`, `top`, `width` and `height` from the manager and, until this was fixed,
+ * never said the box was positioned. A stylesheet that did not happen to declare
+ * `position: absolute` got every window laid out as an ordinary block: stacked down the left edge in
+ * document order, at the right *sizes*, with no error and nothing in the console.
+ *
+ * Found by the first site built outside this repository. The framework's own harness had the rule in
+ * its stylesheet — and so did this suite, one line above `boot` — which is why nothing here noticed
+ * that the framework depended on a CSS rule it never mentioned. Removing that line from the fixture
+ * is half the fix; these are the other half.
+ *
+ * They assert against **laid-out geometry**, never against style properties, because that is what
+ * was actually wrong: every style was set correctly and none of it had any effect.
+ */
+describe('the shell positions windows without help from a stylesheet', () => {
+    it('puts a window where the manager says', async () => {
+        const created = await boot();
+        const [first, second] = idsOf(created.manager);
+
+        const rect = created.manager.rectOf(first!)!;
+        const desktop = document.getElementById('desktop')!.getBoundingClientRect();
+        const box = created.shell.hostOf(first!)!.getBoundingClientRect();
+
+        expect(Math.round(box.left - desktop.left)).toBe(rect.x);
+        expect(Math.round(box.top - desktop.top)).toBe(rect.y);
+
+        // The failure this replaces was two windows stacked at x = 0, each the *right size* — so a
+        // size assertion alone passed, and did. Only their relative placement catches it.
+        const other = created.shell.hostOf(second!)!.getBoundingClientRect();
+        expect(other.left - box.left).toBe(28);
+        expect(other.top - box.top).toBe(28);
+    });
+
+    it('makes the window area a containing block when the site left it static', async () => {
+        // An absolutely positioned window inside a `static` host escapes to the nearest positioned
+        // ancestor — the viewport — and leaves the area the chrome set aside for it entirely.
+        const host = document.createElement('div');
+        host.style.cssText = 'width:400px;height:300px';
+        document.body.appendChild(host);
+
+        const shell = mountShell(host, {
+            manager: new WindowManager({ width: 400, height: 300 }),
+            viewOf: () => undefined,
+            apiOf: () => undefined,
+            render: { components: createRegistry(PRIMITIVES), dispatch: { dispatch: () => {} } },
+            onCommand: () => {},
+        });
+
+        expect(getComputedStyle(host).position).toBe('relative');
+
+        shell.dispose();
+        host.remove();
+    });
+
+    it('leaves a host the site already positioned alone', async () => {
+        // A site that chose `absolute` or `fixed` made a decision. A framework arguing with a
+        // stylesheet it cannot see would be a worse bug than the one being fixed.
+        const host = document.createElement('div');
+        host.style.cssText = 'position:absolute;width:400px;height:300px';
+        document.body.appendChild(host);
+
+        const shell = mountShell(host, {
+            manager: new WindowManager({ width: 400, height: 300 }),
+            viewOf: () => undefined,
+            apiOf: () => undefined,
+            render: { components: createRegistry(PRIMITIVES), dispatch: { dispatch: () => {} } },
+            onCommand: () => {},
+        });
+
+        expect(getComputedStyle(host).position).toBe('absolute');
+
+        shell.dispose();
+        host.remove();
     });
 });

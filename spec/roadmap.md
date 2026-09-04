@@ -957,6 +957,26 @@ A3 (the remaining capabilities) · A6.1 · A6.2 · A6.6 · A7 (all) · A0.6
 > The first run is expected to fail badly, and **its failures are the requirements document.** Run it
 > before deciding what A3 and A7 owe, not after.
 
+- [x] **A6.3f ★ Whoever writes `left` owns `position`.** *(fixed 2026-09-04)* `mountShell` set
+      `left`, `top`, `width` and `height` on every window from the manager, and never said the box
+      was positioned. A site whose stylesheet did not happen to declare `position: absolute` got
+      every window laid out as an ordinary block — **stacked down the left edge in document order,
+      at the right sizes, with no error and nothing in the console.**
+
+      The framework was depending on a CSS rule it never mentioned, and both places that could have
+      caught it were supplying that rule themselves: `browser/index.html` has it, and so did
+      `shell.browser.test.ts`'s fixture stylesheet, one line above `boot`. Eight browser tests
+      asserted that windows move, stack, hide and close, and every one passed against a shell whose
+      positioning did nothing. **A fixture that supplies what the framework forgot cannot fail on
+      it** — the general lesson, and worth more than this bug.
+
+      Set in the shell rather than in `defaultFrame`, because it belongs to whichever code writes
+      the coordinates, and a site supplying its own `frame` should not have to know how the shell
+      chose to position it. The window host is made a containing block the same way, and **only when
+      it is `static`**: a site that chose `relative`, `absolute` or `fixed` made a decision, and a
+      framework arguing with a stylesheet it cannot see would be a worse bug than this one. Three
+      tests, against laid-out geometry rather than style properties — because every style here was
+      already set correctly and had no effect. **S**
 - [ ] **A6.7 ★ The first real site.** Its own repository, **one repo and two packages** — a service
       half and a UI half — which is [hosting §0](./hosting.md)'s layout one level down: if the
       framework needed that split, every product built on it needs the same one, and the framework
