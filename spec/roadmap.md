@@ -521,12 +521,22 @@ is built against these specs. [auth.md](./auth.md).
 
 ### C1 — mesh-identity
 
-- [ ] **C1.1 ★ The `identity` ServiceModule.** CRUD `user`, `organization`, `membership`, `team`,
-      `role`, `grant`, `apiToken`, `ticket`. **L** ·
-      [service-modules §2](./service-modules.md)
-- [ ] **C1.2 Ticket issue / validate / revoke.** Tickets are **opaque**, which is the whole point:
-      nothing is signature-verified, so **there is no signing key** to distribute or rotate. **M** ·
-      [auth §1, §3](./auth.md)
+- [x] **C1.1 ★ The `identity` ServiceModule.** Done 2026-09-03 as a module in its own repo
+      (mesh-identity): domain `identity`, **no listener** — an identity module that bound a port
+      would be a second front door to the thing everything else authenticates through. Schemas and a
+      store for `user`, `organization`, `membership`, `role`, `grant`, `apiToken`, `ticket` and
+      `revocation`. Roles are records with a required `scope`, which makes surfdns #26 structurally
+      impossible. 36 tests. [service-modules §2](./service-modules.md)
+- [ ] **C1.1a CRUD contracts over those collections**, and `team`. C1.1 built the schemas, the store
+      and the tools that authentication needs; what is not there is a way for an *operator* to list
+      users or add a membership over the mesh, because nothing yet needed one. `defineCrud` wants a
+      database, so this arrives with the mongo-backed store rather than the in-memory one. **M**
+- [x] **C1.2 Ticket issue / validate / revoke.** Done 2026-09-03. Tickets are **opaque**, which is
+      the whole point: nothing is signature-verified, so **there is no signing key** to distribute or
+      rotate. Validation reads roles from the *user* rather than the ticket, so a role granted since
+      it was issued applies and one removed stops applying — a ticket is identity, not authority.
+      Revoking a principal writes one revocation row rather than one per ticket, which also covers a
+      ticket issued a moment later. [auth §1, §3](./auth.md)
 - [ ] **C1.3 Passkey registration and challenge.** A passkey identifies a person; the browser holds no
       long-lived credential. **L** · [auth §4](./auth.md)
 - [ ] **C1.4 API tokens** — issue and revoke. Fine to hold precisely because they are revocable.
@@ -557,9 +567,12 @@ is built against these specs. [auth.md](./auth.md).
 
 ### C2 — The API as gatekeeper
 
-- [ ] **C2.1 ★ Validate on first sight, cache, invalidate by event.** One mesh call per
-      (ticket, instance), not per request. Revocation stays near-immediate rather than bounded by
-      expiry. **M** · [auth §3](./auth.md)
+- [x] **C2.1 ★ Validate on first sight, cache, invalidate by event.** Done 2026-09-03: one mesh call
+      per (ticket, instance), not per request, verified against a real mesh-identity rather than a
+      validator that recognised a string. **And a poll beside the event**, which is C1.9's finding
+      applied — the mesh delivers events at-most-once, so an instance that was down when a ticket was
+      revoked never hears about it. `revocations_since(epoch)` cannot be missed, only delayed; the
+      event is what makes the common case immediate. [auth §3, §3.1](./auth.md)
 - [ ] **C2.2 Cache invalidation wired to C1.8**, with a cold-start path and a bounded cache. **M**
 - [ ] **C2.3 Authorization is two questions** — may this principal do this action, and is this record
       in scope — and both are always asked. **M** · [auth §6](./auth.md)
@@ -665,10 +678,28 @@ A2.3 · A2.4 · A2.5 · A2.7 · A2.8 · A3.4 · A4.1–A4.4 · A6.2
 *A blog in tiled mode; hit the hotkey; the header, sidebar and footer become windows; scroll position
 survives.* This is the demo that proves the central claim.
 
-**M3 — A site served from a hostname.** *(one process, four modules)*
+**M3 — A site served from a hostname.** ✅ **2026-09-04** *(one process, four modules)*
 B0 · B1a · B1b · B1c · B2 · B4 · B5 · B6 · B8 · C1.1 · C1.2 · C2.1 · A3.1 · A6.4
 *Push a repo, mesh-web builds it, `console.surfdns.net` serves it from any CDN node, and signing in
 issues a ticket the API validates once and caches.* End to end, one site.
+
+All fourteen are built and both halves run for real:
+
+- `test/server/deploy.test.ts` — a real git repository, a real `MeshApp` with the builder and CDN
+  registered, a real clone, a real `sh -c` build, a real port, a real `Host` header. The hostname and
+  the application name are never passed in; they come out of the repo's own descriptor.
+- mesh-api's `test/identity-integration.test.ts` — a real sign-in against a real mesh-identity, one
+  validation per (ticket, instance), and a revocation that lands by poll as well as by event.
+
+**What it is not, and this is the honest caveat:** it is two tests in two repositories rather than
+one process hosting all four modules. Nothing structural stops that — mesh-web would take mesh-api as
+a devDependency the way mesh-api takes mesh-identity — and the one thing it would additionally prove
+is that the API can gate a deploy, which is **C2.1a**. Neither half is faking the other; they simply
+have not been in the same room.
+
+- [ ] **C2.1a One process, all four modules.** The API gating `builder.build_start`, so a deploy is
+      an authenticated call rather than an internal one, and the tenant on the site record is the one
+      the ticket resolved to. This is the last thing M3's sentence claims that no test asserts. **S**
 
 **M4 — The framework proves itself.**
 A3 (all) · A6.1 · A6.3 · A7 · B7 · B9–B12 · C1 (all) · C2 (all) · C3 · Track D
