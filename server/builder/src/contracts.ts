@@ -7,10 +7,25 @@
  * they share, which is what keeps "where the bytes live" a deployment decision rather than a fact
  * two modules both depend on.
  *
- * Everything here is `internal`. A builder on the public internet is a stranger's build command
- * running on your machine, and `artifact_blob` would serve any tenant's bytes to anyone who could
- * guess a digest. What the world sees is a CDN serving a hostname; this is how the cluster talks to
- * itself.
+ * ## Which of these the world may reach, and why the line is where it is
+ *
+ * The first draft marked all four `internal`, on the reasoning that a builder on the public internet
+ * is a stranger's build command running on your machine. C2.1a's test disagreed with it immediately
+ * and was right to: **a deploy is a thing a person does.** If `build_start` can never be exposed,
+ * deploys can only come from inside the cluster, and M3's "push a repo" has no door.
+ *
+ * So the line is drawn by *what a caller can name*:
+ *
+ * | | | |
+ * | --- | --- | --- |
+ * | `build_start` | **public** | names a repository and an environment; the repo says the rest, and the caller's scope says who owns it |
+ * | `build_status` | **public** | names builds; a deploy you made is a thing you may look at |
+ * | `artifact_get` | internal | names a **digest**, and a digest is not owned by anyone — anyone who could guess one would read another tenant's manifest |
+ * | `artifact_blob` | internal | the same, with the bytes |
+ *
+ * `visibility: 'public'` means *may be exposed*, never *unauthenticated* — C2.6, deny by default. A
+ * site still has to list it, and every listed entry carries a gate. `build_start` behind `auth:
+ * 'user'` is what the platform's own API does with it.
  */
 
 import { defineContract, z } from '@flybyme/mesh';
@@ -103,6 +118,7 @@ export const buildStartContract = defineContract({
         hostname: z.string().optional(),
     }),
     rest: { method: 'POST', path: '/builder/builds' },
+    visibility: 'public',
     destructive: true,
     timeout: 10 * 60_000,
     print: (o) => `${o.build.state} ${o.build.id}${o.cached ? ' (cached)' : ''}`,
@@ -119,6 +135,7 @@ export const buildStatusContract = defineContract({
     }),
     outputSchema: z.object({ builds: z.array(BuildSchema) }),
     rest: { method: 'GET', path: '/builder/builds' },
+    visibility: 'public',
     print: (o) => `${String(o.builds.length)} builds`,
 });
 

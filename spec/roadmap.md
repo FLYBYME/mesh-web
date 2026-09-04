@@ -691,15 +691,30 @@ All fourteen are built and both halves run for real:
 - mesh-api's `test/identity-integration.test.ts` — a real sign-in against a real mesh-identity, one
   validation per (ticket, instance), and a revocation that lands by poll as well as by event.
 
-**What it is not, and this is the honest caveat:** it is two tests in two repositories rather than
-one process hosting all four modules. Nothing structural stops that — mesh-web would take mesh-api as
-a devDependency the way mesh-api takes mesh-identity — and the one thing it would additionally prove
-is that the API can gate a deploy, which is **C2.1a**. Neither half is faking the other; they simply
-have not been in the same room.
+- `test/server/gated-deploy.test.ts` — **all four modules in one process** (C2.1a). A deploy is a
+  POST from outside, gated by the API, carrying a ticket identity issued; the tenant on the resulting
+  site record is the organization that ticket resolved to.
 
-- [ ] **C2.1a One process, all four modules.** The API gating `builder.build_start`, so a deploy is
-      an authenticated call rather than an internal one, and the tenant on the site record is the one
-      the ticket resolved to. This is the last thing M3's sentence claims that no test asserts. **S**
+- [x] **C2.1a One process, all four modules.** Done 2026-09-04, and it found two things that no
+      single-module test could.
+      **One:** the builder read `input.tenantId ?? scope`, handing straight back the override
+      [auth §6](./auth.md) and mesh-api's own gate both forbid — an authenticated caller could
+      publish a hostname under another organization by typing its id, and B6 would not catch it,
+      because B6 checks a site's tenant against the *node's*, not against whoever deployed it. The
+      order is now inverted and a disagreement is an error rather than a silent preference. It is
+      also settled **before** the fetch: the check can only fail and depends on nothing the build
+      produces, so running a stranger's build command first in order to tell them no is work done for
+      an answer already known.
+      **Two:** every builder contract was `internal`, so a deploy could only come from inside the
+      cluster and M3's "push a repo" had no door. See C2.1b.
+- [x] **C2.1b Which builder contracts the world may reach.** Decided 2026-09-04, and the line is
+      drawn by *what a caller can name*. `build_start` and `build_status` are `public`: they name a
+      repository, an environment, or builds — the repo supplies the rest and the caller's scope says
+      who owns it. `artifact_get` and `artifact_blob` stay `internal`: they name a **digest**, and a
+      digest belongs to nobody, so anyone who could guess one would read another tenant's content.
+      `cdn.site_put` stays internal for the same reason — it names an arbitrary artifact digest, so
+      exposing it would let a caller point their own hostname at somebody else's build.
+      `visibility: 'public'` means *may be exposed*, never *unauthenticated* (C2.6).
 
 **M4 — The framework proves itself.**
 A3 (all) · A6.1 · A6.3 · A7 · B7 · B9–B12 · C1 (all) · C2 (all) · C3 · Track D

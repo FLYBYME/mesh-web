@@ -155,6 +155,11 @@ export function createBuilderModule(options: BuilderModuleOptions = {}): Builder
                         tenantId?: string;
                     };
 
+                    // Settled before anything is fetched or built, because it can only fail, and a
+                    // refusal that arrives after a five-minute build has already run a stranger's
+                    // build command to tell them no. Nothing here depends on the build's outcome.
+                    const tenantId = request.publish ? tenantFor(ctx, request.tenantId) : undefined;
+
                     // A branch is turned into the commit it points at *before* anything is hashed, or
                     // a build cached on `main` would answer the same forever while the code moved.
                     const source = await resolveSource(request.source);
@@ -182,14 +187,7 @@ export function createBuilderModule(options: BuilderModuleOptions = {}): Builder
                     }
 
                     let hostname: string | undefined;
-                    if (request.publish && result.descriptor !== undefined) {
-                        const tenantId = request.tenantId ?? tenantOf(ctx);
-                        if (tenantId === undefined) {
-                            throw new Error(
-                                'Publishing needs a tenant. The repository cannot name its own owner, ' +
-                                'so the caller\'s scope must say who this deploy belongs to.',
-                            );
-                        }
+                    if (tenantId !== undefined && result.descriptor !== undefined) {
                         hostname = await publish(result.descriptor, result, request.environment, tenantId);
                     }
 
@@ -241,15 +239,41 @@ export function createBuilderModule(options: BuilderModuleOptions = {}): Builder
 }
 
 /**
- * Whose deploy this is, from the resolved scope the API put on the context.
+ * Whose deploy this is.
  *
- * mesh-api sets `ctx.meta.user.tenant_id` from a validated ticket (C3.1b). Reading it here rather
- * than trusting an input field is what makes the tenant something the caller *proved* rather than
- * something they typed — and `tenantId` on the input stays for a cluster-internal caller that has no
- * ticket, which is a deployment's own decision to make.
+ * **The resolved scope wins, and an input that disagrees is refused.** mesh-api puts
+ * `ctx.meta.user.tenant_id` on the context from a validated ticket, and its gate is explicit that
+ * *"a caller-supplied organization id cannot override it"*. An earlier version of this function read
+ * `input.tenantId ?? scope`, which handed that override straight back: an authenticated caller could
+ * publish a hostname under someone else's tenant by typing their id, and the CDN would then happily
+ * serve it, because B6 checks that a site's tenant matches the *node's* — not that it matches the
+ * person who deployed it.
+ *
+ * So the order is inverted, and a disagreement is an error rather than a silent preference. The
+ * input field stays for a cluster-internal caller that has no ticket, which is a deployment's own
+ * decision; it is not a way to answer a question the ticket already answered.
  */
-function tenantOf(ctx: IServiceContext): string | undefined {
-    return (ctx.meta as { user?: { tenant_id?: string } } | undefined)?.user?.tenant_id;
+function tenantFor(ctx: IServiceContext, requested: string | undefined): string {
+    const resolved = (ctx.meta as { user?: { tenant_id?: string } } | undefined)?.user?.tenant_id;
+
+    if (resolved !== undefined) {
+        if (requested !== undefined && requested !== resolved) {
+            throw new Error(
+                `This deploy is scoped to ${resolved}, but the request asked to publish it as ` +
+                `${requested}. The scope a ticket resolved to is not something a caller may restate.`,
+            );
+        }
+        return resolved;
+    }
+
+    if (requested === undefined) {
+        throw new Error(
+            'Publishing needs a tenant. The repository cannot name its own owner, so the caller\'s ' +
+            'scope must say who this deploy belongs to.',
+        );
+    }
+
+    return requested;
 }
 
 /** Re-exported so a caller can spot a cache hit without importing the builder itself. */
