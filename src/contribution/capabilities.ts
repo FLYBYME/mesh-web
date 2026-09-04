@@ -77,6 +77,40 @@ export interface Windows {
     readonly own: () => readonly WindowHandle[];
 }
 
+// ---------------------------------------------------------------------------- credentials
+
+/**
+ * The seam the auth Extension owns: what goes on the wire for **every** call the page makes.
+ *
+ * spec/network.md §4 says the auth Extension attaches the ticket "so an Application never handles a
+ * credential", and until this existed there was no mechanism by which it could. Wrapping its *own*
+ * `net` would attach a ticket to its own calls and nobody else's; the thing that needs wrapping is
+ * how the kernel builds a client, which is not an Application's to reach.
+ *
+ * So it is a capability, and it is deliberately shaped so that declaring it is *visible*:
+ * `needs('credentials')` appears in a manifest, and a site can see exactly which contribution has
+ * the page's credential seam. [kernel §4](../../spec/kernel.md)'s test — *could it observe another
+ * Application's traffic?* — answers yes, which is why this is narrow, singular and declared rather
+ * than ambient.
+ */
+export interface Credentials {
+    /**
+     * Attach these headers to every request every client makes, from now on.
+     *
+     * A function rather than a value because a ticket is refreshed, and one captured at activation
+     * would be stale in exactly the case that matters. Called per request.
+     *
+     * **One contribution at a time.** A second `attach` from a different owner throws, naming both:
+     * two things claiming the page's credential seam is a site that will send the wrong ticket
+     * somewhere, and a boot failure is a much better way to find that out.
+     */
+    attach(headers: () => Readonly<Record<string, string>>): void;
+    /** Stop attaching. Signing out, not tearing down — an Extension is never deactivated. */
+    clear(): void;
+    /** Where `net` sends requests. From the deployment descriptor's `api`; `''` means same origin. */
+    readonly origin: string;
+}
+
 // ---------------------------------------------------------------------------- the map
 
 /**
@@ -93,6 +127,7 @@ export interface CapabilityMap {
     readonly commands: Commands;
     readonly notifications: Notifications;
     readonly windows: Windows;
+    readonly credentials: Credentials;
 }
 
 /**

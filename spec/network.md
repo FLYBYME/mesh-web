@@ -177,6 +177,36 @@ auth Extension attaches it to `net` for every caller, so an Application never ha
 What is left is small — read `session` to render who is signed in, `signIn`/`signOut` from a command,
 and an effect that reacts when the session goes null.
 
+#### How it attaches it: the `credentials` capability — **Decided**
+
+Built 2026-09-04, and it closed a hole in the paragraph above: this document has always said the auth
+Extension attaches the ticket "for every caller", and there was no mechanism by which it could.
+Wrapping its *own* `net` puts a ticket on its own calls and nobody else's. What needs wrapping is how
+the **kernel** builds a client, and that is not an Application's to reach.
+
+So it is a capability, `needs('credentials')`, and three properties make it safe to be one:
+
+- **Declared, therefore visible.** It appears in a manifest, so a site can see exactly which
+  contribution holds the page's credential seam without running anything. [kernel §4](./kernel.md)'s
+  test — *could it observe another Application's traffic?* — answers **yes**, which is precisely why
+  it is narrow, singular and declared rather than ambient.
+- **Singular.** A second contribution attaching throws, naming the one that got there first. A page
+  has one session for one API ([hosting §4](./hosting.md)); two things attaching is a site that will
+  send the wrong ticket somewhere, and a boot failure is a much better way to find that out than a
+  403 in production.
+- **Read per request, not per client.** An Application that started before sign-in keeps the client
+  it has, and its *next* call carries the ticket. A holder that could only be set at construction
+  would make signing in require restarting every Application on the page.
+
+What an Application gets from this is nothing, which is the point: it declares `needs('net')`, calls
+`cx.net.call(...)`, and the ticket is on the request. It cannot read it, cannot replace it, and does
+not know whether there is one.
+
+`credentials` also carries the **origin** — where `net` sends requests, from the deployment
+descriptor's `api` by way of `MESH_API` and the build ([hosting §5](./hosting.md)). A site supplies
+it rather than the framework discovering it: which API a site talks to is a deployment fact, and a
+page that guessed would be guessing about the only security boundary in the system.
+
 ---
 
 ## 5. The same treatment for the rest of the link — **Proposed**

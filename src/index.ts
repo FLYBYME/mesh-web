@@ -20,3 +20,4 @@ export * from './kernel/index.js';
 export * from './window/index.js';
 export * from './input/index.js';
 export * from './registry/index.js';
+export * from './auth/index.js';

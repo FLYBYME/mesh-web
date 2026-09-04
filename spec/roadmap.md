@@ -193,10 +193,18 @@ Ten capabilities, none implemented and none declared any more — the interfaces
 else. Their shapes are in history (`git show 4cd801d^:src/contribution/capabilities.ts`) and were
 sound; each item below is the interface *and* the implementation behind it.
 
-- [ ] **A3.1 ★ `net`** — the HTTP abstraction over a site's API. Base URL from the deployment
-      descriptor, ticket attached by the auth Extension, not by each caller. **Fully typed**:
-      `cx.net.call('credential.resolve', { id })` infers input and output exactly as mesh's
-      `ctx.call` does. **L** · [network.md](./network.md) · [hosting §4](./hosting.md)
+- [x] **A3.1 ★ `net`** — the HTTP abstraction over a site's API. Done 2026-09-04, when the last two
+      clauses were built: the base URL comes from the deployment descriptor (`MESH_API` → the build →
+      `createServices({ apiOrigin })`), and the ticket is attached by the auth Extension through the
+      new `credentials` capability rather than by any caller. Fully typed throughout —
+      `cx.net.call('credential.resolve', { id })` infers input and output as `ctx.call` does.
+      [network.md](./network.md) · [hosting §4](./hosting.md)
+- [x] **A3.1b The `credentials` capability**, which is what made the sentence in network.md §4 true.
+      "The auth Extension attaches the ticket for every caller" had no mechanism: wrapping its own
+      `net` attaches to its own calls and nobody else's, and the thing that needs wrapping is how the
+      *kernel* builds a client. Declared (so a site can see who holds the seam), singular (a second
+      attach throws, naming the first), and read per request (so signing in does not mean restarting
+      every Application). [network §4](./network.md)
 - [x] **A3.1a-i The shape the generator emits.** `defineApi` / `call<I, O, E>`, `createClient`, the
       `net` capability, and `api` in the manifest. Structural types, no `z.infer` across a package
       boundary, scoped rather than global, and only what the descriptor exposes. Twenty tests, six of
@@ -345,8 +353,18 @@ because they are written against the same interfaces an outside author gets.
       the Workspace Extension **provides** workspaces rather than being one — `provides = WORKSPACE`,
       `activate()` hands back a handle per caller. A driver, not a document. **M** ·
       [extension §8](./extension.md)
-- [ ] **A6.4 Auth Extension** — holds the session, attaches the ticket, handles sign-in and the
-      revocation event. One per site. **M** · ⛔ C2
+- [x] **A6.4 Auth Extension** — done 2026-09-04. Holds the session, attaches the ticket, handles
+      sign-in and sign-out. One per site, because the site is the boundary. **Exported, not built
+      in** ([extension §7](./extension.md) files it under site-supplied): a blog that signs nobody in
+      should not carry a session. A held ticket is a claim and never a session — boot asks the API
+      who it belongs to, and drops it if the answer is 401. Sign-out clears locally first, so a
+      network failure cannot leave a page believing it is signed in. 12 tests, and the one that
+      matters is negative: an Application declaring only `needs('net')` sends a ticket it never saw,
+      cannot read and cannot replace.
+- [ ] **A6.4a The revocation event on the page.** A6.4 handles sign-in, sign-out and restore; it does
+      not yet drop the session when the *API* revokes a ticket out from under it. Wants C3.4's SSE
+      stream, which already closes on a revoked ticket — so this is reacting to the close, not a new
+      channel. **S** · ⛔ C2
 - [x] **A6.5 Notification host** — the surface `notifications` renders into, themed per site.
       **Found by a user, not by a test.** The capability worked: an Application called
       `cx.notifications.warn(...)`, the kernel recorded it, and **nothing rendered it** — so a failed

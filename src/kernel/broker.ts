@@ -21,13 +21,13 @@ import { createScope } from '../reactivity/scope.js';
 import type { ReactiveScope, Signal } from '../reactivity/types.js';
 import type { Json } from '../description/types.js';
 import type {
-    CapabilityMap, CapabilityName, CommandImpl, Commands, Log,
+    CapabilityMap, CapabilityName, CommandImpl, Commands, Credentials, Log,
     NotificationHandle, Notifications, State, WindowHandle, Windows,
 } from '../contribution/capabilities.js';
 import type { ErasedContext } from '../contribution/contract.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import type { AnyApiCall, Api } from '../net/api.js';
-import { createClient, fetchTransport, type NetClient } from '../net/client.js';
+import { createClient, fetchTransport, withHeaders, type NetClient } from '../net/client.js';
 
 export interface LogRecord {
     readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -93,6 +93,27 @@ export interface KernelServices {
      * server.
      */
     netClient: (api: Api<Record<string, AnyApiCall>>, owner: string) => NetClient<unknown>;
+    /**
+     * The page's one credential seam, and where its API is.
+     *
+     * Held on the services rather than inside `netClient` so that the auth Extension can write to it
+     * *after* clients have already been built — an Application that started before sign-in keeps the
+     * client it has, and its next call carries the ticket. A holder that could only be set at
+     * construction would need every Application to be restarted by a sign-in.
+     */
+    readonly credentials: CredentialHolder;
+}
+
+/**
+ * Who is attaching what, and where requests go.
+ *
+ * One per kernel. `owner` is kept so the refusal can name the contribution that got there first,
+ * which is the difference between a boot failure someone can fix and one they can only bisect.
+ */
+export interface CredentialHolder {
+    readonly origin: string;
+    owner: string | undefined;
+    headers: (() => Readonly<Record<string, string>>) | undefined;
 }
 
 /**
@@ -124,17 +145,49 @@ export function recordingWindows(): WindowSink & { readonly opened: { id: string
     };
 }
 
-export function createServices(windows: WindowSink = recordingWindows()): KernelServices {
+export interface ServiceOptions {
+    /**
+     * Where `net` sends requests — roadmap A3.1, spec/hosting.md §5.
+     *
+     * **From the deployment descriptor**, by way of the build: the builder puts the environment's
+     * `api` in `MESH_API`, the site's bundle bakes it in, and the site's entry code passes it here.
+     * That is why it is a value the site supplies rather than something the framework discovers —
+     * which API a site talks to is a deployment fact, and a page that guessed it would be guessing
+     * about the only security boundary in the system.
+     *
+     * Empty is same-origin and is the common case: the page was served by the CDN and the API is
+     * behind the same proxy (spec/hosting.md §1).
+     */
+    readonly apiOrigin?: string;
+}
+
+export function createServices(
+    windows: WindowSink = recordingWindows(),
+    options: ServiceOptions = {},
+): KernelServices {
+    const credentials: CredentialHolder = {
+        origin: options.apiOrigin ?? '',
+        owner: undefined,
+        headers: undefined,
+    };
+
     return {
         logs: [],
         notifications: signal<readonly NotificationRecord[]>([]),
         windows,
         commands: new Map(),
         declaredCommands: new Map(),
-        // Same-origin by default: the page was served by the CDN and the API is behind the same
-        // proxy (spec/hosting.md section 1). A site pointing at another origin replaces this, which
-        // is also the seam the auth Extension wraps to attach a ticket.
-        netClient: (api) => createClient(api, { transport: fetchTransport() }) as NetClient<unknown>,
+        credentials,
+        // Every client is wrapped, always — including the ones built before anything signed in.
+        // The lookup is per request, so a ticket that arrives later is on the next call rather than
+        // on the next page load, and an Application that never declared `credentials` still sends
+        // one without ever having seen it (spec/network.md §4).
+        netClient: (api) => createClient(api, {
+            transport: withHeaders(
+                fetchTransport(credentials.origin),
+                () => credentials.headers?.() ?? {},
+            ),
+        }) as NetClient<unknown>,
     };
 }
 
@@ -235,6 +288,9 @@ export function createContext(
                 break;
             case 'windows':
                 capabilities.windows = makeWindows(id, services, next);
+                break;
+            case 'credentials':
+                capabilities.credentials = makeCredentials(id, services);
                 break;
         }
     }
@@ -380,5 +436,36 @@ function makeWindows(owner: string, services: KernelServices, _next: () => strin
     return {
         open: (options) => handle(services.windows.open(owner, options.view, options.params ?? {})),
         own: () => services.windows.ownedBy(owner).map(handle),
+    };
+}
+
+/**
+ * The credential seam, held by whoever declared it first.
+ *
+ * `clear()` is scoped to the owner for the same reason `attach` is refused: signing out must not be
+ * something another contribution can do to the page's session on the auth Extension's behalf.
+ */
+function makeCredentials(owner: string, services: KernelServices): Credentials {
+    const held = services.credentials;
+
+    return {
+        get origin(): string { return held.origin; },
+
+        attach(headers) {
+            if (held.owner !== undefined && held.owner !== owner) {
+                throw new Error(
+                    `${owner} tried to attach credentials, but ${held.owner} already has them. ` +
+                    `A page has one session for one API (spec/hosting.md §4), so two contributions ` +
+                    `attaching is a site that will send the wrong ticket somewhere.`,
+                );
+            }
+            held.owner = owner;
+            held.headers = headers;
+        },
+
+        clear() {
+            if (held.owner !== owner) return;
+            held.headers = undefined;
+        },
     };
 }
