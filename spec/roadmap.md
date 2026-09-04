@@ -704,7 +704,11 @@ framework, and nothing here should start before A5 and A2.
       [network §7](./network.md) · depends on A3.1a
 - [ ] **D.2 Make surfdns-console a real package** — `package.json`, tsconfig, CI. **S**
 - [ ] **D.3 Port the six screens** off `defineApp` and `LayoutConfig` regions onto Applications and
-      views. **M** · ⛔ A5.1, A2
+      views. **M** · ⛔ **A3.3 `commands`, A3.5 `menus`, A3.6 `notifications`, A3.7 `models`, A7.1
+      the vocabulary** — corrected 2026-09-04. It previously read `⛔ A5.1, A2`, both of which are
+      done, so this looked startable. It is not: a console is exactly the thing that needs the
+      capabilities M4 has not built, and starting it early would mean writing six screens against a
+      vocabulary that is about to be audited.
 - [ ] **D.4 Console deployment descriptor** — production host, production API, other environments.
       **S** · ⛔ B8
 - [ ] **D.5 Remove the UI from surfdns.** No longer a coordinated migration — the thing it imported is
@@ -806,10 +810,29 @@ All fourteen are built and both halves run for real:
       exposing it would let a caller point their own hostname at somebody else's build.
       `visibility: 'public'` means *may be exposed*, never *unauthenticated* (C2.6).
 
-**M4 — The framework proves itself.**
-A3 (all) · A6.1 · A6.3 · A7 · B7 · B9–B12 · C1 (all) · C2 (all) · C3 · Track D
-*The workbench written as an Extension; the console ported; surfdns's UI deleted; many sites, many
-owners, ten CDNs and ten APIs.*
+**M4 — An outside author can write an Application.**
+A3 (the remaining capabilities) · A6.1 · A6.2 · A6.6 · A7 (all) · A0.6
+*Someone who is not the author of this framework builds a real screen without reaching past it.*
+
+**M5 — It proves itself.**
+A6.3a · B7 · B9–B12 · C1 (all) · C2 (all) · C3.5 · C3.6 · Track D
+*The console ported; surfdns's UI deleted; many sites, many owners, ten CDNs and ten APIs.*
+
+> **M4 and M5 were one milestone until 2026-09-04**, called *the framework proves itself*, and the
+> name hid a gate. It contained six unwritten capabilities (`events`, `commands`, `menus`,
+> `notifications`, `models`, `log`) and the whole of A7 — the primitive vocabulary, which `PRIMITIVES`
+> itself calls *"a first cut, not the audit"*, and which A7.7 makes load-bearing: **if Applications
+> never write elements, the library owns accessibility.** None of that is proof; it is the framework.
+>
+> The gate it hid runs through **D.3**, *port the six screens*. Its blockers read `A5.1, A2`, both
+> long done, so it looked startable — and it is not, because a console needs commands, menus,
+> notifications, models and a settled vocabulary. Proving the framework on a real site cannot precede
+> finishing the parts that site would use, and a milestone list that implies otherwise will send the
+> work in the wrong order.
+>
+> **A6.3 was the exception and belonged where it was**: the workbench needed windows and chrome and
+> nothing from A3 or A7, so it could answer the design's load-bearing question early. That it landed
+> before any of this is a good sign about the split, not a contradiction of it.
 
 ---
 
