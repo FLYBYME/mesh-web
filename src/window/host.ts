@@ -14,7 +14,7 @@
 import { createDetachedScope } from '../reactivity/scope.js';
 import type { ReactiveScope } from '../reactivity/types.js';
 import { createHandlerTable, type HandlerTable } from '../description/build.js';
-import type { Action, Json } from '../description/types.js';
+import type { Action, IntentValue, Json } from '../description/types.js';
 import type { ViewContext, ViewDecl } from '../contribution/contract.js';
 import { render, type Dispatcher, type Mounted, type RenderOptions } from '../render/index.js';
 import type { WindowManager } from './manager.js';
@@ -61,12 +61,21 @@ export function mountView(host: Element, options: ViewHostOptions): ViewInstance
     // is this instance's, and resolving it locally is what keeps a closure from ever needing to
     // cross a boundary (spec/view-layer.md section 5).
     const dispatch: Dispatcher = {
-        dispatch(action: Action): void {
+        dispatch(action: Action, value?: IntentValue): void {
             if (action.kind === 'handler') {
-                handlers.invoke(action.id);
+                handlers.invoke(action.id, value);
                 return;
             }
-            options.onCommand(action);
+
+            // A command carries declared arguments; an intent's value is appended to them, so
+            // `command('post.rename', slug)` on a field arrives as `run(slug, "the new title")`.
+            // Appended rather than prepended because the declared arguments are the ones the author
+            // wrote, and they should not move when a binding gains a value.
+            options.onCommand(
+                value === undefined
+                    ? action
+                    : { ...action, args: [...(action.args ?? []), value] },
+            );
         },
     };
 

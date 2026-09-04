@@ -63,6 +63,36 @@ A first vocabulary, to be argued over:
 
 The mapping is data, not code — §7.
 
+#### An intent carries its value — **Decided 2026-09-04**
+
+`change` means *this is now the value*, and an intent that could not say what the value is made a
+form impossible to write. That was the state until the first site built on this framework needed a
+sign-in box: `Input` was a primitive, `change` was in the vocabulary above, the renderer bound the
+listener — and what a person typed stopped at the renderer and never reached the Application.
+
+So a dispatch carries a value: `dispatch(action, value?)`, where the value is a `string`, a
+`boolean`, a `number`, or `undefined`.
+
+**It is still the value and never the event**, which is what keeps this rule intact rather than
+carving an exception into it. An Application receives what was *meant*, and for a field the thing
+meant is what it now holds — not a `KeyboardEvent`, not an element, nothing with a path back to the
+DOM. A description still crosses an isolation boundary unchanged.
+
+Three details, each of which was a wrong first answer:
+
+- **The intent decides whether there is a value, not the element.** A `<button>` has a `value`
+  property — always `''` — so asking the element would deliver an empty string to every command a
+  button reaches, and every handler would need to know to ignore it. `activate` carries nothing.
+- **It listens for `input`, not `change`.** The DOM's `change` fires on blur, so a form whose button
+  is clicked straight from a focused field never sees the last thing typed. That is the classic
+  dropped password, and it is invisible to any test that dispatches events by hand.
+- **An empty number field is `undefined`, not `0`.** `Number('')` is a number nobody typed, and what
+  an empty field means is the reader's decision rather than the renderer's.
+
+For a command the value is **appended** to the arguments the author declared, so
+`command('post.rename', slug)` on a field arrives as `run(slug, title)` — a binding that gains a
+value does not move the arguments already written.
+
 ### Tier 2: normalized streams — **Proposed**
 
 Drawing and dragging need more than an intent. A component may opt into a sample stream:

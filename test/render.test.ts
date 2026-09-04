@@ -19,7 +19,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { effect, flushSync, signal } from '../src/reactivity/index.js';
 import { command, each, element, empty, text, when, createHandlerTable } from '../src/description/index.js';
-import type { Action } from '../src/description/index.js';
+import type { Action, IntentValue } from '../src/description/index.js';
 import { createRegistry, PRIMITIVES, render, type Dispatcher } from '../src/render/index.js';
 import { mountView } from '../src/window/host.js';
 
@@ -31,11 +31,16 @@ function setup() {
     document.body.appendChild(host);
 
     const seen: Action[] = [];
-    const dispatch: Dispatcher = { dispatch: (action) => void seen.push(action) };
+    /** What each dispatch carried, positionally aligned with `seen`. See `IntentValue`. */
+    const values: IntentValue[] = [];
+    const dispatch: Dispatcher = {
+        dispatch: (action, value) => { seen.push(action); values.push(value); },
+    };
 
     return {
         host,
         seen,
+        values,
         components: createRegistry(PRIMITIVES),
         dispatch,
         html: () => host.innerHTML.replace(/<!--.*?-->/g, ''),
@@ -367,6 +372,142 @@ describe('intents, not device events', () => {
 
         host.querySelector('button')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
         expect(seen).toHaveLength(0);
+    });
+});
+
+/**
+ * Roadmap A7.7, and the reason it exists: **a form was impossible to write.**
+ *
+ * `change` fired an action carrying nothing, so what a person typed never reached the Application.
+ * Found by the first site built on the framework (A6.7) needing a sign-in form — not by reading the
+ * code, which is the argument for building a real site at all.
+ *
+ * What arrives is the *value*, never the event. That is spec/input.md §2's rule applied to a field:
+ * an Application receives what was meant, and for a field the thing meant is what it now holds.
+ */
+describe('an intent carries its value', () => {
+    const typeInto = (input: HTMLInputElement, value: string): void => {
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    it('delivers the text in a field', () => {
+        const { host, components, dispatch, seen, values } = setup();
+
+        render(
+            element('Input', {
+                props: { name: 'email' },
+                intents: { change: { action: command('auth.email') } },
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        typeInto(host.querySelector('input')!, 'operator@surfdns.net');
+
+        expect(seen).toEqual([{ kind: 'command', id: 'auth.email' }]);
+        expect(values).toEqual(['operator@surfdns.net']);
+    });
+
+    it('listens for input rather than change, so the last keystroke is not lost', () => {
+        // `change` fires on blur. A form whose button is clicked straight from a focused field
+        // would never see what was typed into it — the classic "it dropped my password", and
+        // invisible to any test that dispatches events by hand.
+        const { host, components, dispatch, values } = setup();
+
+        render(
+            element('Input', { intents: { change: { action: command('x') } } }),
+            host,
+            { components, dispatch },
+        );
+
+        typeInto(host.querySelector('input')!, 'typed');
+        expect(values).toEqual(['typed']);
+    });
+
+    it('reads a checkbox as a boolean and a number field as a number', () => {
+        const { host, components, dispatch, values } = setup();
+
+        render(
+            element('Stack', {
+                children: [
+                    element('Input', {
+                        props: { type: 'checkbox' },
+                        intents: { change: { action: command('a') } },
+                    }),
+                    element('Input', {
+                        props: { type: 'number' },
+                        intents: { change: { action: command('b') } },
+                    }),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const [check, number] = [...host.querySelectorAll('input')] as HTMLInputElement[];
+        check!.checked = true;
+        check!.dispatchEvent(new Event('input', { bubbles: true }));
+        typeInto(number!, '42');
+
+        expect(values).toEqual([true, 42]);
+    });
+
+    it('an empty number field is not zero', () => {
+        // `Number('')` is 0, which would arrive as a number nobody typed. The reader decides what an
+        // empty field means; the renderer must not decide it means zero.
+        const { host, components, dispatch, values } = setup();
+
+        render(
+            element('Input', {
+                props: { type: 'number' },
+                intents: { change: { action: command('b') } },
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        typeInto(host.querySelector('input')!, '');
+        expect(values).toEqual([undefined]);
+    });
+
+    it('carries nothing for an intent that has no value', () => {
+        // The *intent* decides, not the element. A `<button>` has a `value` property — always `''`
+        // — so letting the element decide would deliver an empty string to every command a button
+        // reaches, and every handler would have to know to ignore it.
+        const { host, components, dispatch, values } = setup();
+
+        render(
+            element('Button', {
+                props: { value: 'not this' },
+                intents: { activate: { action: command('go') } },
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        host.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        expect(values).toEqual([undefined]);
+    });
+
+    it('gives a handler the value too', () => {
+        const { host, components, dispatch, seen, values } = setup();
+        const handlers = createHandlerTable('view-1');
+        const typed: (string | number | boolean | undefined)[] = [];
+        const action = handlers.on((value) => typed.push(value));
+
+        render(
+            element('Input', { intents: { change: { action } } }),
+            host,
+            { components, dispatch },
+        );
+
+        typeInto(host.querySelector('input')!, 'hello');
+
+        // The renderer still dispatched an id and called nothing — the closure never crossed.
+        expect(typed).toEqual([]);
+        handlers.invoke((seen[0] as { id: string }).id, values[0]);
+        expect(typed).toEqual(['hello']);
     });
 });
 

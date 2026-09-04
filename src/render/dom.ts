@@ -15,7 +15,9 @@ import { effect } from '../reactivity/effect.js';
 import { signal } from '../reactivity/signal.js';
 import { createScope } from '../reactivity/scope.js';
 import type { ReactiveScope, Signal } from '../reactivity/types.js';
-import type { Action, EachNode, ElementNode, Intents, Json, Node, Reactive } from '../description/types.js';
+import type {
+    Action, EachNode, ElementNode, Intents, IntentValue, Json, Node, Reactive,
+} from '../description/types.js';
 import { isDynamic, read } from '../description/types.js';
 import { applyDefaultProp, type ComponentRegistry } from './component.js';
 
@@ -26,7 +28,13 @@ import { applyDefaultProp, type ComponentRegistry } from './component.js';
  * into an intent and hands the intent's action to this. The kernel supplies it.
  */
 export interface Dispatcher {
-    dispatch(action: Action): void;
+    /**
+     * `value` is present only for an intent that has one — `change` on a field. See `IntentValue`.
+     *
+     * Optional rather than a second method, so every existing dispatcher keeps working and a
+     * dispatcher that does not care about values simply ignores the parameter.
+     */
+    dispatch(action: Action, value?: IntentValue): void;
 }
 
 export interface RenderOptions {
@@ -328,7 +336,14 @@ function bindIntents(el: Element, intents: Intents, dispatch: Dispatcher): void 
         if (binding.preventDefault) event.preventDefault();
         if (binding.stopPropagation) event.stopPropagation();
 
-        dispatch.dispatch(binding.action);
+        // **The intent decides whether there is a value, not the element.** `change` means *this is
+        // now the value*; `activate` means *act*, and carries nothing even from a control that has
+        // a `value` property — a `<button>` has one, always `''`, and letting the element decide
+        // would deliver that empty string to every command a button reaches.
+        //
+        // The value, never the event: a string, a boolean or a number, with nothing on it that
+        // could reach the DOM, which is the property that lets a description cross a boundary.
+        dispatch.dispatch(binding.action, name === 'change' ? valueOf(el) : undefined);
     };
 
     if (intents.activate) {
@@ -354,6 +369,37 @@ function bindIntents(el: Element, intents: Intents, dispatch: Dispatcher): void 
     }
 
     if (intents.change) {
-        el.addEventListener('change', (e) => fire('change', e));
+        // `input`, not `change`. `change` on a text field fires on blur, so a form whose button is
+        // clicked directly from a focused field never sees the last thing typed — the classic
+        // "it dropped my password" bug, and invisible in any test that dispatches events by hand.
+        el.addEventListener('input', (e) => fire('change', e));
     }
+}
+
+/**
+ * What a control holds, as a value rather than as an element.
+ *
+ * Only reached for `change`, which is the intent that means *this is now the value* — see `fire`.
+ *
+ * Three shapes and no more, because these are the three a browser control actually produces:
+ * a checkbox is a `boolean`, a `number` or `range` input is a `number`, and everything else is the
+ * string in it. Anything unrecognised answers `undefined` — a `change` bound to a `div` has no value,
+ * and inventing one would be worse than saying so.
+ *
+ * `instanceof` is deliberately not used: this must work under jsdom and in a browser, where the two
+ * `HTMLInputElement` constructors are different objects. Duck-typing on the properties is what
+ * survives both, and it is checking for exactly what it reads.
+ */
+function valueOf(el: Element): IntentValue {
+    const control = el as Partial<HTMLInputElement>;
+    if (typeof control.value !== 'string') return undefined;
+
+    if (control.type === 'checkbox' || control.type === 'radio') return control.checked === true;
+    if (control.type === 'number' || control.type === 'range') {
+        // An empty number field is not zero. `''` parses to NaN, which would arrive as a number the
+        // user never typed, so it stays `undefined` and the reader decides what an empty field means.
+        return control.value === '' ? undefined : Number(control.value);
+    }
+
+    return control.value;
 }

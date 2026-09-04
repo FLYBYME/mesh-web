@@ -88,6 +88,21 @@ export interface IntentBinding {
     readonly stopPropagation?: boolean;
 }
 
+/**
+ * What an intent carried, when it carried anything.
+ *
+ * `change` on a text field means *this is now the value*, and an intent that could not say what the
+ * value is makes a form impossible to write — which is how this was found (roadmap A7.7): the first
+ * site built on the framework needed a sign-in form and there was no way to read what was typed.
+ *
+ * **Not the event.** A `string` for a text field, a `boolean` for a checkbox, a `number` for a
+ * range — the value the control now holds, extracted by the renderer, with nothing of the DOM on
+ * it. spec/input.md §2's rule is that an Application receives what was *meant*, and for a field the
+ * thing meant is its value. `activate` on a button means nothing beyond itself and carries
+ * `undefined`, which is why this is a parameter rather than a member of every action.
+ */
+export type IntentValue = string | number | boolean | undefined;
+
 export type Intents = { readonly [K in IntentName]?: IntentBinding };
 
 // ---------------------------------------------------------------------------- nodes

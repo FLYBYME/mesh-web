@@ -520,6 +520,30 @@ then a missing component is a blocked Application — there is no `div` to fall 
       **M** · [view-layer §11](./view-layer.md)
 - [ ] **A7.7 Accessibility lives in the primitives.** If apps never write elements, the library owns
       every role, label and focus order — and an Application cannot patch around a mistake. **M**
+- [x] **A7.8 ★ An intent carries its value.** *(done 2026-09-04)* **A form was impossible to write.**
+      `change` fired an action carrying nothing, so what a person typed never reached the
+      Application — no field, no sign-in, no search box, nothing that takes input at all. Every other
+      layer was ready: `Input` was in `PRIMITIVES`, `change` was in `IntentName`, and the renderer
+      bound the listener. The value simply stopped there.
+
+      Found by A6.7 on its first screen, which is the entire argument for building a real site:
+      332 tests, four typechecks and fourteen spec documents did not notice, because nothing in this
+      repository had ever needed to type into anything.
+
+      `Dispatcher.dispatch(action, value?)`, and three decisions in it. **The intent decides whether
+      there is a value, not the element** — `change` means *this is now the value*, `activate` means
+      *act*; a `<button>` has a `value` property that is always `''`, and letting the element decide
+      would deliver an empty string to every command a button reaches. **It listens for `input`, not
+      `change`** — `change` fires on blur, so a form whose button is clicked straight from a focused
+      field never sees the last thing typed, which is the classic dropped password and is invisible
+      to any test that dispatches events by hand. **An empty number field is `undefined`, not `0`**,
+      because `Number('')` is a number nobody typed.
+
+      Still the value and never the event: a `string`, a `boolean` or a `number`, with nothing on it
+      that could reach the DOM, so a description still crosses an isolation boundary. For a command
+      the value is appended to the declared arguments — `command('post.rename', slug)` on a field
+      arrives as `run(slug, title)` — so a binding that gains a value does not move the arguments the
+      author wrote. Six tests. **M** · [input §2](./input.md)
 
 ---
 

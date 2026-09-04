@@ -7,6 +7,7 @@ export type {
     IntentBinding,
     IntentName,
     Intents,
+    IntentValue,
     Json,
     Node,
     Props,

@@ -7,7 +7,7 @@
  */
 
 import type {
-    Action, EachNode, ElementNode, EmptyNode, Intents, Json,
+    Action, EachNode, ElementNode, EmptyNode, Intents, IntentValue, Json,
     Node, Props, Reactive, TextNode, WhenNode,
 } from './types.js';
 
@@ -93,10 +93,16 @@ export function command(id: string, ...args: readonly Json[]): Action {
  * (spec/view-layer.md section 5).
  */
 export interface HandlerTable {
-    /** Register a function, returning the action that refers to it. */
-    on(fn: () => void): Action;
+    /**
+     * Register a function, returning the action that refers to it.
+     *
+     * The function receives whatever the intent carried — the text in a field for a `change`,
+     * `undefined` for an `activate`. A handler that ignores it is written `() => …` and is
+     * unaffected, which is why this is a parameter rather than a second kind of handler.
+     */
+    on(fn: (value?: IntentValue) => void): Action;
     /** Invoke by id. Returns false when the id is unknown — a stale event, not a crash. */
-    invoke(id: string): boolean;
+    invoke(id: string, value?: IntentValue): boolean;
     /** Free everything. Called when the view instance goes away. */
     dispose(): void;
     readonly size: number;
@@ -110,19 +116,19 @@ export interface HandlerTable {
  * table is empty.
  */
 export function createHandlerTable(scopeId: string): HandlerTable {
-    const handlers = new Map<string, () => void>();
+    const handlers = new Map<string, (value?: IntentValue) => void>();
     let next = 0;
 
     return {
-        on(fn: () => void): Action {
+        on(fn: (value?: IntentValue) => void): Action {
             const id = `${scopeId}:${next++}`;
             handlers.set(id, fn);
             return { kind: 'handler', id };
         },
-        invoke(id: string): boolean {
+        invoke(id: string, value?: IntentValue): boolean {
             const fn = handlers.get(id);
             if (fn === undefined) return false;
-            fn();
+            fn(value);
             return true;
         },
         dispose(): void {
