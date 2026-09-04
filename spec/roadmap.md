@@ -172,8 +172,14 @@ The largest single piece, and the one everything visual waits on. Nothing here e
 - [x] **A2.6 The `windows` capability implemented** against the above — `open`, `close`, `focus`,
       `handle`. A view opening under a name its Application never declared is caught at the sink,
       and stopping a process closes every window it owns.
-- [ ] **A2.7 Switching is a privilege.** Mode switch is gated on policy; a locked deployment can strip
-      floating mode from the build. **S** · [README §5](./README.md)
+- [x] **A2.7 Switching is a privilege.** **There is no locking mechanism**, which is the whole point:
+      the window manager reads a setting, a locked deployment writes that setting as build policy or
+      `system`, and it becomes a setting nobody can change. `modePolicy` is the registry's ordinary
+      answer to *may this page write here*, and the refusal carries the registry's own reason — so a
+      toast says "Frozen into this build." rather than "not allowed".
+      Verified through the **hotkey**, not the button: a disabled control is a *presentation* of the
+      policy, and the binding still resolves, so the refusal has to live where the decision is.
+      [README §5](./README.md) · [storage §2](./storage-and-registry.md)
 - [x] **A2.8 The mode-switch hotkey**, separately bound, resolving through the manifest's table. The
       Application *declares* the command; the **shell implements it**, because the blog cannot switch
       modes and cannot see which one it is in. Verified in a real browser: `alt+t` tiles,

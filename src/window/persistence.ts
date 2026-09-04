@@ -11,10 +11,11 @@
  * Tiled geometry is derived from the layout and belongs to nobody, so there is nothing to remember.
  */
 
-import { effect } from '../reactivity/index.js';
+import { computed, effect } from '../reactivity/index.js';
+import type { ReadonlySignal } from '../reactivity/types.js';
 import type { Registry, Setting } from '../registry/registry.js';
-import { asNumber, asOneOf, asShape, asString, setting } from '../registry/registry.js';
-import type { WindowManager } from './manager.js';
+import { SettingLocked, asNumber, asOneOf, asShape, asString, setting } from '../registry/registry.js';
+import type { WindowManager, WindowMode } from './manager.js';
 import type { WindowState } from './geometry.js';
 
 /** One window's remembered geometry. Keyed by view, because that is what comes back. */
@@ -92,6 +93,22 @@ export interface WindowPersistence {
     /** Start writing changes back. Returns a dispose function. */
     watch(): () => void;
     save(): Promise<void>;
+
+    /** Change the mode, refusing with `SettingLocked` when policy holds it. */
+    setMode(next: WindowMode): Promise<void>;
+
+    /**
+     * Whether the mode may be changed here — roadmap A2.7.
+     *
+     * **There is no locking mechanism.** The window manager reads a setting; a locked deployment
+     * writes that setting as `system` policy, and the setting is then one nobody can change. So
+     * "switching is a privilege" needs no new concept, no flag on the manager and no special case:
+     * it is the registry's ordinary answer to *may this page write here*
+     * (spec/storage-and-registry.md §2, spec/README §6).
+     *
+     * A signal, so a shell can hide or disable the control rather than offering one that fails.
+     */
+    readonly modePolicy: ReadonlySignal<{ readonly locked: boolean; readonly reason?: string }>;
 }
 
 export const DEFAULT_DEBOUNCE_MS = 400;
@@ -128,11 +145,34 @@ export function windowPersistence(options: PersistenceOptions): WindowPersistenc
     };
 
     return {
+        modePolicy: computed(() => {
+            const resolved = registry.resolution(mode)();
+            return resolved.locked
+                ? { locked: true, ...(resolved.reason === undefined ? {} : { reason: resolved.reason }) }
+                : { locked: false };
+        }),
+
         async restore() {
             await registry.ready(geometry);
             await registry.ready(mode);
             manager.setMode(registry.read(mode)());
             return registry.read(geometry)();
+        },
+
+        /**
+         * Change the mode, if this page may.
+         *
+         * Refuses rather than silently doing nothing, because a toggle that appears to work and
+         * does not is worse than one that says why — and the reason is available, so the shell can
+         * say it.
+         */
+        async setMode(next) {
+            const policy = registry.resolution(mode)();
+            if (policy.locked) {
+                throw new SettingLocked(mode.path, policy.from ?? 'system', policy.reason);
+            }
+            manager.setMode(next);
+            await registry.write(mode, next);
         },
 
         watch() {

@@ -12,7 +12,10 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-const PAGE = '/browser/index.html?api=memory';
+// `device=memory` because these pages share an origin: without it a run that saved `tiled` leaves
+// the next one loading tiled, which reads as a broken toggle and is a fixture leaking through the
+// browser.
+const PAGE = '/browser/index.html?api=memory&device=memory';
 
 let frame: HTMLIFrameElement | undefined;
 
@@ -151,7 +154,7 @@ describe('the harness people open', () => {
  * and no state behind it: every call fails the same way, every time.
  */
 describe('a failure reaches the screen', () => {
-    const UNREACHABLE = '/browser/index.html?api=http://127.0.0.1:1';
+    const UNREACHABLE = '/browser/index.html?api=http://127.0.0.1:1&device=memory';
 
     it('shows the reason, and says who raised it', async () => {
         const el = document.createElement('iframe');
@@ -251,5 +254,94 @@ describe('a declared hotkey fires', () => {
         await new Promise((r) => setTimeout(r, 150));
 
         expect(doc.querySelectorAll('.post').length).toBe(before);
+    }, 30_000);
+});
+
+/**
+ * Geometry that survives a reload, and a mode that policy can hold — A2.5 and A2.7.
+ *
+ * These run against `localStorage` deliberately, unlike everything above: the whole claim is that
+ * something outlives the page, and a memory hive cannot demonstrate it. Each test uses its own
+ * application key so they do not read each other's saved layout.
+ */
+describe('a device remembers', () => {
+    const persisted = (application: string): string =>
+        `/browser/index.html?api=memory&app=${application}`;
+
+    it('brings a window back at the size and state it was left', async () => {
+        const first = await open(persisted('reload-a'));
+
+        const sidebar = [...first.querySelectorAll<HTMLElement>('.window')]
+            .find((w) => w.textContent?.includes('New post'))!;
+
+        const before = sidebar.getBoundingClientRect();
+
+        // Maximise, through the real button. A synthetic PointerEvent cannot drive the drag —
+        // `setPointerCapture` throws on one, which is exactly why the pointer tests elsewhere in
+        // this project use CDP rather than dispatchEvent.
+        sidebar.querySelector<HTMLButtonElement>('.titlebar button')!.click();
+        await new Promise((r) => setTimeout(r, 50));
+
+        const maximized = sidebar.getBoundingClientRect();
+        expect(maximized.width).toBeGreaterThan(before.width);
+
+        // The write is debounced; wait past it, then load the page again.
+        await new Promise((r) => setTimeout(r, 700));
+
+        const second = await open(persisted('reload-a'));
+        const restored = [...second.querySelectorAll<HTMLElement>('.window')]
+            .find((w) => w.textContent?.includes('New post'))!;
+
+        // Same size, in a page that never saw the click. Geometry and state both came back.
+        expect(Math.round(restored.getBoundingClientRect().width)).toBe(Math.round(maximized.width));
+        expect(Math.round(restored.getBoundingClientRect().height)).toBe(Math.round(maximized.height));
+    }, 40_000);
+
+    it('comes back in the mode it was left in', async () => {
+        const first = await open(persisted('reload-b'));
+        (first.getElementById('mode') as HTMLButtonElement).click();
+        await new Promise((r) => setTimeout(r, 600));
+        expect(first.querySelector('.window.tiled')).not.toBeNull();
+
+        const second = await open(persisted('reload-b'));
+        expect(second.querySelector('.window.tiled')).not.toBeNull();
+    }, 40_000);
+});
+
+describe('policy can hold the mode — A2.7', () => {
+    it('refuses the switch and says why', async () => {
+        // `?locked=tiled` stands in for a value frozen into the build. There is no locking
+        // mechanism: the window manager reads a setting, and this one is a setting nobody can
+        // change. spec/README §6.
+        const doc = await open('/browser/index.html?api=memory&device=memory&locked=tiled');
+
+        expect(doc.querySelector('.window.tiled')).not.toBeNull();
+
+        const mode = doc.getElementById('mode') as HTMLButtonElement;
+        expect(mode.hasAttribute('disabled')).toBe(true);
+        expect(mode.textContent).toContain('locked');
+        expect(mode.title).toBeTruthy();
+
+        // The keyboard is the route the DOM cannot disable, and it is the one that matters: a
+        // disabled button is a *presentation* of the policy, not the policy. The binding still
+        // resolves, the command still runs, and the refusal has to happen where the decision is.
+        doc.defaultView!.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 't', altKey: true, bubbles: true, cancelable: true,
+        }));
+        await new Promise((r) => setTimeout(r, 150));
+
+        expect(doc.querySelector('.window.tiled')).not.toBeNull();   // still tiled
+
+        // The registry's own reason, not a generic "not allowed": it knows the value came from
+        // build policy, so the toast can say so. That is the half every settings screen skips.
+        expect(doc.querySelector('.notice')?.textContent).toContain('Frozen into this build.');
+    }, 30_000);
+
+    it('leaves the switch alone when nothing is locking it', async () => {
+        const doc = await open();
+        const mode = doc.getElementById('mode') as HTMLButtonElement;
+
+        expect(mode.hasAttribute('disabled')).toBe(false);
+        expect(mode.textContent).not.toContain('locked');
     }, 30_000);
 });

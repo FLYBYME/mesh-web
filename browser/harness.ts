@@ -23,8 +23,9 @@
 
 import {
     Kernel, WindowManager, bindingTable, chordOf, command, consumes, createClient, createRegistry,
-    each, effect, element, fetchTransport, formatBinding, mountView, needs, provider, text, tiles,
-    when, windowSink, withHeaders, describe, PRIMITIVES,
+    createSettingsRegistry, each, effect, element, fetchTransport, formatBinding, localProvider,
+    memoryProvider, mountView, needs, provider, text, tiles, when, windowPersistence, windowSink,
+    withHeaders, describe, PRIMITIVES,
     type Action, type Application, type Context, type Extension, type NetRequest, type NetResponse,
     type Transport, type ViewContext, type ViewInstance,
 } from '@flybyme/mesh-web';
@@ -330,6 +331,57 @@ const say = (message: string): void => {
 
 const manager = new WindowManager({ width: root.clientWidth, height: root.clientHeight });
 const kernel = new Kernel();
+
+/**
+ * The registry, and where each hive is backed.
+ *
+ * `device` on `localStorage`, which is why a reload remembers where you left a window — a Deck and
+ * a desktop have different screens, so geometry is per-device and never follows a person between
+ * them (spec/storage-and-registry.md §2).
+ *
+ * `system` is memory here and unwritable, standing in for a hive that a real deployment fills from
+ * the server. **Build policy is the other origin**, and `?locked=tiled` in the URL is this harness's
+ * stand-in for it: a value frozen into the bundle, which no hive can outvote and this page cannot
+ * change. That is the whole of A2.7 — a locked deployment is a policy value, not a mechanism.
+ */
+const lockedMode = new URLSearchParams(location.search).get('locked');
+
+/**
+ * `?device=memory` backs the `device` hive with memory instead of `localStorage`.
+ *
+ * For a test, and it is not a convenience: several pages of this harness share one origin, so a run
+ * that saved `tiled` left the next one loading tiled — which looked like a broken toggle and was a
+ * fixture leaking through the browser. A hive is bound by configuration, so "do not persist" is a
+ * binding rather than a flag anything reads.
+ */
+const deviceProvider = new URLSearchParams(location.search).get('device') === 'memory'
+    ? memoryProvider('device')
+    : localProvider();
+
+const registry = createSettingsRegistry({
+    namespace: 'blog',
+    ...(lockedMode === null
+        ? {}
+        : { policy: { [`window-manager/mode/${new URLSearchParams(location.search).get('app') ?? 'blog'}`]: lockedMode } }),
+    hives: {
+        system: { provider: memoryProvider('system'), writable: false },
+        user: { provider: memoryProvider('user'), writable: true },
+        device: { provider: deviceProvider, writable: true },
+        session: { provider: memoryProvider('session'), writable: true },
+    },
+    onError: (error, { path }) => say(`registry: ${path} — ${String(error)}`),
+});
+
+/**
+ * `?app=` varies the key geometry is saved under.
+ *
+ * A real deployment has one application per site and would not need it. Two tests both proving
+ * "a reload remembers" would otherwise read each other's saved layout, which is a fixture leaking
+ * through the browser rather than anything about the code.
+ */
+const application = new URLSearchParams(location.search).get('app') ?? 'blog';
+
+const persistence = windowPersistence({ manager, registry, application });
 
 kernel.services.windows = windowSink(manager, (owner, view) => kernel.viewOf(owner, view));
 
@@ -767,11 +819,38 @@ async function main(): Promise<void> {
     // not invent one.
     manager.setLayout(kernel.manifest.layouts.get('blog'));
 
-    // One window per view. In windowed mode they cascade; hit the toggle and the same four views
-    // become a header, a sidebar, a reader and a footer with nothing remounted.
-    for (const view of ['masthead', 'sidebar', 'reader', 'colophon']) {
-        kernel.services.windows.open(pid, view, {});
+    // Awaited *before* any window opens. spec/kernel.md step 9: geometry is restored before
+    // Applications start, so a window comes back where it was rather than appearing at a default
+    // position and jumping once the hive answers.
+    const remembered = await persistence.restore();
+    const placed = new Map(remembered.map((w) => [w.view, w]));
+
+    // One window per view. In windowed mode they cascade — unless this device remembers where they
+    // were left, in which case they come back there. Opened in saved order, so stacking is restored
+    // without storing a z-index that could disagree with it.
+    const order = remembered.length > 0
+        ? remembered.map((w) => w.view)
+        : ['masthead', 'sidebar', 'reader', 'colophon'];
+
+    for (const view of order) {
+        const id = kernel.services.windows.open(pid, view, {});
+        const saved = placed.get(view);
+        if (saved === undefined) continue;
+
+        const record = manager.get(id);
+        if (record === undefined) continue;
+        record.rect = { x: saved.x, y: saved.y, width: saved.width, height: saved.height };
+        record.state = saved.state;
     }
+
+    // Nudge the paint effect, since the rects above were assigned rather than set through a signal.
+    manager.windows.set([...manager.windows()]);
+
+    // Only now start saving. Watching before the restore would let the first effect run write the
+    // defaults straight over what was just read.
+    persistence.watch();
+
+    updateModeButton();
 
     document.getElementById('stop')!.addEventListener('click', () => {
         void kernel.stop(pid).then(() => say('blog stopped — its windows went with it'));
@@ -787,12 +866,47 @@ async function main(): Promise<void> {
  * declared the *command* so it can be bound and appear in a palette; what the command does is here.
  */
 function toggleMode(): void {
-    const next = manager.mode() === 'tiled' ? 'windowed' : 'tiled';
-    manager.setMode(next);
-    say(`mode → ${next}`);
+    const policy = persistence.modePolicy();
 
+    // A2.7. There is no locking mechanism to consult — the window manager reads a setting, and a
+    // locked deployment made that setting one nobody can change. The refusal carries the reason,
+    // so the shell can say why rather than doing nothing.
+    if (policy.locked) {
+        say(`mode is locked: ${policy.reason ?? 'set by policy'}`);
+        kernel.services.notifications.set([
+            ...kernel.services.notifications(),
+            {
+                id: `locked-${String(Date.now())}`,
+                level: 'warn',
+                source: 'window-manager',
+                message: policy.reason ?? 'The window mode is set by policy and cannot be changed here.',
+            },
+        ]);
+        return;
+    }
+
+    const next = manager.mode() === 'tiled' ? 'windowed' : 'tiled';
+    void persistence.setMode(next).catch((error: unknown) => say(`mode: ${String(error)}`));
+    say(`mode → ${next}`);
+    updateModeButton();
+}
+
+/** The control reflects the policy: a locked deployment does not offer a switch that will refuse. */
+function updateModeButton(): void {
     const button = document.getElementById('mode');
-    if (button !== null) button.textContent = next === 'tiled' ? 'Windowed' : 'Tiled';
+    if (button === null) return;
+
+    const policy = persistence.modePolicy();
+    button.textContent = manager.mode() === 'tiled' ? 'Windowed' : 'Tiled';
+
+    if (policy.locked) {
+        button.setAttribute('disabled', '');
+        button.title = policy.reason ?? 'Set by policy.';
+        button.textContent = `${manager.mode() === 'tiled' ? 'Tiled' : 'Windowed'} (locked)`;
+    } else {
+        button.removeAttribute('disabled');
+        button.title = 'Switch between windowed and tiled';
+    }
 }
 
 void main().catch((error: unknown) => say(`boot failed: ${String(error)}`));
