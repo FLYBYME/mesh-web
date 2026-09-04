@@ -26,8 +26,8 @@ import {
     createSettingsRegistry, each, effect, element, fetchTransport, formatBinding, localProvider,
     memoryProvider, mountView, needs, provider, text, tiles, when, windowPersistence, windowSink,
     withHeaders, describe, PRIMITIVES,
-    type Action, type Application, type Context, type Extension, type NetRequest, type NetResponse,
-    type Transport, type ViewContext, type ViewInstance,
+    type Action, type Application, type Context, type Extension, type NetClient, type NetRequest,
+    type NetResponse, type Transport, type ViewContext, type ViewInstance,
 } from '@flybyme/mesh-web';
 
 // Generated from the API's own exposure list by `npm run example:client` in mesh-api. Structural
@@ -406,13 +406,17 @@ const API_ORIGIN = new URLSearchParams(location.search).get('api')
 
 let ticket: string | undefined = new URLSearchParams(location.search).get('ticket') ?? 'alice-ticket';
 
-kernel.services.netClient = (api) => createClient(api as never, {
+// The cast is on the *result*, as in broker.ts, and that direction matters: `netClient` is declared
+// erased, so widening the client it returns is honest. `createClient(api as never, …)` — what this
+// line used to say — casts the argument instead, which gives up checking the one thing worth
+// checking here, that what the manifest declared is actually an API.
+kernel.services.netClient = (api) => createClient(api, {
     transport: withHeaders(
         API_ORIGIN === 'memory' ? memoryTransport() : fetchTransport(API_ORIGIN),
         (): Readonly<Record<string, string>> =>
             (ticket === undefined ? {} : { authorization: `Bearer ${ticket}` }),
     ),
-});
+}) as NetClient<unknown>;
 
 /**
  * The same API, in the page.
