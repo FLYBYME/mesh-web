@@ -375,7 +375,7 @@ because they are written against the same interfaces an outside author gets.
       sharing no class name with the default, then for something that wires nothing at all, and in
       both cases windows still move, stack, hide and close. Broken chrome can make a window look
       wrong; it cannot make one unmovable or immortal, because none of that was ever its to do.
-- [ ] **A6.3d Where chrome draws — decided, blocked on A6.3e.** Chrome describes the **whole page**,
+- [ ] **A6.3d Where chrome draws — decided, unblocked, next.** Chrome describes the **whole page**,
       and one node in that description says where the windows go: `cx.chrome.host()`. The kernel
       mounts the window layer inside it, so chrome arranges anything it likes around the windows and
       never touches the DOM or the mounting. The two rejected shapes are recorded in
