@@ -1,4 +1,7 @@
 node_modules/
 dist/
+# What `scripts/site.mjs` assembles. Build output, like dist — a site is built from a commit, so
+# committing the built site would put the output of a build inside its own input.
+out/
 *.tsbuildinfo
 .DS_Store

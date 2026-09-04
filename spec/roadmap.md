@@ -707,6 +707,28 @@ All fourteen are built and both halves run for real:
       an answer already known.
       **Two:** every builder contract was `internal`, so a deploy could only come from inside the
       cluster and M3's "push a repo" had no door. See C2.1b.
+- [x] **B2a ★ It serves a real bundle.** Done 2026-09-04. Everything the CDN had served until now
+      came from a two-line `build.sh` in a test fixture, and "the pipeline is file-type agnostic so a
+      real bundle cannot differ" is the shape of claim this project keeps disproving. So
+      `scripts/deploy.mjs` builds **this repository** through the real builder — a real clone of a
+      real commit, a real compile — and serves the harness from the real CDN. It does. The framework
+      is served as ES modules the browser resolves itself: `/framework/**` from `dist`, `/app/**` from
+      `browser/dist`, immutable caching on the modules, `no-cache` on the page, a deep link falling
+      back to `index.html`, and a missing asset still 404ing rather than being handed HTML.
+      A script rather than a test, deliberately: a truthful build needs the network and takes a
+      minute, and a unit suite that did that is a unit suite nobody runs.
+      **The first attempt failed, and the failure was the point.** `npm ci` in the clone died on
+      `file:../mesh-api` and `file:../mesh-identity` — devDependencies that resolve only on the
+      machine this repo happens to sit on. A build from a clone found in twenty seconds what no
+      amount of local testing would ever have shown, which is exactly [hosting §6](./hosting.md)'s
+      first defect wearing new clothes: *the code must not have to be local to the server.* The site
+      build now installs nothing from `package.json` at all — `npx -p typescript tsc` and nothing
+      else, which works because the package has **no runtime dependencies**. See B2b.
+- [ ] **B2b The `file:../` devDependencies are still there.** B2a routed around them; it did not fix
+      them. `npm ci` in a fresh clone of this repository still fails, so anything that installs
+      normally — CI, a contributor, a second builder strategy — hits it. The two are test-only
+      (mesh-api and mesh-identity, for C2.1a), so the fix is a workspace or a published version
+      rather than a path. **S**
 - [x] **C2.1b Which builder contracts the world may reach.** Decided 2026-09-04, and the line is
       drawn by *what a caller can name*. `build_start` and `build_status` are `public`: they name a
       repository, an environment, or builds — the repo supplies the rest and the caller's scope says
