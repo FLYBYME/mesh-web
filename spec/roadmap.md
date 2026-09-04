@@ -722,13 +722,21 @@ All fourteen are built and both halves run for real:
       machine this repo happens to sit on. A build from a clone found in twenty seconds what no
       amount of local testing would ever have shown, which is exactly [hosting §6](./hosting.md)'s
       first defect wearing new clothes: *the code must not have to be local to the server.* The site
-      build now installs nothing from `package.json` at all — `npx -p typescript tsc` and nothing
-      else, which works because the package has **no runtime dependencies**. See B2b.
-- [ ] **B2b The `file:../` devDependencies are still there.** B2a routed around them; it did not fix
-      them. `npm ci` in a fresh clone of this repository still fails, so anything that installs
-      normally — CI, a contributor, a second builder strategy — hits it. The two are test-only
-      (mesh-api and mesh-identity, for C2.1a), so the fix is a workspace or a published version
-      rather than a path. **S**
+      build installs nothing from `package.json` at all — `npx -p typescript tsc` and nothing else,
+      which works because the package has **no runtime dependencies**. B2b then fixed the underlying
+      defect rather than only the symptom.
+- [x] **B2b The `file:../` devDependencies.** Fixed 2026-09-04, one directory up as well. B2a routed
+      around them by building the site with a standalone `tsc`; this is the actual repair, because
+      anything that installs normally — CI, a contributor, a second builder strategy — still hit it.
+      mesh-api and mesh-identity are now **git refs**, which is how `@flybyme/mesh` was always
+      installed here, and each gained a `prepare` script: `dist/` is not committed, so a git install
+      would otherwise yield a package whose `main` points at a directory that was never built — a
+      failure at *import*, saying nothing useful when it arrives. mesh-api had the same defect inside
+      it, pointing at `file:../mesh-identity`.
+      Verified the way the original was found rather than by inspection: a fresh `git clone`,
+      `npm ci`, 298 tests green. The site build still uses the standalone `tsc`, which is not a
+      workaround any more but the right thing — a site needs a compiler, not 282 packages including
+      a browser driver.
 - [x] **C2.1b Which builder contracts the world may reach.** Decided 2026-09-04, and the line is
       drawn by *what a caller can name*. `build_start` and `build_status` are `public`: they name a
       repository, an environment, or builds — the repo supplies the rest and the caller's scope says

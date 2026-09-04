@@ -32,8 +32,8 @@
     "private": true,
     "devDependencies": {
         "@flybyme/mesh": "github:FLYBYME/mesh#v2.1.0",
-        "@flybyme/mesh-api": "file:../mesh-api",
-        "@flybyme/mesh-identity": "file:../mesh-identity",
+        "@flybyme/mesh-api": "github:FLYBYME/mesh-api",
+        "@flybyme/mesh-identity": "github:FLYBYME/mesh-identity",
         "@types/node": "^26.4.1",
         "@vitest/browser": "^2.1.9",
         "jsdom": "^30.0.1",
