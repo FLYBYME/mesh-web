@@ -25,6 +25,7 @@ import type {
     NotificationHandle, Notifications, State, WindowHandle, Windows,
 } from '../contribution/capabilities.js';
 import type { ResizeEdge } from '../window/geometry.js';
+import { windowHost } from '../window/page.js';
 import type { ErasedContext } from '../contribution/contract.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import type { AnyApiCall, Api } from '../net/api.js';
@@ -494,6 +495,7 @@ function makeChrome(services: KernelServices): Chrome {
         windows: () => sink.all(),
         focused: () => sink.focused(),
         mode: () => sink.mode(),
+        host: () => windowHost(),
 
         focus: (id) => { sink.focus(id); },
         close: (id) => { sink.close(id); },

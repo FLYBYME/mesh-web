@@ -76,8 +76,13 @@ export interface ShellOptions {
     apiOf(owner: string): unknown;
     readonly render: RenderOptions;
     readonly onCommand: (action: Action) => void;
-    /** How a window is drawn. `defaultFrame` when a site has not said. */
-    readonly chrome?: FrameChrome;
+    /**
+     * How **one window** is drawn. `defaultFrame` when a site has not said.
+     *
+     * Not to be confused with the page chrome in `page.ts`, which is the frame *around* the windows.
+     * Two different things, and naming them both "chrome" was a mistake worth undoing early.
+     */
+    readonly frame?: FrameChrome;
     /** Told when a window is framed or dropped, so a site can log it. */
     readonly onWindow?: (event: 'opened' | 'closed', id: string) => void;
 }
@@ -98,7 +103,7 @@ export interface Shell {
  */
 export function mountShell(root: Element, options: ShellOptions): Shell {
     const manager = options.manager;
-    const chrome = options.chrome ?? defaultFrame;
+    const frame = options.frame ?? defaultFrame;
     const announce = options.onWindow ?? (() => {});
 
     interface Mounted {
@@ -117,12 +122,12 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
             return undefined;
         }
 
-        const frame = chrome({ id: record.id, drag, manager });
+        const built = frame({ id: record.id, drag, manager });
 
-        frame.root.addEventListener('pointerdown', () => { manager.focus(record.id); }, true);
-        root.appendChild(frame.root);
+        built.root.addEventListener('pointerdown', () => { manager.focus(record.id); }, true);
+        root.appendChild(built.root);
 
-        const instance = mountView(frame.content, {
+        const instance = mountView(built.content, {
             windowId: record.id,
             decl,
             api: options.apiOf(record.owner),
@@ -132,7 +137,7 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
             onCommand: options.onCommand,
         });
 
-        return { frame, instance };
+        return { frame: built, instance };
     };
 
     const stop = effect(() => {

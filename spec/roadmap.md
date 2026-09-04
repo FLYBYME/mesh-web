@@ -342,9 +342,21 @@ because they are written against the same interfaces an outside author gets.
 - [ ] **A6.1 Process manager** — built in, per the original instruction. Lists Applications, their
       instances and their state; stops and restarts them. **M** · ⛔ A5.4
 - [ ] **A6.2 Application switcher** — the ordinary hotkey. **S** · ⛔ A2.8
-- [ ] **A6.3 The workbench as an Extension.** The load-bearing test of the whole design: if the IDE
-      shell cannot be written as an ordinary Extension over the window manager, the capability split
-      is wrong and better to learn it here. **L** · ⛔ A2, A3 · in progress — A6.3c done, A6.3d next
+- [x] **A6.3 ★ The workbench as an Extension — the answer is yes.** Done 2026-09-04.
+      `src/workbench/extension.ts` boots through the ordinary Extension path, declares
+      `needs('chrome', 'state', 'commands', 'log')`, provides `PAGE_CHROME`, and returns a
+      description with a tab strip above the windows and a status bar below. **There is no `Shell`
+      object, no privileged import, no reaching into the kernel and no DOM** — every affordance is a
+      declared command dispatched by the page, so a tab is scriptable and bindable rather than only
+      clickable, and everything it does an outside author can do.
+      Getting there took three things that did not exist, and each was found by trying rather than by
+      reading: `needs('chrome')` (A6.3c), a window layer in the package at all (A6.3e), and a surface
+      for chrome to draw on (A6.3d). The question was worth asking exactly because the answer was
+      *no* three times first.
+      9 browser tests, including the two that matter: an Application running beside it declares
+      `needs('windows')` and has no name for the workbench, no way to enumerate contributions and no
+      path to `chrome`; and a site that installs no workbench gets the window layer at the root with
+      two working windows and no chrome at all. [extension §8](./extension.md)
 - [x] **A6.3c The `chrome` capability**, and the answer to A6.3's question so far: **no, not with the
       capabilities that existed.** `windows` gives a contribution `open()` and `own()`, so a workbench
       could see its own windows and nobody else's, and tabs for every window is the entire job. The
@@ -375,7 +387,7 @@ because they are written against the same interfaces an outside author gets.
       sharing no class name with the default, then for something that wires nothing at all, and in
       both cases windows still move, stack, hide and close. Broken chrome can make a window look
       wrong; it cannot make one unmovable or immortal, because none of that was ever its to do.
-- [ ] **A6.3d Where chrome draws — decided, unblocked, next.** Chrome describes the **whole page**,
+- [x] **A6.3d Where chrome draws — built 2026-09-04.** Chrome describes the **whole page**,
       and one node in that description says where the windows go: `cx.chrome.host()`. The kernel
       mounts the window layer inside it, so chrome arranges anything it likes around the windows and
       never touches the DOM or the mounting. The two rejected shapes are recorded in
@@ -385,7 +397,14 @@ because they are written against the same interfaces an outside author gets.
       window layer mounts at the root, which is what keeps chrome optional rather than a mode.
       The host must be unconditional, because inside a `when` it would be recreated and re-parent
       every window — and re-parenting resets scroll, the exact defect the no-remount design exists to
-      prevent. **M** · ⛔ A6.3e — now unblocked
+      prevent. A `MutationObserver` watches for exactly that and reports it, because a rule that is
+      only written down is a rule someone breaks quietly.
+      `mountPage` renders the chrome, finds `[data-mesh-window-host]`, and mounts the shell inside;
+      chrome that produced no host is refused at boot, since a site whose chrome forgot the windows
+      is broken rather than a site with no windows. The one style the framework insists on is
+      `position: relative` on the host, which is mechanism and not look — absolute positioning needs
+      a positioned ancestor, or every window would be placed against the viewport and sit under the
+      tab strip.
 - [ ] **A6.3a The Workspace Extension**, and the split A6.3 was missing. Decided 2026-09-03: **the
       IDE is an Application; the Workspace is an Extension it consumes.** §1's test gives two
       different answers — you quit an IDE and carry on, you kill a workspace and everything consuming

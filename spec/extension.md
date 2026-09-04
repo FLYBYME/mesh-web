@@ -512,14 +512,40 @@ Two constraints fall out and both are real:
 - **Chrome that forgets the host is a broken site**, not a site with no windows, so it is refused at
   boot rather than rendered.
 
-**What this found: the window layer is not in the framework yet.** A6.3 asks whether the workbench
-can be written as an Extension *over the window manager* — and the thing that paints windows is 900
-lines of `browser/harness.ts`, demo code, not part of the package at all. The manager tracks windows;
-nothing in `src/` renders them. So chrome cannot wrap the shell until the shell exists to be wrapped,
-and the order is: extract the window layer into the package (A6.3e), then chrome (A6.3d).
+**What this found: the window layer was not in the framework.** A6.3 asks whether the workbench can be
+written as an Extension *over the window manager* — and the thing that painted windows was 900 lines
+of `browser/harness.ts`, demo code, not part of the package at all. The manager tracked windows;
+nothing in `src/` rendered them. So chrome could not wrap the shell until the shell existed to be
+wrapped, and the order became: extract the window layer (A6.3e), then chrome (A6.3d).
 
-That is not a detour. A framework whose only shell lives in its own demo has not shipped a shell, and
+That was not a detour. A framework whose only shell lives in its own demo has not shipped a shell, and
 this is how that gets noticed.
+
+---
+
+## 8a. The answer: yes — **Decided**
+
+Built 2026-09-04. `src/workbench/extension.ts` boots through the ordinary Extension path, declares
+`needs('chrome', 'state', 'commands', 'log')`, provides `PAGE_CHROME`, and returns a description with
+a tab strip above the window area and a status bar below it.
+
+**What is not in that file is the whole argument.** No `Shell` object. No privileged import. No
+reaching into the kernel, and no DOM. Every affordance is a declared command dispatched by the page —
+so a tab is bindable to a key and reachable from a palette rather than only clickable, and the
+workbench holds no callbacks of its own. Everything it does, an outside author can do, which is the
+only honest test that these interfaces are usable.
+
+Two tests carry the claim:
+
+- an Application running **beside** it declares `needs('windows')` and has no name for the workbench,
+  no way to enumerate contributions, and no path to `chrome`. It never learns a shell is there.
+- a site that installs **no** workbench gets the window layer at the root, two working windows, and
+  no chrome at all. Chrome is optional, not a mode with a default.
+
+The question was worth asking precisely because the answer was **no** three times first: no capability
+to see other windows, no window layer in the package, no surface to draw on. Each was found by trying
+to write the thing rather than by reading the design, which is what §8 predicted and why it said to do
+this before the first outside author does.
 
 ---
 

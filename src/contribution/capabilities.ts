@@ -11,7 +11,7 @@
  */
 
 import type { Signal } from '../reactivity/types.js';
-import type { Json } from '../description/types.js';
+import type { Json, Node } from '../description/types.js';
 
 // ---------------------------------------------------------------------------- state
 
@@ -136,6 +136,18 @@ export interface Chrome {
     windows(): readonly ChromeWindow[];
     focused(): string | undefined;
     mode(): 'windowed' | 'tiled';
+
+    /**
+     * The node that says *the windows go here* — roadmap A6.3d.
+     *
+     * Chrome describes the whole page and puts this wherever it wants the window area. It is an
+     * ordinary description node, so it composes like anything else, and the kernel finds it after
+     * rendering and mounts the window layer inside. Chrome never receives an element.
+     *
+     * It must be **unconditional**: inside a `when` or an `each` it is destroyed and rebuilt on
+     * every change, which re-parents every window and resets their scroll.
+     */
+    host(): Node;
 
     focus(id: string): void;
     /** Refused for a window whose view declared itself unclosable — chrome does not overrule that. */

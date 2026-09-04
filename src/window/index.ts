@@ -17,5 +17,8 @@ export { windowSink } from './sink.js';
 export type { Frame, FrameChrome, FrameContext, FrameState, Shell, ShellOptions } from './shell.js';
 export { defaultFrame, drag, mountShell } from './shell.js';
 
+export type { Page, PageChrome, PageOptions } from './page.js';
+export { ChromeError, mountPage, PAGE_CHROME, WINDOW_HOST, windowHost, windowHostComponent } from './page.js';
+
 export type { PersistenceOptions, RememberedWindow, WindowPersistence } from './persistence.js';
 export { DEFAULT_DEBOUNCE_MS, windowGeometry, windowMode, windowPersistence } from './persistence.js';

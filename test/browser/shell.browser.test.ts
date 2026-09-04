@@ -73,7 +73,7 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-async function boot(chrome?: FrameChrome): Promise<Site> {
+async function boot(frame?: FrameChrome): Promise<Site> {
     const root = document.createElement('div');
     root.id = 'desktop';
     root.style.cssText = 'position:relative;width:900px;height:600px;overflow:hidden';
@@ -101,7 +101,7 @@ async function boot(chrome?: FrameChrome): Promise<Site> {
         apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
         render: { components: createRegistry(PRIMITIVES), dispatch: { dispatch: () => {} } },
         onCommand: () => {},
-        ...(chrome === undefined ? {} : { chrome }),
+        ...(frame === undefined ? {} : { frame }),
     });
 
     await kernel.start('app');

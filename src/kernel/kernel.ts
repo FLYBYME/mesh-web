@@ -91,6 +91,18 @@ export class Kernel {
         return [...this.#extensions.values()];
     }
 
+    /**
+     * What an Extension provided, by token.
+     *
+     * The public half of the provider graph. `cx.use` resolves a token for a *contribution*, which is
+     * checked against its declared `consumes`; this is for the code that boots the page and has no
+     * manifest of its own — chiefly `mountPage`, which needs the page chrome if a site has one and
+     * nothing if it does not.
+     */
+    provided<T>(token: ProviderToken<T>): T | undefined {
+        return this.#providers.get(token.id) as T | undefined;
+    }
+
     get processes(): readonly ProcessEntry[] {
         return [...this.#processes.values()];
     }
