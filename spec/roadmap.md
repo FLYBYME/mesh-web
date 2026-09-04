@@ -361,14 +361,20 @@ because they are written against the same interfaces an outside author gets.
       a broken or hostile chrome must not be able to do what an Application forbade. `close` now
       refuses; `closeOwnedBy` still does not, because the flag means *the user may not dismiss this*,
       not *this window outlives its Application*.
-- [ ] **A6.3e ★ The window layer belongs in the package.** Found while designing A6.3d, and it
-      reorders the work. A6.3 asks whether the workbench can be written as an Extension *over the
-      window manager* — and nothing in `src/` paints a window. The manager tracks them; the thing
-      that renders them is 900 lines of `browser/harness.ts`, which is demo code. **A framework whose
-      only shell lives in its own demo has not shipped a shell.** So the window layer moves into the
-      package — frames, drag and resize affordances, tiled arrangement, focus — and the harness
-      becomes what it claims to be, a site that uses the framework rather than the framework's
-      missing half. **L** · ⛔ A2
+- [x] **A6.3e ★ The window layer belongs in the package.** Done 2026-09-04. `src/window/shell.ts`:
+      `mountShell` owns one host element per window, positioned from the manager, stacked by z-index,
+      shown or hidden by mode, with the view mounted once and disposed when the window goes — and
+      **repositioned, never re-parented**, because re-parenting resets scroll.
+      The split follows [kernel §2](./kernel.md) exactly: mechanics here, *drawing* in a `FrameChrome`
+      — a function that builds the title bar, the buttons and the grip and says which elements drag
+      what. `defaultFrame` is one, shipped so a site gets a working window without writing chrome and
+      **replaceable**, which is the seam A6.3d plugs into.
+      The harness lost 130 lines and became what it always claimed to be: a site that uses the
+      framework rather than the framework's missing half.
+      8 new browser tests, and the argument is made by construction — chrome is swapped for something
+      sharing no class name with the default, then for something that wires nothing at all, and in
+      both cases windows still move, stack, hide and close. Broken chrome can make a window look
+      wrong; it cannot make one unmovable or immortal, because none of that was ever its to do.
 - [ ] **A6.3d Where chrome draws — decided, blocked on A6.3e.** Chrome describes the **whole page**,
       and one node in that description says where the windows go: `cx.chrome.host()`. The kernel
       mounts the window layer inside it, so chrome arranges anything it likes around the windows and
@@ -379,7 +385,7 @@ because they are written against the same interfaces an outside author gets.
       window layer mounts at the root, which is what keeps chrome optional rather than a mode.
       The host must be unconditional, because inside a `when` it would be recreated and re-parent
       every window — and re-parenting resets scroll, the exact defect the no-remount design exists to
-      prevent. **M** · ⛔ A6.3e
+      prevent. **M** · ⛔ A6.3e — now unblocked
 - [ ] **A6.3a The Workspace Extension**, and the split A6.3 was missing. Decided 2026-09-03: **the
       IDE is an Application; the Workspace is an Extension it consumes.** §1's test gives two
       different answers — you quit an IDE and carry on, you kill a workspace and everything consuming

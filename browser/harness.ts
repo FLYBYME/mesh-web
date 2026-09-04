@@ -24,10 +24,10 @@
 import {
     Kernel, WindowManager, bindingTable, chordOf, command, consumes, createClient, createRegistry,
     createSettingsRegistry, each, effect, element, fetchTransport, formatBinding, localProvider,
-    memoryProvider, mountView, needs, provider, text, tiles, when, windowPersistence, windowSink,
+    memoryProvider, mountShell, needs, provider, text, tiles, when, windowPersistence, windowSink,
     withHeaders, describe, PRIMITIVES,
     type Action, type Application, type Context, type Extension, type NetClient, type NetRequest,
-    type NetResponse, type Transport, type ViewContext, type ViewInstance,
+    type NetResponse, type Transport, type ViewContext,
 } from '@flybyme/mesh-web';
 
 // Generated from the API's own exposure list by `npm run example:client` in mesh-api. Structural
@@ -499,165 +499,36 @@ const runCommand = (action: Action): void => {
     void kernel.services.commands.get(action.id)?.run(...(action.args ?? []));
 };
 
-interface Frame {
-    readonly host: HTMLElement;
-    readonly content: HTMLElement;
-    readonly titleEl: HTMLElement;
-    readonly instance: ViewInstance;
-}
-
-const frames = new Map<string, Frame>();
-
 /**
- * Build the chrome for one window, once.
+ * The window layer, from the framework — roadmap A6.3e.
  *
- * Pointer capture rather than window-level listeners, because a drag that leaves the element must
- * keep receiving moves — the bug every hand-rolled drag has on the first try.
- */
-function createFrame(id: string): Frame {
-    const host = document.createElement('div');
-    host.className = 'window';
-    host.dataset['window'] = id;
-
-    const bar = document.createElement('div');
-    bar.className = 'titlebar';
-
-    const titleEl = document.createElement('span');
-    titleEl.className = 'label';
-
-    const buttons = document.createElement('span');
-    buttons.className = 'buttons';
-
-    const max = document.createElement('button');
-    max.textContent = '□';
-    max.title = 'Maximize / restore';
-    max.addEventListener('click', () => {
-        const record = manager.get(id);
-        if (record === undefined) return;
-        if (record.state === 'maximized') manager.restore(id);
-        else manager.maximize(id);
-    });
-
-    const close = document.createElement('button');
-    close.textContent = '×';
-    close.title = 'Close';
-    close.addEventListener('click', () => manager.close(id));
-
-    buttons.append(max, close);
-    bar.append(titleEl, buttons);
-
-    const content = document.createElement('div');
-    content.className = 'content';
-
-    const grip = document.createElement('div');
-    grip.className = 'grip';
-
-    host.append(bar, content, grip);
-    host.addEventListener('pointerdown', () => manager.focus(id), true);
-
-    drag(bar, (dx, dy) => manager.move(id, dx, dy));
-    drag(grip, (dx, dy) => manager.resize(id, 'se', dx, dy));
-
-    const process = kernel.processes.find((p) => p.pid === manager.get(id)!.owner)!;
-    const decl = kernel.viewOf(process.pid, manager.get(id)!.view)!;
-
-    const instance = mountView(content, {
-        windowId: id,
-        decl,
-        api: process.api,
-        params: manager.get(id)!.params,
-        windows: manager,
-        render: { components, dispatch: { dispatch: () => {} } },
-        onCommand: runCommand,
-    });
-
-    root.appendChild(host);
-    return { host, content, titleEl, instance };
-}
-
-/** A pointer drag, reported as deltas. The manager owns the geometry; this owns nothing. */
-function drag(handle: HTMLElement, onMove: (dx: number, dy: number) => void): void {
-    handle.addEventListener('pointerdown', (event) => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        handle.setPointerCapture(event.pointerId);
-
-        let x = event.clientX;
-        let y = event.clientY;
-
-        const move = (e: PointerEvent): void => {
-            onMove(e.clientX - x, e.clientY - y);
-            x = e.clientX;
-            y = e.clientY;
-        };
-
-        const up = (): void => {
-            handle.removeEventListener('pointermove', move);
-            handle.removeEventListener('pointerup', up);
-        };
-
-        handle.addEventListener('pointermove', move);
-        handle.addEventListener('pointerup', up);
-    });
-}
-
-/**
- * Paint, driven by the manager's own signals.
+ * This was 130 lines of this file: frame markup, a pointer-capture drag, and a paint effect that
+ * positioned every window from the manager's signals. It was also, until it moved, **the only shell
+ * mesh-web had** — the package tracked windows and rendered none of them, so A6.3's question
+ * (can the workbench be an Extension over the window manager?) had nothing to be over.
  *
- * There is no `paint()` call anywhere below — `manager.windows` and `manager.order` are signals, so
- * moving a window re-runs this effect and nothing else. The view inside the window is untouched by
- * it, which is the property worth seeing with your own eyes: geometry is the shell's, application
- * state is the Application's, and they do not share a render pass.
+ * What is left here is what a site actually supplies: which process a window belongs to, what its
+ * views render with, and where a command goes. `defaultFrame` draws it, and a site that wants its
+ * own passes `chrome`.
  */
+const shell = mountShell(root, {
+    manager,
+    viewOf: (owner, view) => {
+        const process = kernel.processes.find((p) => p.pid === owner);
+        return process === undefined ? undefined : kernel.viewOf(process.pid, view);
+    },
+    apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
+    render: { components, dispatch: { dispatch: () => {} } },
+    onCommand: runCommand,
+    onWindow: (event, id) => { say(`window ${id} ${event}`); },
+});
+
+// The rail reads the kernel, and the kernel changed if the windows did. Its own effect now that the
+// window paint is the framework's — two effects over the same signals, rather than one effect
+// reaching across two concerns.
 effect(() => {
-    const stacked = manager.stacked();
-    const live = new Set(stacked.map((r) => r.id));
-    const visible = new Set(manager.visible().map((r) => r.id));
-    const tiledNow = manager.mode() === 'tiled';
-
-    for (const record of stacked) {
-        let frame = frames.get(record.id);
-        if (frame === undefined) {
-            frame = createFrame(record.id);
-            frames.set(record.id, frame);
-            say(`window ${record.id} opened`);
-        }
-
-        const { host } = frame;
-
-        // `rectOf` rather than `record.rect`: in tiled mode a window's box comes from the tile its
-        // view targets, and the record's own rect is left alone so switching back restores it.
-        const rect = manager.rectOf(record.id);
-        if (rect !== undefined) {
-            // **Reposition, never re-parent.** Moving a node between parents resets its scroll
-            // position, which would silently break the one property a mode switch is for
-            // (spec/README §4).
-            host.style.left = `${rect.x}px`;
-            host.style.top = `${rect.y}px`;
-            host.style.width = `${rect.width}px`;
-            host.style.height = `${rect.height}px`;
-        }
-
-        host.style.zIndex = String(manager.zIndexOf(record.id));
-        host.classList.toggle('focused', manager.focused() === record.id);
-        host.classList.toggle('tiled', tiledNow);
-
-        // Hidden, never unmounted: a window the current mode cannot show keeps its DOM, its
-        // effects, its scroll position and whatever was typed into it.
-        host.hidden = record.state === 'minimized' || !visible.has(record.id);
-        frame.titleEl.textContent = record.title;
-    }
-
-    for (const [id, frame] of [...frames]) {
-        if (live.has(id)) continue;
-        frame.instance.dispose();
-        frame.host.remove();
-        frames.delete(id);
-        say(`window ${id} closed`);
-    }
-
-    // The rail reads the kernel, and the kernel changed if the windows did. Repainted from inside
-    // this effect so there is one thing driving the screen rather than two that can disagree.
+    manager.windows();
+    manager.mode();
     paintRail();
 });
 
