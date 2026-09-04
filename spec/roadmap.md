@@ -412,33 +412,57 @@ none of this is speculative.
 mesh-web's server half. **None of it exists** — no server, no builder, no `web` ServiceModule.
 [hosting.md](./hosting.md).
 
-- [ ] **B0 ★ Create the packages** — `@flybyme/mesh-cdn`, `@flybyme/mesh-builder`, and the types-only
-      `@flybyme/mesh-web-protocol`, alongside the browser package. Neither side depends on the other.
-      **S** · [hosting §0](./hosting.md)
+- [x] **B0 ★ Create the packages** — `@flybyme/mesh-cdn`, `@flybyme/mesh-builder`, and the types-only
+      `@flybyme/mesh-web-protocol`, under `server/`, alongside the browser package. Neither side
+      depends on the other; both may depend on the protocol package precisely because it has no
+      runtime. Its own tsconfig with node types, so the browser package keeps `types: []` and a node
+      import there stays a compile error. [hosting §0](./hosting.md)
 - [ ] **B1a The `cdn` ServiceModule**, paas layout. CRUD `site`, `artifact`; tools `site_resolve`,
       `artifact_get`; event `cdn.site_changed`. **M** · [service-modules §2](./service-modules.md)
 - [ ] **B1b The `builder` ServiceModule.** CRUD `build`; tools `build_start`, `build_status`; events
       `builder.build_started` / `_completed` / `_failed`. **M** ·
       [service-modules §2](./service-modules.md)
-- [ ] **B1c Decide who owns `artifact`** — the builder writes it, the CDN reads it constantly.
-      *Recommend `cdn` owns it*, so the read path has no extra hop and the builder writes by calling
-      `cdn.artifact_create`. **S** · [service-modules §2](./service-modules.md)
-- [ ] **B2 ★ The builder.** Takes a repo, produces artifacts. The one hard requirement, stated
-      explicitly: **the code must not have to be local to the server** — that was the defect in the
-      previous generation. Fetch, build, publish. **L** · [hosting §6](./hosting.md)
+- [x] **B1c Who owns `artifact` — the builder**, reached through a published contract. Decided
+      2026-09-03; the rule it produced is now the one all four modules follow: *a module owns what it
+      writes and publishes contracts for what others need*. The hop is paid once per artifact per
+      node, because an artifact is immutable and cacheable forever.
+      The recommendation this replaces was `cdn`, to save the read path a hop; the hop is what a
+      boundary *is*, and an immutable artifact makes it cheap. [service-modules §2](./service-modules.md)
+- [x] **B2 ★ The builder.** Fetch, build, publish. Both defects the previous generation had are now
+      unrepresentable rather than merely avoided: **source is a `SourceRef`**, so a build gets a
+      scratch workspace the builder creates and destroys and can therefore run anywhere; and **an
+      artifact is content**, files named by their path *inside* the artifact and addressed by digest,
+      so nothing names the machine that built it. Both have a test asserting the shape stays that way.
+      Cached by input hash over the resolved commit, environment, frozen policy and builder version —
+      and it **refuses to hash a branch**, because `main` hashes to itself while the code moves and a
+      cache keyed on it serves stale content forever, which is worse than not caching.
+      Blobs are shared between artifacts by digest, so a one-file change stores one blob.
+      [hosting §6](./hosting.md)
 - [ ] **B3 Build policy injection** — the build is where `system` hive policy and lock decisions are
       baked in. **S** · ⛔ B2, A4.7
-- [ ] **B4 The CDN server** — plain HTTP, no TLS, no certificates, behind the surfdns proxy. Resolve
-      hostname → site, serve that site's artifacts. **M** · [hosting §1, §2](./hosting.md)
-- [ ] **B5 Hostname resolution.** `site` as an ordinary CRUD collection on the mesh — the answer that
-      avoids building a second distributed system beside the one already running — with a local cache
-      invalidated by `web.site_changed`. **M** · [hosting §7](./hosting.md)
-- [ ] **B6 Never serve two tenants from one hostname.** The origin *is* the isolation boundary, so
-      this is a serving-layer invariant with a test, not a convention. **S** ·
-      [hosting §3](./hosting.md)
-- [ ] **B7 Any node can serve any site.** Ten CDNs, interchangeable because all are nodes on one mesh.
-      Nothing may assume sticky routing; nothing may require a load balancer either. **M** ·
-      [hosting §4](./hosting.md)
+- [x] **B4 The CDN server** — plain HTTP, no TLS, behind the proxy. Resolve, serve, and nothing else:
+      a POST is a 405, because the API is the only security boundary and a CDN accepting writes would
+      be a second one. Hashed assets are immutable, entry documents are `no-cache` (or a deploy never
+      reaches anyone), and the digest *is* the ETag. A deep link falls back to the entry document so a
+      client-routed Application works — but **a missing asset 404s**, because serving HTML for a
+      missing `.js` produces "Unexpected token '<'" and nothing that says what happened.
+      [hosting §1, §2](./hosting.md)
+- [x] **B5 Hostname resolution**, with a local cache. Misses are cached too — otherwise a node asked
+      repeatedly for an unconfigured hostname does the mesh's work for whoever is asking — and
+      concurrent requests for a cold hostname share one lookup. Invalidated by the deploy event, with
+      a TTL behind it, because **the mesh delivers at-most-once** ([auth §3.1](./auth.md)) and that is
+      as true here as it was for revocations. The record still needs to be a mesh collection (B5a).
+- [x] **B6 Never serve two tenants from one hostname.** Checked on the path that *serves*, not assumed
+      by the path that configures, and answered **404 rather than 403**: which tenant owns a hostname
+      is not something an anonymous request gets to learn. Found while testing: a node reachable
+      directly must not trust `x-forwarded-host`, or the origin becomes the caller's choice — so
+      trusting it is a deployment option, not a default. [hosting §3](./hosting.md)
+- [x] **B7 Any node can serve any site.** An artifact is fetched once and kept forever, safely,
+      because a digest can never name different content. Content this node cannot reach yet is a
+      **503, not a 404** — the hostname is configured and the answer exists somewhere, so blaming the
+      caller would be wrong. A cold cache is slower, not wrong. [hosting §4](./hosting.md)
+- [ ] **B5a `site` as a mesh CRUD collection**, replacing the injected `SiteSource`. The interface is
+      the seam; this is the implementation behind it. **S** · [hosting §7](./hosting.md)
 - [ ] **B8 The deployment descriptor** — a repo declares its environments, its production host, its
       API, its exposure list and its build config, and the site's own team owns what it exposes and to
       whom. **M** · [hosting §5](./hosting.md)

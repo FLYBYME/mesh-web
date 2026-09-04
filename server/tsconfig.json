@@ -1,0 +1,42 @@
+// The server packages: `@flybyme/mesh-web-protocol`, `@flybyme/mesh-cdn`, `@flybyme/mesh-builder`.
+//
+// A separate project from the browser package, and the difference is the point. The browser package
+// sets `types: []` so a node import there is a compile error; these three are node and say so. D6
+// (spec/hosting.md §0) draws the line at the *package name* rather than a subpath export, because an
+// editor autocompleting `mesh-web/server` into an Application is a mistake worth making impossible
+// rather than discouraging.
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "lib": ["ES2022"],
+
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "noFallthroughCasesInSwitch": true,
+        "exactOptionalPropertyTypes": false,
+
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "outDir": "dist",
+        "rootDir": ".",
+
+        "isolatedModules": true,
+        "verbatimModuleSyntax": true,
+        "skipLibCheck": true,
+
+        "types": ["node"],
+
+        // The three packages resolve each other by *package name*, so the imports read exactly as
+        // they will once these are installed rather than as relative paths that would have to be
+        // rewritten. D6's whole point is that the boundary is a package name.
+        "baseUrl": ".",
+        "paths": {
+            "@flybyme/mesh-web-protocol": ["./protocol/src/index.ts"]
+        }
+    },
+    "include": ["protocol/src/**/*.ts", "builder/src/**/*.ts", "cdn/src/**/*.ts"]
+}
