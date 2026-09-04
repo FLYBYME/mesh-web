@@ -92,6 +92,8 @@
 
     .bar .spacer { flex: 1; }
 
+    .bar #mode { border-color: var(--accent); color: var(--accent); }
+
     .bar button {
         font: 500 12px/1 var(--sans);
         background: var(--raised);
@@ -218,6 +220,16 @@
     /* The one place the accent is spent on the desktop. */
     .window.focused { border-color: var(--accent); }
 
+    /*
+     * Tiled windows are panes, not windows. spec/roadmap A2.3: layout-defined geometry, no min/max
+     * affordances — so the shell stops offering the handles rather than the manager refusing to
+     * honour them. Same views, two geometries, two sets of affordances.
+     */
+    .window.tiled { border-radius: 0; box-shadow: none; }
+    .window.tiled .grip { display: none; }
+    .window.tiled .titlebar { cursor: default; }
+    .window.tiled .titlebar button { display: none; }
+
     .titlebar {
         flex: none;
         display: flex;
@@ -300,6 +312,33 @@
         font-variant-numeric: tabular-nums;
     }
 
+    /* ---- the other three views ---- */
+
+    .masthead {
+        display: flex; align-items: baseline; gap: 12px;
+        padding: 8px 14px; height: 100%;
+    }
+    .masthead h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+
+    .colophon {
+        display: flex; align-items: center;
+        padding: 0 14px; height: 100%;
+        color: var(--dim);
+        font: 400 11px/1 var(--mono);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .reader { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+    .article {
+        display: block;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--raised);
+    }
+    .article h2 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+    .article .body { color: var(--dim); font-size: 12px; line-height: 1.6; }
+
     @media (prefers-reduced-motion: reduce) {
         * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
     }
@@ -313,6 +352,7 @@
             click a post to publish it
         </span>
         <span class="spacer"></span>
+        <button id="mode" type="button">Tiled</button>
         <button id="stop" type="button">Stop the blog process</button>
     </div>
 

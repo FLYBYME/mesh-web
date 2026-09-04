@@ -13,6 +13,7 @@ import type {
     CommandDecl, Declarations, KeyDecl, MenuDecl, SettingDecl, ViewDecl,
 } from '../contribution/contract.js';
 import type { AnyApiCall, Api } from '../net/api.js';
+import type { LayoutNode } from '../window/layout.js';
 
 export interface Contributed<T> {
     readonly by: string;
@@ -39,6 +40,14 @@ export interface Manifest {
      * without executing anything.
      */
     readonly apis: readonly Contributed<Api<Record<string, AnyApiCall>>>[];
+    /**
+     * Each Application's tiled arrangement, by contributor id.
+     *
+     * Here rather than on the running process because the kernel restores geometry at boot step 9
+     * and starts Applications at step 10 — the tile names have to be known before anything runs
+     * (spec/application.md §6).
+     */
+    readonly layouts: ReadonlyMap<string, LayoutNode>;
     readonly settings: ReadonlyMap<string, Contributed<SettingDecl>>;
     /** Keyed `<contributor>/<view id>`; view ids are scoped, so two Applications may both have `main`. */
     readonly views: ReadonlyMap<string, Contributed<ViewDecl>>;
@@ -52,6 +61,7 @@ export function mergeManifests(
     const bindings = new Map<string, Contributed<KeyDecl>>();
     const menus: Contributed<MenuDecl>[] = [];
     const apis: Contributed<Api<Record<string, AnyApiCall>>>[] = [];
+    const layouts = new Map<string, LayoutNode>();
     const settings = new Map<string, Contributed<SettingDecl>>();
     const views = new Map<string, Contributed<ViewDecl>>();
     const conflicts: Conflict[] = [];
@@ -99,6 +109,10 @@ export function mergeManifests(
         // and two APIs may coexist because a client is scoped to the one that declared it.
         if (declarations.api !== undefined) apis.push({ by: id, decl: declarations.api });
 
+        // Keyed by contributor rather than merged: two Applications have two arrangements, and
+        // whichever is in the foreground supplies the one in force. Nothing collides.
+        if (declarations.layout !== undefined) layouts.set(id, declarations.layout);
+
         for (const decl of declarations.settings ?? []) {
             claim(settings, decl.path, id, decl, 'setting', (key, first, second) =>
                 `Setting "${key}" is declared by both ${first} and ${second}.`);
@@ -136,7 +150,7 @@ export function mergeManifests(
         }
     }
 
-    return { commands, bindings, menus, apis, settings, views, conflicts };
+    return { commands, bindings, menus, apis, layouts, settings, views, conflicts };
 }
 
 /** One declaration may bind several devices to one command. Each is a separate collision surface. */

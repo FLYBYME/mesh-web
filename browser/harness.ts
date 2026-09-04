@@ -23,9 +23,10 @@
 
 import {
     Kernel, WindowManager, command, consumes, createClient, createRegistry, each, effect, element,
-    fetchTransport, mountView, needs, provider, text, when, windowSink, withHeaders, describe,
+    fetchTransport, mountView, needs, provider, text, tiles, when, windowSink, withHeaders, describe,
     PRIMITIVES,
-    type Action, type Application, type Context, type Extension, type ViewContext, type ViewInstance,
+    type Action, type Application, type Context, type Extension, type NetRequest, type NetResponse,
+    type Transport, type ViewContext, type ViewInstance,
 } from '@flybyme/mesh-web';
 
 // Generated from the API's own exposure list by `npm run example:client` in mesh-api. Structural
@@ -80,11 +81,110 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
         { id: 'blog.open', title: 'Blog: Open Post' },
         { id: 'blog.publish', title: 'Blog: Publish Post' },
         { id: 'blog.add', title: 'Blog: New Post' },
+        // Declared by the Application, implemented by the shell: switching modes is the window
+        // manager's business, not the blog's (spec/input.md §6). The Application only says the verb
+        // exists so it can be bound and appear in a palette.
+        { id: 'blog.mode', title: 'Toggle tiled / windowed' },
     ];
 
-    readonly keys = [{ command: 'blog.add', keys: 'alt+n', gamepad: 'Y' }];
+    readonly keys = [
+        { command: 'blog.add', keys: 'alt+n', gamepad: 'Y' },
+        { command: 'blog.mode', keys: 'alt+t', gamepad: 'Back' },
+    ];
+
+    /**
+     * The arrangement, when tiled. In windowed mode these names are simply unused
+     * (spec/application.md §6) — same views, two geometries.
+     */
+    readonly layout = tiles({
+        split: 'column',
+        children: [
+            { node: { tile: 'header' }, size: { px: 44 } },
+            {
+                node: {
+                    split: 'row',
+                    children: [
+                        { node: { tile: 'sidebar' }, size: { px: 260 } },
+                        { node: { tile: 'content' } },
+                    ],
+                },
+            },
+            { node: { tile: 'footer' }, size: { px: 28 } },
+        ],
+    });
 
     readonly views = [
+        {
+            id: 'masthead',
+            title: 'Masthead',
+            tile: 'header',
+            instances: 'one' as const,
+            defaultSize: { width: 420, height: 90 },
+            minSize: { width: 200, height: 60 },
+            render: (vx: ViewContext<Record<string, never>, BlogApi>) =>
+                element('Row', {
+                    props: { class: 'masthead' },
+                    children: [
+                        element('Heading', { children: [text('The mesh-web blog')] }),
+                        element('Text', {
+                            props: { class: 'count' },
+                            children: [text(() => `${vx.app.posts().length} posts`)],
+                        }),
+                    ],
+                }),
+        },
+        {
+            id: 'colophon',
+            title: 'Status',
+            tile: 'footer',
+            instances: 'one' as const,
+            defaultSize: { width: 420, height: 70 },
+            minSize: { width: 200, height: 40 },
+            render: (vx: ViewContext<Record<string, never>, BlogApi>) =>
+                element('Row', {
+                    props: { class: 'colophon' },
+                    children: [
+                        element('Text', {
+                            children: [
+                                text(() => {
+                                    const posts = vx.app.posts();
+                                    const live = posts.filter((p) => p.published).length;
+                                    return `${live} published · ${posts.length - live} draft`;
+                                }),
+                            ],
+                        }),
+                    ],
+                }),
+        },
+        {
+            id: 'reader',
+            title: 'Reader',
+            tile: 'content',
+            instances: 'one' as const,
+            defaultSize: { width: 460, height: 320 },
+            minSize: { width: 240, height: 160 },
+            render: (vx: ViewContext<Record<string, never>, BlogApi>) =>
+                element('Stack', {
+                    props: { class: 'reader' },
+                    children: [
+                        each(
+                            () => vx.app.posts().filter((p) => p.published),
+                            (p: Post) => p.slug,
+                            (p: () => Post) =>
+                                element('Card', {
+                                    props: { class: 'article' },
+                                    children: [
+                                        element('Heading', { children: [text(() => p().title)] }),
+                                        element('Text', {
+                                            props: { class: 'body' },
+                                            children: [text(() => `Every window on this desktop is the same view in a different geometry. ${p().title.toLowerCase()} — served by a real mesh-api, over HTTP, gatekept.`)],
+                                        }),
+                                    ],
+                                }),
+                        ),
+                    ],
+                }),
+        },
         {
             id: 'sidebar',
             title: 'Posts',
@@ -202,6 +302,10 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
             posts.set([...posts(), result.value]);
         });
 
+        // Declared here, implemented by the shell below. The Application does not switch modes —
+        // it cannot even see which one it is in.
+        cx.commands.implement('blog.mode', () => toggleMode());
+
         await refresh();
 
         return {
@@ -241,17 +345,90 @@ kernel.services.windows = windowSink(manager, (owner, view) => kernel.viewOf(own
  * refreshed, and a value captured once goes stale in exactly the case that matters — here, signing
  * in as somebody else without reloading.
  */
-const API_ORIGIN = new URLSearchParams(location.search).get('api') ?? 'http://127.0.0.1:5005';
+const API_ORIGIN = new URLSearchParams(location.search).get('api')
+    // A page served from somewhere other than the local dev server has no mesh-api to reach, so it
+    // runs against the in-page transport below. `?api=http://…` points it at a real one.
+    ?? (location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+        ? 'http://127.0.0.1:5005'
+        : 'memory');
 
 let ticket: string | undefined = new URLSearchParams(location.search).get('ticket') ?? 'alice-ticket';
 
 kernel.services.netClient = (api) => createClient(api as never, {
     transport: withHeaders(
-        fetchTransport(API_ORIGIN),
+        API_ORIGIN === 'memory' ? memoryTransport() : fetchTransport(API_ORIGIN),
         (): Readonly<Record<string, string>> =>
             (ticket === undefined ? {} : { authorization: `Bearer ${ticket}` }),
     ),
 });
+
+/**
+ * The same API, in the page.
+ *
+ * Not a mock and not a fallback path inside the Application — the Application is byte-for-byte the
+ * one that talks to the real mesh-api, using the same generated client and the same declared
+ * failures. Only the **transport** differs, which is the seam `Transport` exists to be
+ * (spec/network.md §4): a test needs no server, the auth Extension attaches a ticket by wrapping
+ * one, and a demo can run with nothing behind it.
+ *
+ * Used when this page has no mesh-api to reach — a published copy of the harness cannot call
+ * localhost. Everything above this line is unaware.
+ */
+function memoryTransport(): Transport {
+    const posts = new Map<string, Post>([
+        ['welcome', { slug: 'welcome', title: 'A window you can drag', published: true, organizationId: 'org-a' }],
+        ['fine', { slug: 'fine', title: 'Fine-grained, no diffing', published: false, organizationId: 'org-a' }],
+        ['kernel', { slug: 'kernel', title: 'The kernel drives everything', published: true, organizationId: 'org-a' }],
+        ['tiles', { slug: 'tiles', title: 'Two modes, no remount', published: true, organizationId: 'org-a' }],
+    ]);
+
+    let n = 0;
+    const ok = (value: unknown): NetResponse =>
+        ({ status: 200, headers: {}, body: JSON.stringify(value) });
+
+    return {
+        async send(request: NetRequest): Promise<NetResponse> {
+            const [path] = request.url.split('?');
+            const input = request.body === undefined
+                ? {}
+                : JSON.parse(request.body) as Record<string, string>;
+
+            if (path === '/api/post' && request.method === 'GET') {
+                return ok({ organization: 'org-a', items: [...posts.values()] });
+            }
+
+            if (path === '/api/post' && request.method === 'POST') {
+                n += 1;
+                const created: Post = {
+                    slug: `untitled-${String(n)}`,
+                    title: `Untitled ${String(n)}`,
+                    published: false,
+                    organizationId: 'org-a',
+                };
+                posts.set(created.slug, created);
+                return ok(created);
+            }
+
+            if (path === '/api/post/publish') {
+                const post = posts.get(String(input['slug']));
+                if (post === undefined) {
+                    // Shaped exactly as mesh-api shapes one, `declared` marker and all — otherwise
+                    // this would exercise a path the real API never produces.
+                    return {
+                        status: 404,
+                        headers: {},
+                        body: JSON.stringify({ error: 'not_found', message: 'No such post.', declared: true }),
+                    };
+                }
+                const next = { ...post, published: !post.published };
+                posts.set(next.slug, next);
+                return ok(next);
+            }
+
+            return { status: 404, headers: {}, body: JSON.stringify({ error: 'NOT_FOUND', message: request.url }) };
+        },
+    };
+}
 
 kernel.boot([
     { id: 'auth', contribution: new AuthExtension() as never },
@@ -379,6 +556,8 @@ function drag(handle: HTMLElement, onMove: (dx: number, dy: number) => void): vo
 effect(() => {
     const stacked = manager.stacked();
     const live = new Set(stacked.map((r) => r.id));
+    const visible = new Set(manager.visible().map((r) => r.id));
+    const tiledNow = manager.mode() === 'tiled';
 
     for (const record of stacked) {
         let frame = frames.get(record.id);
@@ -389,13 +568,27 @@ effect(() => {
         }
 
         const { host } = frame;
-        host.style.left = `${record.rect.x}px`;
-        host.style.top = `${record.rect.y}px`;
-        host.style.width = `${record.rect.width}px`;
-        host.style.height = `${record.rect.height}px`;
+
+        // `rectOf` rather than `record.rect`: in tiled mode a window's box comes from the tile its
+        // view targets, and the record's own rect is left alone so switching back restores it.
+        const rect = manager.rectOf(record.id);
+        if (rect !== undefined) {
+            // **Reposition, never re-parent.** Moving a node between parents resets its scroll
+            // position, which would silently break the one property a mode switch is for
+            // (spec/README §4).
+            host.style.left = `${rect.x}px`;
+            host.style.top = `${rect.y}px`;
+            host.style.width = `${rect.width}px`;
+            host.style.height = `${rect.height}px`;
+        }
+
         host.style.zIndex = String(manager.zIndexOf(record.id));
         host.classList.toggle('focused', manager.focused() === record.id);
-        host.hidden = record.state === 'minimized';
+        host.classList.toggle('tiled', tiledNow);
+
+        // Hidden, never unmounted: a window the current mode cannot show keeps its DOM, its
+        // effects, its scroll position and whatever was typed into it.
+        host.hidden = record.state === 'minimized' || !visible.has(record.id);
         frame.titleEl.textContent = record.title;
     }
 
@@ -512,11 +705,36 @@ async function main(): Promise<void> {
     const auth = kernel.extensions.find((e) => e.id === 'auth')!.api as AuthApi;
     auth.signIn();
 
-    await kernel.services.commands.get('blog.open')!.run();
+    // The layout is the Application's, read off its manifest — the shell is told the tree, it does
+    // not invent one.
+    manager.setLayout(kernel.manifest.layouts.get('blog'));
+
+    // One window per view. In windowed mode they cascade; hit the toggle and the same four views
+    // become a header, a sidebar, a reader and a footer with nothing remounted.
+    for (const view of ['masthead', 'sidebar', 'reader', 'colophon']) {
+        kernel.services.windows.open(pid, view, {});
+    }
 
     document.getElementById('stop')!.addEventListener('click', () => {
         void kernel.stop(pid).then(() => say('blog stopped — its windows went with it'));
     });
+
+    document.getElementById('mode')!.addEventListener('click', () => toggleMode());
+}
+
+/**
+ * The shell's, not the Application's.
+ *
+ * spec/input.md §6: window management is input, and it belongs to the kernel side. The Application
+ * declared the *command* so it can be bound and appear in a palette; what the command does is here.
+ */
+function toggleMode(): void {
+    const next = manager.mode() === 'tiled' ? 'windowed' : 'tiled';
+    manager.setMode(next);
+    say(`mode → ${next}`);
+
+    const button = document.getElementById('mode');
+    if (button !== null) button.textContent = next === 'tiled' ? 'Windowed' : 'Tiled';
 }
 
 void main().catch((error: unknown) => say(`boot failed: ${String(error)}`));
