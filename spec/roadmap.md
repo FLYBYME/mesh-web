@@ -264,6 +264,21 @@ sound; each item below is the interface *and* the implementation behind it.
 - [ ] **A3.8 `windows`** — see A2.6.
 - [ ] **A3.9 `storage`** — see A4.
 - [ ] **A3.10 `log`** — scoped, level-filtered, and shippable. **S**
+- [ ] **A3.11 ★ Rename `net` to `mesh`.** Decided 2026-09-04. `net` reads as *the network*, which is
+      exactly what it is not — one API, declared in the manifest, typed from that site's exposure
+      descriptor, scoped rather than global. Naming it after the network is what made "can I call a
+      weather API with it" a reasonable question, and the answer is no.
+      `cx.mesh.call('post.list')` says what is on the other end and mirrors `ctx.call`, which
+      [network §1](./network.md) makes the whole ergonomic target. **Do it before anything outside
+      this repository imports it** — cheap today, expensive once a site exists, which is imminent.
+      **S** · [network §2a](./network.md)
+- [ ] **A3.12 `http` — the declared escape.** A separate capability with its own origin allowlist, for
+      the page that genuinely must reach a third party. `needs('http')` is *visible in a manifest*,
+      which is the whole mechanism: an audit reads "this site talks to its own API, and this one
+      Extension also reaches `api.weather.com`" rather than a list that is silently incomplete. The
+      same pattern `credentials` and `chrome` already use. Not urgent — the sanctioned path is a
+      contract, and this exists so the unsanctioned one is conspicuous rather than invisible. **M** ·
+      [network §2a](./network.md)
 
 ### A4 — Registry and storage
 
@@ -575,6 +590,19 @@ mesh-web's server half. **None of it exists** — no server, no builder, no `web
       absent: **the tenant**, because a repo that could name its own owner could name someone else's,
       and anything about a filesystem. Consequence: the input hash is not knowable until after the
       fetch, since the policy is in the source. [hosting §5](./hosting.md)
+- [ ] **B8b ★ `mesh.json` — the descriptor a whole product declares.** Decided 2026-09-04, and it
+      supersedes the shape B8 built the same day. `mesh-web.json` becomes **`mesh.json`**, because a
+      repo that contains a service module as well as a UI is not described by a file named after the
+      UI. Four changes: **build moves out of the environments** (it was duplicated verbatim across
+      `production` and `local` in mesh-web's own descriptor, which is the drift smell appearing in the
+      format's first user); **`service` and `ui` are both optional**, so the file grows the way
+      [hosting §0a](./hosting.md) says the stack grows; **`service.entry`** finally keeps B8's promise
+      about the exposure list, which cannot be JSON because an entry references a real contract — but
+      naming the module that declares it lets a build call `describeExposure()` with no cluster
+      running; and **`service.domains`** says what the repo provides without running it.
+      Explicitly **not** runtime configuration: `api` is the URL the browser calls, not a bind port,
+      and the descriptor's defining property is that a *build* reads it with no cluster up. **M** ·
+      [hosting §5](./hosting.md)
 - [ ] **B8a ★ Serving a production hostname in development.** *A site is a hostname*
       ([hosting §2](./hosting.md)) — which is right, and makes local development awkward in a way
       nothing has yet addressed: a browser on `localhost:8080` sends `Host: localhost:8080`, and
@@ -843,20 +871,69 @@ All fourteen are built and both halves run for real:
 A3 (the remaining capabilities) · A6.1 · A6.2 · A6.6 · A7 (all) · A0.6
 *Someone who is not the author of this framework builds a real screen without reaching past it.*
 
-> **The exit criterion is not my opinion — it is a cold agy run.** Set an agent with no context on
-> this project the task of writing an Application and an Extension against the published package, and
-> see where it flounders. Whatever it cannot do is what M4 still owes; whatever it invents is what the
-> types failed to forbid; whatever it asks is what the documentation failed to say.
+> **The exit criterion is a real site that is not the harness.** Sharpened 2026-09-04:
+>
+> > "mesh-web is not usable until all the 'harnesses' are removed and it runs through the mesh system"
+>
+> The harness is a fake where it matters — a `memoryTransport`, an in-page copy of the API, chrome
+> drawn by hand, a dispatcher going nowhere. It is a *controlled* environment, which is why the
+> browser tests live in it and why it is not being deleted. But as a demonstration it is circular:
+> the framework's only consumer lives inside the framework's own repository and can reach past the
+> package whenever that is convenient. **That is how `Chrome` stayed unexported for a day** while a
+> file arguing no privileged access was needed used privileged access to say it.
+>
+> So M4 is done when **M3's modules are running with a real site on top of them** — its own repo,
+> consuming the package as a dependency, using `WorkbenchExtension`, talking to a real mesh-api with
+> real identity, built by the real builder, served by the real CDN under a real hostname. No in-page
+> anything.
+>
+> **And the cold agy run is how that site gets written.** Set an agent with no context on this project
+> the task, and whatever it cannot do is what M4 still owes; whatever it invents is what the types
+> failed to forbid; whatever it asks is what the documentation failed to say. The test fixture and the
+> demonstration turn out to be the same artifact, which is why neither is worth building separately.
 >
 > This is a better test than the checklist above because **I am the worst possible judge of whether
 > this framework is usable** — I know where every seam is and would route around a missing export
-> without noticing. Which is exactly what happened on 2026-09-04: moving the workbench out of `src/`
-> found in one minute that `Chrome` and `ChromeWindow` were never exported from the public entry, so
-> the file arguing that no privileged access is needed had been using privileged access to say it.
-> A cold agent has no such reach and cannot be polite about it.
+> without noticing. A cold agent has no such reach and cannot be polite about it.
 >
 > The first run is expected to fail badly, and **its failures are the requirements document.** Run it
 > before deciding what A3 and A7 owe, not after.
+
+- [ ] **A6.7 ★ The first real site.** Its own repository, **one repo and two packages** — a service
+      half and a UI half — which is [hosting §0](./hosting.md)'s layout one level down: if the
+      framework needed that split, every product built on it needs the same one, and the framework
+      should ship the shape rather than have each site reinvent it.
+      One repo, not two, because a product's service module and its UI ship together, version
+      together, and the UI's exposure descriptor names the very contract the module implements.
+      Splitting them recreates precisely the drift C3.2 and B8 exist to prevent: the site's repo is
+      the source of truth for what it exposes and where it runs, and that only holds if there is one
+      repo to be the source. **L** · ⛔ A6.8, A6.9
+- [ ] **A6.8 Make `@flybyme/mesh-web` installable.** The same defect B2b fixed one repository over:
+      `dist/` is gitignored and there is no `prepare` script, so `npm i github:FLYBYME/mesh-web`
+      yields a package whose `main` points at a directory that was never built. **Nobody can consume
+      the framework today**, which is a real gap independent of any test, and it is the first wall a
+      cold run hits. **S**
+- [ ] **A6.9 The public entry must be complete.** Proved incomplete on 2026-09-04 — `Chrome`,
+      `ChromeWindow` and `Credentials` were never exported, so the workbench could not have been
+      written by an outside author at all. There are almost certainly more, and **they cannot be
+      found by reading**: the thing that finds them is a project importing only the package name and
+      typechecking, where a compile error *is* the test. A6.7 is that project; this item is the
+      guarantee it stays true. Wants an `exports` map too, so `@flybyme/mesh-web/dist/kernel/broker.js`
+      is unreachable — D6 already decided the boundary is the package name, and the manifest should
+      enforce what the decision says. **S**
+- [ ] **A6.10 The boot ceremony.** Starting a page today means `new Kernel()`, replacing
+      `services.windows` with a `windowSink`, building a component registry, wiring a dispatcher to
+      the command table, `boot([...])`, `mountPage(...)`, then `start(...)` — about sixty lines in the
+      harness, identical for every site, and a third party will copy it slightly wrong. The answer is
+      probably a `createSite()` that does the ordinary thing with every piece overridable, which is
+      `defaultFrame`'s shape. **Deliberately deferred until after the first cold run**, because agy
+      flailing at this will say more about the right API than I will. **M** · ⛔ A6.7
+- [ ] **A6.11 A getting-started document.** `spec/` is fourteen documents arguing *why*; none of them
+      says how to write an Application, and the only worked example is a 787-line harness that also
+      contains a fake API, a memory transport and a status rail. It begins **"you have a process
+      running mesh"**, not "install this package" ([hosting §0a](./hosting.md)).
+      **Deliberately written after the cold run, not before** — a guide written first is a guess about
+      what is confusing. **M** · ⛔ A6.7
 
 **M5 — It proves itself.**
 A6.3a · B7 · B9–B12 · C1 (all) · C2 (all) · C3.5 · C3.6 · Track D

@@ -44,6 +44,71 @@ That second half is the interesting part, and it is where copying mesh's approac
 
 ---
 
+## 2a. It reaches the mesh and nothing else — **Decided**
+
+> "maybe just maybe net is not the right name"
+>
+> "in that situation you would write them as public contracts in the server"
+
+**The capability reaches this site's API and no other host.** A page cannot call `api.weather.com`
+through it. A third-party service is wrapped as a contract on the server and reached like everything
+else.
+
+This looked like a restriction and is not one, because of what §0 of [hosting](./hosting.md) now
+says explicitly: **the UI is an addon to the mesh system, not a standalone framework.** By the time
+a page exists there is already a process running mesh, so writing a contract is not extra work
+imposed by this rule — it is the work that was already happening. The objection this answers ("but
+what about a site with no backend?") describes a product that does not exist here.
+
+What the rule buys is the thing the exposure descriptor is *for*. [Applications §2](./application.md)
+claims the kernel knows every API a site's Applications will contact **before any of them has
+started** — the list a review, a CSP or an audit wants, available without running anything. The
+moment a page can call anywhere, that list is no longer true and the descriptor is decoration.
+
+Wrapping a third-party API as a contract also gets, for free, what a page never could: the key stays
+server-side, one place to cache, one place to rate-limit, one place to gate, a generated typed
+client, and the failure **declared** rather than arriving as a raw 503.
+
+### The escape is a second capability, not a wider first one — **Decided**
+
+`fetch` exists and the framework cannot stop it. An earlier draft of this section left it there and
+observed that using it "makes the manifest a lie" — true, and too weak, because it relies on shame.
+
+So the escape is `needs('http')`: a **separate, declared** capability with its own allowlist of
+origins. That is the pattern this framework already uses twice — `credentials` and `chrome` are both
+privileged, and both are safe *because declaring them is visible in the manifest*
+([extension §8](./extension.md), §4 below). An audit then reads *"this site talks to its own API, and
+this one Extension also reaches `api.weather.com`"*, which is honest and reviewable, rather than a
+list that is silently incomplete.
+
+The pressure stays where it belongs: the sanctioned path is a contract, and `http` is available but
+conspicuous.
+
+### Renaming `net` — **Decided, not yet done**
+
+`net` reads as *the network*, which is precisely what it is not. It is **one** API, declared in the
+manifest, typed from that site's own exposure descriptor, scoped rather than global. Naming it after
+the network is what made "can I call a weather API with it?" a reasonable question to ask, and the
+answer is no.
+
+**It becomes `mesh`.** `cx.mesh.call('post.list')` says what is on the other end, mirrors `ctx.call`
+inside the mesh — which §1 says is the whole ergonomic target — and leaves `net` and `http` free for
+the thing that really is the network.
+
+The one objection, answered: §2 says the browser never joins the mesh, and `cx.mesh` might be read as
+claiming it does. *Calling* the mesh is not *being* in it — a CLI that calls a mesh is not a peer
+either. The capability is the mesh's surface reached over HTTP, and the name says the destination
+rather than the membership.
+
+`api` was the alternative, and it has one real argument in its favour: the manifest field is already
+`readonly api = blogApi`, so `needs('api')` beside `api:` is coherent. It loses on being generic —
+everything reachable over HTTP is an api — and on saying nothing about which one.
+
+**Rename before anything outside this repository imports it.** Cheap now; expensive the moment a site
+exists, which is imminent (roadmap A3.11).
+
+---
+
 ## 3. How mesh does it, and what does not transfer
 
 mesh's generator emits `src/generated/api.ts`:

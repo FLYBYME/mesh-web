@@ -12,6 +12,46 @@ Companions: [the model](./README.md) · [storage and the registry](./storage-and
 
 ---
 
+## 0a. The UI is an addon to the mesh — **Decided**
+
+> "the ui is not a ui. it's an addon to the mesh framework. like you start with the mesh framework
+> and then say oh I need an API and oh I need a ui now."
+
+This is the framing everything else in this document sits on, and it was implicit for a long time
+before it was written here. The order is:
+
+1. **a mesh process** — `new MeshApp()`, a registry, a broker, and whatever modules you have
+2. **"I need an API"** — add mesh-api, declare an exposure list
+3. **"I need a UI"** — add mesh-web
+
+mesh-web is not a browser framework that can also talk to a server. It is the browser half of mesh,
+and by the time it is in play there is already a mesh running. That is what makes
+[network §2a](./network.md)'s rule — the browser reaches its own API and nothing else — a description
+of the situation rather than a restriction imposed on it.
+
+**A cluster can be one process.** This is worth stating loudly because the word "cluster" makes the
+prerequisite sound like infrastructure and it is not. D1 settled that all four modules may share one
+process and that splitting them is configuration; mesh-web's own `gated-deploy` test boots identity,
+builder, cdn and api on a single `MeshApp`. The prerequisite for a UI is `node index.js`, about
+fifteen lines of it — not a fleet.
+
+**What this does not mean.** The built artifact is inert: HTML and JavaScript on a CDN, and a browser
+loading it participates in nothing. Mesh is required to *build* it, to *serve* it and to *answer* it —
+not to *be* it. That is a strength rather than a hedge, and it is exactly why any CDN node can serve
+any site and why a cold cache is slower rather than wrong (§2).
+
+**Consequence for the package graph, already true.** `@flybyme/mesh-web` has *no runtime
+dependencies* — not even on `@flybyme/mesh` — because the browser never joins the mesh, while
+`@flybyme/mesh-cdn` and `@flybyme/mesh-builder` do depend on it. So the UI is an addon to the mesh
+*system*, not a dependent of the mesh *package*. Those are different statements and the second one
+must stay false.
+
+**Consequence for documentation.** A getting-started page does not begin "install this package". It
+begins "you have a process running mesh; here is how to put a face on it." That is a smaller and far
+more coherent audience than the one an npm-install-and-deploy framing implies.
+
+---
+
 ## 0. One repository, several packages — **Decided**
 
 > "i would much rather just have it as one repo. but you have the browser stuff and the server stuff
@@ -312,7 +352,79 @@ screens make, and an exposure list that lives beside the screens can be reviewed
 exposure list owned elsewhere drifts open, because nobody removing a screen remembers to go and
 close the route it used.
 
-### Shape — **Proposed**
+### Shape, as built — `mesh.json` — **Decided 2026-09-04**
+
+The YAML sketch below was the first draft and is kept for its reasoning. What B8 actually built, and
+what this conversation corrected, is JSON at the repo root:
+
+```json
+{
+    "application": "weather",
+
+    "service": {
+        "entry": "./server/dist/index.js",
+        "build": "npm run build:server",
+        "domains": ["weather"]
+    },
+
+    "ui": {
+        "build": "npm run build:ui",
+        "output": "ui/dist"
+    },
+
+    "environments": {
+        "production": {
+            "host": "weather.example.com",
+            "api": "https://weather.example.com/api",
+            "policy": { "window-manager/mode": "tiled" }
+        },
+        "local": {
+            "host": "localhost",
+            "api": "http://127.0.0.1:5005"
+        }
+    }
+}
+```
+
+Four things changed from what was built yesterday, and each has a reason.
+
+**Build moved out of the environments.** It was inside each one, so it repeated per environment — and
+mesh-web's own descriptor, written the same day, duplicated an identical `npx -p typescript tsc …`
+command across `production` and `local`. The drift smell appeared in the first file to use the format.
+How a repo builds is a property of the *repo*; only host, api and policy genuinely vary. A build that
+does vary is an override on the environment, not the default location for it.
+
+**`service` and `ui` are both optional, and that is the point.** A repo with only a service module
+omits `ui`; a repo with only a UI omits `service`. The file grows exactly the way §0a says the stack
+grows — start with a service, add a face when you want one — so the descriptor mirrors the story
+rather than describing a fixed product shape.
+
+**`service.entry` is what finally keeps B8's promise about exposure.** B8 says a repo declares "its
+environments, its production host, its API, its **exposure list** and its build config", and exposure
+was never in the file — because it cannot be. An exposure entry references a real contract object and
+JSON cannot hold one. Naming the *module that declares it* is enough: a build loads that entry and
+calls `describeExposure()`, which is already how the client generator works with no cluster running
+(C3.1a).
+
+**`service.domains` says what the repo provides** without running it — the field a deployer reads to
+know that this repository is where `weather.*` comes from. It is the only concession to a consumer
+outside this design, and it is one string per domain rather than an interface.
+
+**The name.** `mesh-web.json` said the UI owns the deployment, which inverts §0a's ordering the moment
+a repo has a service module in it. `mesh.json` is the honest name, and exactly one file in existence
+uses the old one.
+
+#### What it is not — **Decided**
+
+**It is not runtime configuration.** It is tempting to let it bind the API's port too, so that one
+file says `:5005` and the process and the browser both obey — no drift. Rejected: `api` means *the URL
+the browser calls*, which in production is a public URL behind a proxy and not a bind port at all.
+More decisively, the descriptor's defining property is that a **build** can read it with **no cluster
+running**. Giving it a second reader with different needs is how a config file becomes a mess.
+
+---
+
+### The first draft — **superseded, kept for the reasoning**
 
 ```yaml
 # surfdns-console, in the repo
