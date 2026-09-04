@@ -84,6 +84,15 @@ export const buildStartContract = defineContract({
          * leaves a cluster full of artifacts nobody can name. Absent means build only.
          */
         publish: z.boolean().default(false),
+        /**
+         * Who this deploy belongs to.
+         *
+         * Optional here and **not** optional in effect: with no ticket the module falls back to the
+         * caller's resolved scope, and refuses to publish when there is neither. A repository cannot
+         * name its own owner (descriptor.ts) — the hostname is the isolation boundary, so a repo
+         * that could claim a tenant could claim someone else's.
+         */
+        tenantId: z.string().optional(),
     }),
     outputSchema: z.object({
         build: BuildSchema,
