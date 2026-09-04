@@ -89,7 +89,7 @@ const { artifact } = result;
 console.log(`\nbuilt in ${seconds}s${result.cached ? ' (cached — nothing ran)' : ''}`);
 console.log(`  artifact ${artifact.digest.slice(0, 16)}…`);
 console.log(`  ${String(artifact.files.length)} files, ${(artifact.totalSize / 1024).toFixed(0)} KiB`);
-console.log(`  hostname ${result.hostname} — from the repository's own mesh-web.json\n`);
+console.log(`  hostname ${result.hostname} — from the repository's own mesh.json\n`);
 
 console.log(`  http://localhost:${String(port)}/\n`);
 console.log('Ctrl-C to stop.');

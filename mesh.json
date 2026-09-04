@@ -1,0 +1,20 @@
+{
+    "application": "mesh-web-harness",
+    "ui": {
+        "build": "npx --yes -p typescript@5.9.3 tsc -p tsconfig.json && npx --yes -p typescript@5.9.3 tsc -p tsconfig.browser.json && node scripts/site.mjs",
+        "output": "out"
+    },
+    "environments": {
+        "production": {
+            "host": "harness.mesh-web.local",
+            "api": "http://127.0.0.1:5005"
+        },
+        "local": {
+            "host": "localhost",
+            "api": "http://127.0.0.1:5005",
+            "policy": {
+                "window-manager/mode": "tiled"
+            }
+        }
+    }
+}

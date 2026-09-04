@@ -22,10 +22,19 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { DeploymentDescriptor, EnvironmentDescriptor } from '@flybyme/mesh-web-protocol';
+import type {
+    DeploymentDescriptor, EnvironmentDescriptor, ServiceDescriptor, UiDescriptor,
+} from '@flybyme/mesh-web-protocol';
 
-/** What the file is called in a repository. */
-export const DESCRIPTOR_FILE = 'mesh-web.json';
+/**
+ * What the file is called in a repository.
+ *
+ * `mesh.json`, not `mesh-web.json` — B8b. A repo that contains a service module as well as a UI is
+ * not described by a file named after the UI, and [hosting §0a](../../../spec/hosting.md) puts the
+ * service first in the order things get built. Renamed while exactly one file in existence used the
+ * old name, which was this repository's own.
+ */
+export const DESCRIPTOR_FILE = 'mesh.json';
 
 export class DescriptorError extends Error {
     override readonly name = 'DescriptorError';
@@ -74,7 +83,91 @@ export function parseDescriptor(text: string): DeploymentDescriptor {
         throw new DescriptorError(`${DESCRIPTOR_FILE} declares no environments.`);
     }
 
-    return { application, environments: parsed };
+    const service = parseService(raw['service']);
+    const ui = parseUi(raw['ui']);
+
+    // A repo with neither half declares a product that is nothing. Both being optional is the point
+    // of the shape, but *both* absent is always a mistake rather than a minimal case.
+    if (service === undefined && ui === undefined) {
+        throw new DescriptorError(
+            `${DESCRIPTOR_FILE} declares neither a "service" nor a "ui". A repository with neither ` +
+            `has nothing to build — see spec/hosting.md §5.`,
+        );
+    }
+
+    return {
+        application,
+        ...(service === undefined ? {} : { service }),
+        ...(ui === undefined ? {} : { ui }),
+        environments: parsed,
+    };
+}
+
+function parseService(value: unknown): ServiceDescriptor | undefined {
+    if (value === undefined) return undefined;
+
+    const where = `${DESCRIPTOR_FILE} "service"`;
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new DescriptorError(`${where} must be an object.`);
+    }
+
+    const raw = value as Record<string, unknown>;
+
+    const entry = raw['entry'];
+    if (typeof entry !== 'string' || entry.trim() === '') {
+        throw new DescriptorError(
+            `${where} needs an "entry" — the built module a build loads to read its exposure.`,
+        );
+    }
+    if (entry.startsWith('/') || entry.split('/').includes('..')) {
+        // Same rule as build.output, and the same reason: the entry is joined onto the workspace,
+        // and the builder runs code from a repository it does not trust.
+        throw new DescriptorError(`${where} has an "entry" that leaves the source: "${entry}".`);
+    }
+
+    const build = raw['build'];
+    if (build !== undefined && (typeof build !== 'string' || build.trim() === '')) {
+        throw new DescriptorError(`${where} has a "build" that is not a command.`);
+    }
+
+    const domains = raw['domains'];
+    if (domains !== undefined) {
+        if (!Array.isArray(domains) || domains.some((d) => typeof d !== 'string' || d.trim() === '')) {
+            throw new DescriptorError(`${where} has "domains" that is not a list of domain names.`);
+        }
+    }
+
+    return {
+        entry,
+        ...(build === undefined ? {} : { build: build as string }),
+        ...(domains === undefined ? {} : { domains: domains as readonly string[] }),
+    };
+}
+
+function parseUi(value: unknown): UiDescriptor | undefined {
+    if (value === undefined) return undefined;
+
+    const where = `${DESCRIPTOR_FILE} "ui"`;
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new DescriptorError(`${where} must be an object.`);
+    }
+
+    const raw = value as Record<string, unknown>;
+
+    const build = raw['build'];
+    if (typeof build !== 'string' || build.trim() === '') {
+        throw new DescriptorError(`${where} needs a "build" command.`);
+    }
+
+    const output = raw['output'];
+    if (typeof output !== 'string' || output.trim() === '') {
+        throw new DescriptorError(`${where} needs an "output" — the directory the build writes.`);
+    }
+    if (output.startsWith('/') || output.split('/').includes('..')) {
+        throw new DescriptorError(`${where} has an "output" that leaves the source: "${output}".`);
+    }
+
+    return { build, output };
 }
 
 function parseEnvironment(name: string, value: unknown): EnvironmentDescriptor {
@@ -135,7 +228,13 @@ function parseEnvironment(name: string, value: unknown): EnvironmentDescriptor {
 }
 
 /**
- * One environment, named.
+ * One environment, named, **with its build already resolved**.
+ *
+ * The merge happens here rather than at each reader, because "the environment as it applies" is what
+ * every caller actually wants and there is exactly one rule: `ui.build`/`ui.output` is the default,
+ * and an environment's own `build` overrides it. B8b moved the build out of the environments for
+ * that reason — how a repo builds is a property of the *repo*, and only host, api and policy
+ * genuinely vary — so resolving it once here keeps every reader unaware there was ever a choice.
  *
  * The failure lists what the repository *does* declare, because "no environment called staging" and
  * "the environments are production and preview" are the same message and only one of them is useful.
@@ -151,7 +250,11 @@ export function environmentOf(
             `${descriptor.application} declares no "${environment}" environment. It has: ${names}.`,
         );
     }
-    return found;
+
+    if (found.build !== undefined) return found;
+    if (descriptor.ui === undefined) return found;
+
+    return { ...found, build: { command: descriptor.ui.build, output: descriptor.ui.output } };
 }
 
 /**

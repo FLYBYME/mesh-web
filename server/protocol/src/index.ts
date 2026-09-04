@@ -157,12 +157,54 @@ export interface Site {
  */
 export interface DeploymentDescriptor {
     readonly application: string;
+    /**
+     * The service half, if the product has one.
+     *
+     * Optional, and that is the point ([hosting §0a](../../../spec/hosting.md)): the stack grows by
+     * starting with a service and adding a face when you want one, so the descriptor grows the same
+     * way. A repo with only a UI omits this; a repo with only a service module omits `ui`.
+     */
+    readonly service?: ServiceDescriptor;
+    /** The UI half, if the product has one. A site with no `ui` builds no artifact and serves no host. */
+    readonly ui?: UiDescriptor;
     readonly environments: Readonly<Record<string, EnvironmentDescriptor>>;
+}
+
+/**
+ * What the repository's service module is and where it lives.
+ *
+ * **No exposure list here**, and it is not an omission. B8 promised the descriptor would carry one;
+ * it cannot, because an exposure entry references a real contract object and JSON holds no such
+ * thing. Naming the *module that declares it* is enough — a build loads `entry` and calls
+ * `describeExposure()`, which is already how the client generator works with no cluster running
+ * (C3.1a).
+ */
+export interface ServiceDescriptor {
+    /** The built module, relative to the repo root. Loaded to read its exposure. */
+    readonly entry: string;
+    /** What to run to produce `entry`. */
+    readonly build?: string;
+    /**
+     * The domains this repository provides.
+     *
+     * The one field written for a reader outside this design: a deployer asking *where does
+     * `weather.*` come from* answers it from the file, without running anything. One string per
+     * domain rather than an interface, because that is the whole of the question.
+     */
+    readonly domains?: readonly string[];
+}
+
+/** What the repository's UI is and how it is built into an artifact. */
+export interface UiDescriptor {
+    /** What to run to produce `output`. */
+    readonly build: string;
+    /** The directory the build writes, relative to the fetched source. Becomes the artifact. */
+    readonly output: string;
 }
 
 export interface EnvironmentDescriptor {
     readonly host: string;
-    /** Where the browser sends `cx.net` calls. Same origin in production, behind the proxy. */
+    /** Where the browser sends `cx.mesh` calls. Same origin in production, behind the proxy. */
     readonly api: string;
     /**
      * Values frozen into the bundle for this environment (B3, A4.7).
@@ -172,6 +214,13 @@ export interface EnvironmentDescriptor {
      * rather than a mechanism in the window manager.
      */
     readonly policy?: Readonly<Record<string, unknown>>;
-    /** Build command and output directory, relative to the fetched source. */
+    /**
+     * A build that differs for *this* environment. An override, not the default location.
+     *
+     * How a repo builds is a property of the repo, so it lives in `ui` — this exists for the case
+     * where one environment genuinely builds differently. It was the only location before B8b, and
+     * the format's very first user duplicated an identical command across `production` and `local`,
+     * which is the drift this shape removes.
+     */
     readonly build?: { readonly command: string; readonly output: string };
 }

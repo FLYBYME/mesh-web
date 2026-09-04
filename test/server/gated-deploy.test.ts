@@ -45,11 +45,11 @@ const run = promisify(execFile);
 
 const DESCRIPTOR = {
     application: 'blog',
+    ui: { build: 'sh ./build.sh', output: 'dist' },
     environments: {
         production: {
             host: 'blog.example.com',
             api: 'https://api.example.com',
-            build: { command: 'sh ./build.sh', output: 'dist' },
         },
     },
 };
@@ -68,7 +68,7 @@ async function repository(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), 'mesh-repo-'));
     temporary.push(dir);
 
-    await writeFile(join(dir, 'mesh-web.json'), JSON.stringify(DESCRIPTOR));
+    await writeFile(join(dir, 'mesh.json'), JSON.stringify(DESCRIPTOR));
     await writeFile(join(dir, 'build.sh'), BUILD_SCRIPT);
 
     await run('git', ['init', '--quiet', '--initial-branch', 'main'], { cwd: dir });

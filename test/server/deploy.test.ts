@@ -6,7 +6,7 @@
  * made of two `Map` lookups, and the two modules against nothing at all. That is the same gap
  * mesh-api closed at C3.1b, and it is worth closing the same way — with the real thing.
  *
- * So: a **real git repository** on disk (with a `mesh-web.json` nobody in the test parses), a real
+ * So: a **real git repository** on disk (with a `mesh.json` nobody in the test parses), a real
  * `MeshApp` with the builder and CDN registered as modules, a real clone, a real `sh -c` build, a
  * real port, and a real HTTP GET carrying a `Host` header. The only thing faked is the network
  * between the two modules, and that is faked by being absent — one process, which is what M3 says.
@@ -40,19 +40,20 @@ const run = promisify(execFile);
 // ---------------------------------------------------------------------------- a repository
 
 /** What the site declares about itself. The test never reads this back; the builder does. */
+// B8b's shape. This fixture used to carry `build` inside each environment, identical in both —
+// which is exactly the duplication that moved it out to `ui`.
 const DESCRIPTOR = {
     application: 'blog',
+    ui: { build: 'sh ./build.sh', output: 'dist' },
     environments: {
         production: {
             host: 'blog.example.com',
             api: 'https://api.example.com',
             policy: { 'window-manager/mode': 'tiled' },
-            build: { command: 'sh ./build.sh', output: 'dist' },
         },
         preview: {
             host: 'preview.blog.example.com',
             api: 'https://api.example.com',
-            build: { command: 'sh ./build.sh', output: 'dist' },
         },
     },
 };
@@ -75,7 +76,7 @@ async function repository(descriptor: unknown = DESCRIPTOR): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), 'mesh-repo-'));
     temporary.push(dir);
 
-    await writeFile(join(dir, 'mesh-web.json'), JSON.stringify(descriptor, null, 2));
+    await writeFile(join(dir, 'mesh.json'), JSON.stringify(descriptor, null, 2));
     await writeFile(join(dir, 'build.sh'), BUILD_SCRIPT);
 
     await run('git', ['init', '--quiet', '--initial-branch', 'main'], { cwd: dir });
@@ -368,10 +369,10 @@ describe('what a build refuses', () => {
         const deployed = await deploy(cluster, dir);
 
         expect(deployed.build.state).toBe('failed');
-        expect(deployed.build.error).toContain('mesh-web.json');
+        expect(deployed.build.error).toContain('mesh.json');
         // A failed build is an answer, not an exception: the log is the only thing that says why,
         // and a thrown error loses it.
-        expect(deployed.build.log).toContain('mesh-web.json');
+        expect(deployed.build.log).toContain('mesh.json');
     }, 60_000);
 
     it('names the environments the repo does declare', async () => {

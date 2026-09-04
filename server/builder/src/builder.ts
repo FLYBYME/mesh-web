@@ -25,7 +25,7 @@ import type {
 } from '@flybyme/mesh-web-protocol';
 
 import { artifactDigest, contentTypeOf, digestOf, inputHash } from './content.js';
-import { environmentOf, loadDescriptor } from './descriptor.js';
+import { DESCRIPTOR_FILE, environmentOf, loadDescriptor } from './descriptor.js';
 import type { ArtifactStore } from './store.js';
 
 const run = promisify(execFile);
@@ -227,8 +227,8 @@ export function createBuilder(options: BuilderOptions) {
                 const exists = await stat(outputDir).then((s) => s.isDirectory()).catch(() => false);
                 if (!exists) {
                     throw new Error(
-                        `The build produced no "${output}" directory. Check the build command and ` +
-                        `the output directory in this environment's descriptor.`,
+                        `The build produced no "${output}" directory. Check "ui.build" and ` +
+                        `"ui.output" in ${DESCRIPTOR_FILE}.`,
                     );
                 }
 
