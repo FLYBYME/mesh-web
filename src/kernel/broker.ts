@@ -18,7 +18,7 @@
 
 import { computed, effect, signal } from '../reactivity/index.js';
 import { createScope } from '../reactivity/scope.js';
-import type { ReactiveScope } from '../reactivity/types.js';
+import type { ReactiveScope, Signal } from '../reactivity/types.js';
 import type { Json } from '../description/types.js';
 import type {
     CapabilityMap, CapabilityName, CommandImpl, Commands, Log,
@@ -36,12 +36,23 @@ export interface LogRecord {
     readonly data?: unknown;
 }
 
+/**
+ * One notification, currently on screen.
+ *
+ * Immutable, and the list is a signal, because a notification nobody can render is not a
+ * notification. That was true here until 2026-09-04: the Application called
+ * `cx.notifications.warn(...)` correctly, the kernel recorded it in a plain array, and **nothing
+ * displayed it** — so a failed API call looked exactly like nothing happening, and was only found
+ * because someone had devtools open.
+ *
+ * There is no `dismissed` flag. Dismissing removes it: a dismissed notification that stays in the
+ * list is a state with no reader, and the history belongs in the log.
+ */
 export interface NotificationRecord {
     readonly id: string;
     readonly level: 'info' | 'warn' | 'error';
     readonly source: string;
-    message: string;
-    dismissed: boolean;
+    readonly message: string;
 }
 
 /**
@@ -66,7 +77,8 @@ export interface WindowSink {
  */
 export interface KernelServices {
     readonly logs: LogRecord[];
-    readonly notifications: NotificationRecord[];
+    /** A signal, so a notification host can render them. See NotificationRecord. */
+    readonly notifications: Signal<readonly NotificationRecord[]>;
     windows: WindowSink;
     /** Command implementations, by id, with the contributor that supplied each. */
     readonly commands: Map<string, { readonly owner: string; readonly run: CommandImpl }>;
@@ -115,7 +127,7 @@ export function recordingWindows(): WindowSink & { readonly opened: { id: string
 export function createServices(windows: WindowSink = recordingWindows()): KernelServices {
     return {
         logs: [],
-        notifications: [],
+        notifications: signal<readonly NotificationRecord[]>([]),
         windows,
         commands: new Map(),
         declaredCommands: new Map(),
@@ -327,11 +339,13 @@ function makeCommands(owner: string, declaredBy: string, services: KernelService
 function makeNotifications(owner: string, services: KernelServices, next: () => string): Notifications {
     const raise = (level: NotificationRecord['level']) =>
         (message: string): NotificationHandle => {
-            const record: NotificationRecord = { id: next(), level, source: owner, message, dismissed: false };
-            services.notifications.push(record);
+            const id = next();
+            const list = services.notifications;
+            list.set([...list(), { id, level, source: owner, message }]);
+
             return {
-                update: (text) => void (record.message = text),
-                dismiss: () => void (record.dismissed = true),
+                update: (text) => list.set(list().map((n) => (n.id === id ? { ...n, message: text } : n))),
+                dismiss: () => list.set(list().filter((n) => n.id !== id)),
             };
         };
 

@@ -209,7 +209,7 @@ describe('an Application reaches the screen', () => {
         // Refused while signed out: the Application asked its own auth, through a declared provider.
         await site.kernel.services.commands.get('blog.open')!.run('a');
         expect(site.manager.windows()).toHaveLength(0);
-        expect(site.kernel.services.notifications.at(-1)?.message).toBe('Sign in first.');
+        expect(site.kernel.services.notifications().at(-1)?.message).toBe('Sign in first.');
 
         const auth = site.kernel.extensions.find((e) => e.id === 'auth')!.api as AuthApi;
         auth.signIn();

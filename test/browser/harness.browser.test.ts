@@ -21,10 +21,10 @@ afterEach(() => {
     frame = undefined;
 });
 
-async function open(): Promise<Document> {
+async function open(page = PAGE): Promise<Document> {
     const el = document.createElement('iframe');
     el.style.cssText = 'width:1000px;height:600px;border:0';
-    el.src = PAGE;
+    el.src = page;
     document.body.appendChild(el);
     frame = el;
 
@@ -92,13 +92,24 @@ describe('the harness people open', () => {
 
         expect(doc.querySelector<HTMLElement>('.window .grip')!.offsetParent).not.toBeNull();
 
+        // Windowed: the maximize and close buttons sit side by side, not stacked. `display: grid`
+        // on a button makes it block-level, which put one under the other until the row that
+        // contains them was made a flex row.
+        const [max, close] = [...doc.querySelectorAll<HTMLElement>('.titlebar .buttons button')];
+        const maxBox = max!.getBoundingClientRect();
+        const closeBox = close!.getBoundingClientRect();
+        expect(closeBox.left).toBeGreaterThan(maxBox.left);
+        expect(Math.round(closeBox.top)).toBe(Math.round(maxBox.top));
+
         mode.click();
         await new Promise((r) => setTimeout(r, 50));
 
-        // A pane is not a window: no resize grip, no close button. Layout-defined geometry, no
-        // min/max affordances (roadmap A2.3) — the shell stops offering them.
-        const grip = doc.querySelector<HTMLElement>('.window.tiled .grip')!;
-        expect(getComputedStyle(grip).display).toBe('none');
+        // A pane is not a window: no resize grip and no title bar at all. `header`, `sidebar`,
+        // `content` and `footer` are page regions, and a page region does not wear a window's
+        // chrome — keeping the bar and hiding only its buttons made the switch look half-done.
+        const pane = doc.querySelector<HTMLElement>('.window.tiled')!;
+        expect(getComputedStyle(pane.querySelector('.grip')!).display).toBe('none');
+        expect(getComputedStyle(pane.querySelector('.titlebar')!).display).toBe('none');
         expect(mode.textContent).toBe('Windowed');
 
         mode.click();
@@ -124,5 +135,71 @@ describe('the harness people open', () => {
         // Same node, and back to the size the window had. Nothing was rebuilt in between.
         expect(sidebar.querySelector('.post')).toBe(firstPost);
         expect(sidebar.getBoundingClientRect().width).toBe(before.width);
+    }, 30_000);
+});
+
+
+/**
+ * The gap a user found with devtools open.
+ *
+ * `cx.notifications.warn(...)` was called correctly, recorded correctly, and **rendered nowhere** —
+ * so a failed API call looked exactly like a button that did nothing. Nothing in 167 unit tests
+ * could see it: every one of them asserts the *record*, which was always right. What was missing
+ * was a surface, and a surface only exists where there is a screen.
+ *
+ * Driven by pointing the page at an API that is not there, because that is a failure with no timing
+ * and no state behind it: every call fails the same way, every time.
+ */
+describe('a failure reaches the screen', () => {
+    const UNREACHABLE = '/browser/index.html?api=http://127.0.0.1:1';
+
+    it('shows the reason, and says who raised it', async () => {
+        const el = document.createElement('iframe');
+        el.style.cssText = 'width:1000px;height:600px;border:0';
+        el.src = UNREACHABLE;
+        document.body.appendChild(el);
+        frame = el;
+
+        await new Promise<void>((r) => { el.addEventListener('load', () => r(), { once: true }); });
+        const doc = el.contentDocument!;
+
+        for (let i = 0; i < 100; i++) {
+            if (doc.querySelector('.notice') !== null) break;
+            await new Promise((r) => setTimeout(r, 50));
+        }
+
+        const notice = doc.querySelector<HTMLElement>('.notice')!;
+        expect(notice).not.toBeNull();
+
+        // `describe()` turned a named transport failure into a sentence. Before the host existed
+        // this string was produced correctly and shown to nobody.
+        expect(notice.textContent).toContain('Could not reach the server.');
+        // Attributed: `notifications` is scoped to the contributor that raised it, so the toast can
+        // say which process is complaining without the Application passing its own name.
+        expect(notice.querySelector('.source')!.textContent).toMatch(/^p\d+$/);
+        // Severity is in the form as well as the words.
+        expect(notice.classList.contains('warn')).toBe(true);
+    }, 30_000);
+
+    it('is dismissable, and dismissing removes it rather than flagging it', async () => {
+        const el = document.createElement('iframe');
+        el.style.cssText = 'width:1000px;height:600px;border:0';
+        el.src = UNREACHABLE;
+        document.body.appendChild(el);
+        frame = el;
+
+        await new Promise<void>((r) => { el.addEventListener('load', () => r(), { once: true }); });
+        const doc = el.contentDocument!;
+
+        for (let i = 0; i < 100; i++) {
+            if (doc.querySelector('.notice') !== null) break;
+            await new Promise((r) => setTimeout(r, 50));
+        }
+
+        doc.querySelector<HTMLButtonElement>('.notice button')!.click();
+        await new Promise((r) => setTimeout(r, 60));
+
+        // Gone from the list, not left in it with a flag nobody reads — the history is the log.
+        expect(doc.querySelector('.notice')).toBeNull();
     }, 30_000);
 });

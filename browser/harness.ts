@@ -606,6 +606,50 @@ effect(() => {
 });
 
 /**
+ * The notification host — roadmap A6.5.
+ *
+ * A capability with no surface is a silent failure. `cx.notifications.warn(...)` was being called
+ * correctly and recorded correctly, and displayed nowhere, so an API error looked exactly like a
+ * button that did nothing. That is not a demo bug — `notifications` is a framework capability, and
+ * a sink nothing renders is worse than no sink, because the Application believes it reported.
+ *
+ * Its own effect rather than part of the window paint: notifications are not windows, they outlive
+ * the window that raised them, and there is no reason a geometry change should touch them.
+ */
+effect(() => {
+    const host = document.getElementById('notifications');
+    if (host === null) return;
+
+    const live = kernel.services.notifications();
+    host.innerHTML = '';
+
+    for (const notice of live) {
+        const el = document.createElement('div');
+        el.className = `notice ${notice.level}`;
+
+        const text = document.createElement('div');
+        text.className = 'text';
+        const source = document.createElement('div');
+        source.className = 'source';
+        source.textContent = notice.source;
+        text.append(source, document.createTextNode(notice.message));
+
+        const dismiss = document.createElement('button');
+        dismiss.type = 'button';
+        dismiss.textContent = '×';
+        dismiss.title = 'Dismiss';
+        dismiss.addEventListener('click', () => {
+            kernel.services.notifications.set(
+                kernel.services.notifications().filter((n) => n.id !== notice.id),
+            );
+        });
+
+        el.append(text, dismiss);
+        host.appendChild(el);
+    }
+});
+
+/**
  * The rail: the kernel's own state, on screen.
  *
  * The manifest and the process table are not decoration — they are the two things this design is

@@ -301,7 +301,14 @@ because they are written against the same interfaces an outside author gets.
       is wrong and better to learn it here. **L** · ⛔ A2, A3
 - [ ] **A6.4 Auth Extension** — holds the session, attaches the ticket, handles sign-in and the
       revocation event. One per site. **M** · ⛔ C2
-- [ ] **A6.5 Notification host** — the surface `notifications` renders into, themed per site. **S**
+- [x] **A6.5 Notification host** — the surface `notifications` renders into, themed per site.
+      **Found by a user, not by a test.** The capability worked: an Application called
+      `cx.notifications.warn(...)`, the kernel recorded it, and **nothing rendered it** — so a failed
+      API call looked exactly like a button that did nothing, and it was only noticed with devtools
+      open. `services.notifications` is now a signal rather than a mutated array, because a record
+      nothing can react to is a record nothing can show; dismissing *removes* rather than setting a
+      flag nobody reads. The host lives in the harness until A6 gives the shell an Extension to put
+      it in. **A sink with no surface is a silent failure, and the Application believes it reported.**
 - [ ] **A6.6 Command palette** over `commands` and `keys`. **S**
 
 ### A7 — Components and theme ★
