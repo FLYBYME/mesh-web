@@ -13,3 +13,5 @@
 
 export * from './sites.js';
 export * from './serve.js';
+export * from './contracts.js';
+export * from './module.js';

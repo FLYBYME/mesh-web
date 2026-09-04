@@ -25,6 +25,7 @@ import type {
 } from '@flybyme/mesh-web-protocol';
 
 import { artifactDigest, contentTypeOf, digestOf, inputHash } from './content.js';
+import { environmentOf, loadDescriptor } from './descriptor.js';
 import type { ArtifactStore } from './store.js';
 
 const run = promisify(execFile);
@@ -53,10 +54,23 @@ export interface BuilderOptions {
 export type Fetcher = (source: SourceRef, into: string) => Promise<void>;
 
 export interface BuildRequest {
-    readonly application: string;
+    /**
+     * Which application this is.
+     *
+     * Optional, because the repository names itself (B8). A caller that passes one is overriding
+     * what the repository says, which is a thing a test does and a deployment should not.
+     */
+    readonly application?: string;
     readonly environment: string;
     readonly source: SourceRef;
-    readonly descriptor: EnvironmentDescriptor;
+    /**
+     * The environment to build, if the caller already has it.
+     *
+     * **Absent is the normal case**: the descriptor is read out of the fetched source, so the site's
+     * own team owns where it runs (B8, spec/hosting.md §5). Present is how a test builds without a
+     * descriptor file, and how a caller that already read one avoids a second parse.
+     */
+    readonly descriptor?: EnvironmentDescriptor;
 }
 
 export interface BuildResult {
@@ -64,7 +78,16 @@ export interface BuildResult {
     readonly artifact?: Artifact;
     /** True when an identical input hash had already been built and nothing ran. */
     readonly cached: boolean;
+    /**
+     * What the repository declared, when the descriptor came from it.
+     *
+     * The caller needs it to publish: the host is in here, and the host *is* the site.
+     */
+    readonly descriptor?: EnvironmentDescriptor;
 }
+
+/** A build that failed before its repository could say what application it is. */
+const UNNAMED = '(unnamed)';
 
 export const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 export const DEFAULT_MAX_BYTES = 200 * 1024 * 1024;
@@ -90,35 +113,52 @@ export function createBuilder(options: BuilderOptions) {
             const id = `b${String(++counter)}`;
             const startedAt = now();
 
-            const inputs: BuildInputs = {
+            const inputsFor = (descriptor: EnvironmentDescriptor | undefined): BuildInputs => ({
                 source: request.source,
                 environment: request.environment,
-                policy: request.descriptor.policy ?? {},
+                policy: descriptor?.policy ?? {},
                 builderVersion: BUILDER_VERSION,
-            };
+            });
 
-            // Throws on an unresolved ref. A branch hashes to itself while the code changes, so a
-            // build cached on one would serve a stale artifact forever.
-            const hash = inputHash(inputs);
-
-            const base = {
+            // Throws on an unresolved ref, before a workspace exists. A branch hashes to itself while
+            // the code changes, so a build cached on one would serve a stale artifact forever.
+            let base = {
                 id,
-                application: request.application,
+                application: request.application ?? UNNAMED,
                 environment: request.environment,
                 source: request.source,
-                inputHash: hash,
+                inputHash: inputHash(inputsFor(request.descriptor)),
                 startedAt,
             };
 
-            const previous = built.get(hash);
-            if (previous !== undefined && await store.getArtifact(previous) !== undefined) {
-                // Same source, same environment, same policy, same builder. §6: reproducible enough
-                // to be cached by input hash — so nothing runs.
-                return {
-                    cached: true,
-                    build: { ...base, state: 'succeeded', finishedAt: now(), artifactDigest: previous },
-                    artifact: await store.getArtifact(previous),
-                };
+            /** A hit, or nothing. Content-addressed, so "built before" and "still held" are one question. */
+            const hit = async (hash: string): Promise<Artifact | undefined> => {
+                const previous = built.get(hash);
+                return previous === undefined ? undefined : store.getArtifact(previous);
+            };
+
+            const succeededFromCache = (artifact: Artifact, log?: string): BuildResult => ({
+                cached: true,
+                artifact,
+                build: {
+                    ...base,
+                    state: 'succeeded',
+                    finishedAt: now(),
+                    artifactDigest: artifact.digest,
+                    ...(log === undefined ? {} : { log }),
+                },
+            });
+
+            // Same source, same environment, same policy, same builder. §6: reproducible enough to be
+            // cached by input hash — so nothing runs, not even a clone.
+            //
+            // Only possible when the caller supplied the descriptor. When it comes from the
+            // repository (B8) the policy is *in* the source, so the hash is not knowable until after
+            // the fetch and the check happens below instead. A shallow clone is what it costs to let
+            // a repository own its own deployment, and it is cheap beside a build.
+            if (request.descriptor !== undefined) {
+                const artifact = await hit(base.inputHash);
+                if (artifact !== undefined) return succeededFromCache(artifact);
             }
 
             // The workspace is *ours*, and it is destroyed below. A caller never learns where it was,
@@ -126,6 +166,8 @@ export function createBuilder(options: BuilderOptions) {
             const workspace = await mkdtemp(join(tmpdir(), 'mesh-build-'));
             const lines: string[] = [];
             const record = (line: string): void => { lines.push(line); log(line); };
+
+            let environment: EnvironmentDescriptor | undefined = request.descriptor;
 
             try {
                 record(`fetching ${describeSource(request.source)}`);
@@ -135,7 +177,28 @@ export function createBuilder(options: BuilderOptions) {
                     ? join(workspace, request.source.subdirectory)
                     : workspace;
 
-                const command = request.descriptor.build?.command;
+                if (environment === undefined) {
+                    const declared = await loadDescriptor(root);
+                    environment = environmentOf(declared, request.environment);
+                    base = {
+                        ...base,
+                        // What the repository calls itself wins, unless the caller insisted.
+                        application: request.application ?? declared.application,
+                        inputHash: inputHash(inputsFor(environment)),
+                    };
+                    record(
+                        `${declared.application} ${request.environment} → ${environment.host} ` +
+                        `(api ${environment.api})`,
+                    );
+
+                    const artifact = await hit(base.inputHash);
+                    if (artifact !== undefined) {
+                        record(`cached: ${artifact.digest}`);
+                        return { ...succeededFromCache(artifact, lines.join('\n')), descriptor: environment };
+                    }
+                }
+
+                const command = environment.build?.command;
                 if (command !== undefined) {
                     record(`building: ${command}`);
                     const { stdout, stderr } = await run('sh', ['-c', command], {
@@ -147,15 +210,15 @@ export function createBuilder(options: BuilderOptions) {
                             // The build sees the environment it is being built for, so a site can
                             // bake its API origin in without the builder knowing what an API is.
                             MESH_ENVIRONMENT: request.environment,
-                            MESH_API: request.descriptor.api,
-                            MESH_HOST: request.descriptor.host,
+                            MESH_API: environment.api,
+                            MESH_HOST: environment.host,
                         },
                     });
                     if (stdout.trim() !== '') record(stdout.trim());
                     if (stderr.trim() !== '') record(stderr.trim());
                 }
 
-                const output = request.descriptor.build?.output ?? 'dist';
+                const output = environment.build?.output ?? 'dist';
                 const outputDir = join(root, output);
 
                 // Checked before walking, so a missing directory is reported as *that* rather than
@@ -187,12 +250,13 @@ export function createBuilder(options: BuilderOptions) {
                 };
 
                 await store.putArtifact(artifact);
-                built.set(hash, artifact.digest);
+                built.set(base.inputHash, artifact.digest);
                 record(`published ${artifact.digest} (${String(files.length)} files, ${String(artifact.totalSize)} bytes)`);
 
                 return {
                     cached: false,
                     artifact,
+                    descriptor: environment,
                     build: {
                         ...base,
                         state: 'succeeded',
@@ -209,6 +273,7 @@ export function createBuilder(options: BuilderOptions) {
                 // nobody can act on, and the workspace it happened in is already gone.
                 return {
                     cached: false,
+                    ...(environment === undefined ? {} : { descriptor: environment }),
                     build: { ...base, state: 'failed', finishedAt: now(), error: message, log: lines.join('\n') },
                 };
             } finally {

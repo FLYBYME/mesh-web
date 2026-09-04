@@ -31,11 +31,13 @@
     "license": "UNLICENSED",
     "private": true,
     "devDependencies": {
+        "@flybyme/mesh": "github:FLYBYME/mesh#v2.1.0",
         "@types/node": "^26.4.1",
         "@vitest/browser": "^2.1.9",
         "jsdom": "^30.0.1",
         "playwright": "^1.62.1",
         "typescript": "^5.9.3",
-        "vitest": "^2.1.9"
+        "vitest": "^2.1.9",
+        "zod": "^3.25.76"
     }
 }

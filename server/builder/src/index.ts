@@ -14,3 +14,6 @@
 export * from './content.js';
 export * from './store.js';
 export * from './builder.js';
+export * from './descriptor.js';
+export * from './contracts.js';
+export * from './module.js';
