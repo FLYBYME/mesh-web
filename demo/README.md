@@ -16,6 +16,11 @@
 >   `content` tile. Naming a view and a tile the same thing was the confusion.
 > - **`commands` and `keys` are declared, not registered in `start()`** — along with `layout`,
 >   `views`, `menus` and `settings`. See [application §2](../spec/application.md).
+> - **`net` is now `mesh`** ([network §2a](../spec/network.md), roadmap A3.11), and it is a smaller
+>   thing than these files show: `cx.mesh.call(action, input)` and nothing else. There is no `get`,
+>   no `post`, no `baseUrl` and no URL anywhere — a call names an action on the API the manifest
+>   declared, so there is nowhere else to go. `net.get<T>('/api/me')` below is the defect the rename
+>   was for: a name that invited "which URL?" when the answer was never a URL.
 >
 > **And `types/mesh-web.d.ts` violates [type-safety.md](../spec/type-safety.md) in six places**,
 > audited in its §8: `net.get<T>`/`post<T>`/`resource<T>` and `storage.get<T>` let the *caller*

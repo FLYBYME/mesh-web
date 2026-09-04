@@ -143,8 +143,8 @@ trusted click becoming a command, and `Enter` reaching a row with no pointer inv
 
 **The network layer exists** ([network.md](./network.md), roadmap A3.1a-i and A3.1c). `defineApi` and
 `call<I, O, E>` are the shape the generator will emit; `createClient` turns one into requests and
-named results; `net` is a capability, typed by the API the contribution declared as `api` in its
-manifest. `cx.net.call('session.whoami')` infers its output, an unexposed action does not compile,
+named results; `mesh` is a capability, typed by the API the contribution declared as `api` in its
+manifest. `cx.mesh.call('session.whoami')` infers its output, an unexposed action does not compile,
 and the manifest lists every API a site talks to before anything has started. What is missing is the
 *emitter* — descriptor JSON → that file — which needs an exposure descriptor from mesh-api to emit
 from.

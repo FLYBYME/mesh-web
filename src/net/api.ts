@@ -85,7 +85,7 @@ export interface Api<TCalls extends Record<string, AnyApiCall>> extends ApiSpec<
     readonly base: string;
 }
 
-/** Every action name this API serves. The union `cx.net.call` accepts. */
+/** Every action name this API serves. The union `cx.mesh.call` accepts. */
 export type ActionOf<A> = A extends Api<infer C> ? keyof C & string : never;
 
 /** One call, by name. */
@@ -111,7 +111,7 @@ export function call<TInput, TOutput, TErrors extends string = never>(
  * Declare an API.
  *
  * `const` on the parameter keeps the call names as literals, which is what turns
- * `cx.net.call('resolver.query')` into a checked name rather than a string.
+ * `cx.mesh.call('resolver.query')` into a checked name rather than a string.
  */
 export function defineApi<const TCalls extends Record<string, AnyApiCall>>(
     spec: ApiSpec<TCalls>,

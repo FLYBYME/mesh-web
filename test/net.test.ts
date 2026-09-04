@@ -298,7 +298,7 @@ interface ConsoleApi {
 }
 const CONSOLE = provider<ConsoleApi>('test.console');
 
-const CONSOLE_NEEDS = needs('net', 'log');
+const CONSOLE_NEEDS = needs('mesh', 'log');
 
 class ConsoleApp implements Application<typeof CONSOLE_NEEDS, readonly [], typeof CONSOLE> {
     readonly needs = CONSOLE_NEEDS;
@@ -308,7 +308,7 @@ class ConsoleApp implements Application<typeof CONSOLE_NEEDS, readonly [], typeo
     async start(cx: Context<typeof CONSOLE_NEEDS, readonly [], typeof siteApi>): Promise<ConsoleApi> {
         return {
             whoami: async () => {
-                const result = await cx.net.call('session.whoami');
+                const result = await cx.mesh.call('session.whoami');
                 if (!result.ok) {
                     cx.log.warn(describeError(result.error));
                     return 'anonymous';
@@ -319,11 +319,11 @@ class ConsoleApp implements Application<typeof CONSOLE_NEEDS, readonly [], typeo
     }
 }
 
-describe('net as a capability', () => {
+describe('mesh as a capability', () => {
     const bootWith = (reply: (request: NetRequest) => NetResponse) => {
         const services = createServices();
         const fake = fakeTransport(reply);
-        services.netClient = (api) => createClient(api as Api<Record<string, never>>, { transport: fake.transport });
+        services.meshClient = (api) => createClient(api as Api<Record<string, never>>, { transport: fake.transport });
 
         const kernel = new Kernel({ services });
         kernel.boot([{ id: 'console', contribution: new ConsoleApp() as never }]);
@@ -340,15 +340,15 @@ describe('net as a capability', () => {
     });
 
     it('is absent from a context that did not ask for it', async () => {
-        const NO_NET = needs('log');
-        const cx = {} as Context<typeof NO_NET>;
+        const NO_MESH = needs('log');
+        const cx = {} as Context<typeof NO_MESH>;
 
-        // @ts-expect-error net was not declared in needs
-        void cx.net;
+        // @ts-expect-error mesh was not declared in needs
+        void cx.mesh;
     });
 
-    it('refuses to start an Application that asked for net without declaring an api', async () => {
-        const NEEDS = needs('net');
+    it('refuses to start an Application that asked for mesh without declaring an api', async () => {
+        const NEEDS = needs('mesh');
 
         class Bad implements Application<typeof NEEDS> {
             readonly needs = NEEDS;

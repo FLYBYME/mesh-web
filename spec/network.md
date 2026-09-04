@@ -84,7 +84,7 @@ list that is silently incomplete.
 The pressure stays where it belongs: the sanctioned path is a contract, and `http` is available but
 conspicuous.
 
-### Renaming `net` — **Decided, not yet done**
+### Renaming `net` — **Done 2026-09-04**
 
 `net` reads as *the network*, which is precisely what it is not. It is **one** API, declared in the
 manifest, typed from that site's own exposure descriptor, scoped rather than global. Naming it after
@@ -104,8 +104,19 @@ rather than the membership.
 `readonly api = blogApi`, so `needs('api')` beside `api:` is coherent. It loses on being generic —
 everything reachable over HTTP is an api — and on saying nothing about which one.
 
-**Rename before anything outside this repository imports it.** Cheap now; expensive the moment a site
-exists, which is imminent (roadmap A3.11).
+**Renamed before anything outside this repository imported it** — done the day A6.8 made the package
+installable at all, which was the last moment it was free (roadmap A3.11).
+
+**How far it went, and where it stopped.** The capability, the context member and the client type:
+`needs('mesh')`, `cx.mesh`, `MeshClient<A>`, and `KernelServices.meshClient`. That type is worth
+naming for the capability rather than the wire, because it has no `get`, no `post` and no URL on it —
+a call names an action on the declared API and there is nowhere else to go.
+
+What did **not** move is `src/net/`, `Transport`, `NetRequest`, `NetResponse` and `fetchTransport`.
+Those are the HTTP underneath, one level below the capability, and their names are accurate: they
+really are the network. The seam between them is the point of the whole section — `mesh` is a
+destination, `net` is a medium — so keeping both names, each on the right layer, states the
+distinction rather than blurring it.
 
 ---
 
@@ -195,7 +206,7 @@ export default class ConsoleApp implements Application<...> {
     readonly api   = surfdnsApi;          // ← part of the manifest
 
     async start(cx: Context<typeof NEEDS, typeof CONSUMES, typeof surfdnsApi>) {
-        const cred = await cx.net.call('credential.resolve', { id });
+        const cred = await cx.mesh.call('credential.resolve', { id });
         //    ^ fully typed, exactly as ctx.call is inside the mesh
     }
 }
@@ -218,13 +229,13 @@ the same, and they do not.
 
 ```ts
 // → the API. Over the network. Gatekept. Can 403. Typed from the site's exposure.
-const cred = await cx.net.call('credential.resolve', { id });
+const cred = await cx.mesh.call('credential.resolve', { id });
 
 // → the auth Extension. In the page. Typed by a contract package both sides import.
 const auth = cx.use(AUTH);
 ```
 
-| | `cx.net.call` | `cx.use` |
+| | `cx.mesh.call` | `cx.use` |
 | --- | --- | --- |
 | declared as | `api` in the manifest | `consumes` |
 | crosses | the network | a contribution boundary |
@@ -263,11 +274,11 @@ So it is a capability, `needs('credentials')`, and three properties make it safe
   it has, and its *next* call carries the ticket. A holder that could only be set at construction
   would make signing in require restarting every Application on the page.
 
-What an Application gets from this is nothing, which is the point: it declares `needs('net')`, calls
-`cx.net.call(...)`, and the ticket is on the request. It cannot read it, cannot replace it, and does
+What an Application gets from this is nothing, which is the point: it declares `needs('mesh')`, calls
+`cx.mesh.call(...)`, and the ticket is on the request. It cannot read it, cannot replace it, and does
 not know whether there is one.
 
-`credentials` also carries the **origin** — where `net` sends requests, from the deployment
+`credentials` also carries the **origin** — where `mesh` sends requests, from the deployment
 descriptor's `api` by way of `MESH_API` and the build ([hosting §5](./hosting.md)). A site supplies
 it rather than the framework discovering it: which API a site talks to is a deployment fact, and a
 page that guessed would be guessing about the only security boundary in the system.

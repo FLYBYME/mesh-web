@@ -26,7 +26,7 @@ import {
     createSettingsRegistry, each, effect, element, fetchTransport, formatBinding, localProvider,
     memoryProvider, mountShell, needs, provider, text, tiles, when, windowPersistence, windowSink,
     withHeaders, describe, PRIMITIVES,
-    type Action, type Application, type Context, type Extension, type NetClient, type NetRequest,
+    type Action, type Application, type Context, type Extension, type MeshClient, type NetRequest,
     type NetResponse, type Transport, type ViewContext,
 } from '@flybyme/mesh-web';
 
@@ -66,7 +66,7 @@ interface BlogApi {
 }
 const BLOG = provider<BlogApi>('demo.blog');
 
-const BLOG_NEEDS = needs('state', 'commands', 'windows', 'notifications', 'net');
+const BLOG_NEEDS = needs('state', 'commands', 'windows', 'notifications', 'mesh');
 const BLOG_CONSUMES = consumes(AUTH);
 
 class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, typeof BLOG> {
@@ -269,7 +269,7 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
          * new failure in the framework is a compile error here rather than an empty toast.
          */
         const refresh = async (): Promise<void> => {
-            const result = await cx.net.call('post.list', {});
+            const result = await cx.mesh.call('post.list', {});
             if (!result.ok) {
                 cx.notifications.warn(describe(result.error));
                 return;
@@ -283,7 +283,7 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
         });
 
         cx.commands.implement('blog.publish', async (slug) => {
-            const result = await cx.net.call('post.publish', { slug: String(slug) });
+            const result = await cx.mesh.call('post.publish', { slug: String(slug) });
             if (!result.ok) {
                 // A permission the caller does not have arrives as a 403 and is *expected*, not an
                 // error to hide: bob can read this site and cannot write to it.
@@ -295,7 +295,7 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
 
         cx.commands.implement('blog.add', async () => {
             n += 1;
-            const result = await cx.net.call('post.create', { title: `Untitled ${n}` });
+            const result = await cx.mesh.call('post.create', { title: `Untitled ${n}` });
             if (!result.ok) {
                 cx.notifications.warn(describe(result.error));
                 return;
@@ -406,17 +406,17 @@ const API_ORIGIN = new URLSearchParams(location.search).get('api')
 
 let ticket: string | undefined = new URLSearchParams(location.search).get('ticket') ?? 'alice-ticket';
 
-// The cast is on the *result*, as in broker.ts, and that direction matters: `netClient` is declared
+// The cast is on the *result*, as in broker.ts, and that direction matters: `meshClient` is declared
 // erased, so widening the client it returns is honest. `createClient(api as never, …)` — what this
 // line used to say — casts the argument instead, which gives up checking the one thing worth
 // checking here, that what the manifest declared is actually an API.
-kernel.services.netClient = (api) => createClient(api, {
+kernel.services.meshClient = (api) => createClient(api, {
     transport: withHeaders(
         API_ORIGIN === 'memory' ? memoryTransport() : fetchTransport(API_ORIGIN),
         (): Readonly<Record<string, string>> =>
             (ticket === undefined ? {} : { authorization: `Bearer ${ticket}` }),
     ),
-}) as NetClient<unknown>;
+}) as MeshClient<unknown>;
 
 /**
  * The same API, in the page.

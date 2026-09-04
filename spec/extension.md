@@ -37,14 +37,14 @@ it breaks.
 import { needs, type Extension, type CapabilityContext } from '@flybyme/mesh-web';
 import { AUTH, type AuthApi } from '@surfdns/auth-contract';
 
-const NEEDS = needs('net', 'notifications');
+const NEEDS = needs('mesh', 'notifications');
 
 export default class AuthExtension implements Extension<typeof NEEDS, [], typeof AUTH> {
     readonly needs = NEEDS;
     readonly provides = AUTH;
 
     activate(cx: CapabilityContext<typeof NEEDS>): AuthApi {
-        cx.net.baseUrl;               // declared
+        cx.mesh.api;                  // declared
         cx.notifications.info('hi');  // declared
         cx.windows.open({ ... });     // compile error: not declared
         return { session: cx.state.signal<Session | null>(null), signIn, signOut };
@@ -87,7 +87,7 @@ export function needs<const T extends readonly CapabilityName[]>(...n: T): T { r
 
 A rest parameter with a `const` type parameter infers the literal tuple, so `as const` is not needed.
 Because the constraint is the `CapabilityName` union, the editor completes capability names inside
-the call and rejects a typo at the point of the typo — `needs('net', 'nett')` errors on `'nett'`,
+the call and rejects a typo at the point of the typo — `needs('mesh', 'mehs')` errors on `'mehs'`,
 not on some downstream context type.
 
 Assigning it to a module-level `const` and referring to `typeof NEEDS` makes the list a single source
@@ -97,9 +97,9 @@ of truth: it is written once, as a value, and used as a type everywhere else.
 
 | shape | result |
 | --- | --- |
-| `readonly needs = ['net', 'notifications']` | widens to `string[]`. Everything is lost, silently. |
-| `readonly needs = needs('net', 'notifications')` | literal tuple preserved. **✓** |
-| `activate(cx: CapabilityContext<this['needs']>)` | **fails** — `Property 'net' does not exist`. TS will not resolve a mapped type through the polymorphic `this`. |
+| `readonly needs = ['mesh', 'notifications']` | widens to `string[]`. Everything is lost, silently. |
+| `readonly needs = needs('mesh', 'notifications')` | literal tuple preserved. **✓** |
+| `activate(cx: CapabilityContext<this['needs']>)` | **fails** — `Property 'mesh' does not exist`. TS will not resolve a mapped type through the polymorphic `this`. |
 | a mixin base class supplying `activate`'s signature | **fails** — `Parameter 'cx' implicitly has an 'any' type`. A derived class's method parameters are never contextually typed by the base. |
 
 The last two are the ones worth recording, because both look like they should work and neither does.
@@ -183,7 +183,7 @@ The `unique symbol` phantom is what carries `T` across a boundary neither side i
 consumer writes:
 
 ```ts
-const NEEDS    = needs('net');
+const NEEDS    = needs('mesh');
 const CONSUMES = consumes(AUTH);          // same helper shape as needs()
 
 readonly needs    = NEEDS;

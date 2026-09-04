@@ -32,6 +32,11 @@ cx.state.signal(0)                    // T inferred from the argument       — 
 cx.net.get<Session>('/api/me')        // T supplied, nothing checks it      — an assertion
 ```
 
+The second line is from the superseded sketch in [`demo/types/mesh-web.d.ts`](../demo/types/mesh-web.d.ts),
+kept here because it is the clearest example of the defect. It is not the framework: the capability
+is `mesh` rather than `net`, and `MeshClient` has no `get` at all — a call names an action on the
+declared API, and the type comes from that API. This rule is why.
+
 The second is `as Session` wearing generic syntax. Nothing verifies it; the compiler believes the
 caller, and when the endpoint changes the compiler keeps believing them.
 
@@ -61,7 +66,7 @@ something declared:
 
 | call | typed by |
 | --- | --- |
-| `cx.net.call('credential.resolve', input)` | the site's exposure descriptor ([network](./network.md)) |
+| `cx.mesh.call('credential.resolve', input)` | the site's exposure descriptor ([network](./network.md)) |
 | `cx.events.on('identity.ticket_revoked', h)` | the same descriptor's event contracts |
 | `cx.windows.open({ view: 'editor', params })` | the `views` declaration — params checked per view |
 | `cx.commands.run('blog.newPost', args)` | the `commands` declaration |
@@ -109,7 +114,7 @@ or writes `catch (e: unknown)` and starts guessing.
 > **A network call returns a result that names its failures.**
 
 ```ts
-const r = await cx.net.call('credential.resolve', { id });
+const r = await cx.mesh.call('credential.resolve', { id });
 if (!r.ok) {
     // r.error is a discriminated union: 'unauthorized' | 'forbidden' | 'not_found'
     //                                 | 'invalid' | 'transport'

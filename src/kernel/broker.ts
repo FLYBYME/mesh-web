@@ -29,7 +29,7 @@ import { windowHost } from '../window/page.js';
 import type { ErasedContext } from '../contribution/contract.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import type { AnyApiCall, Api } from '../net/api.js';
-import { createClient, fetchTransport, withHeaders, type NetClient } from '../net/client.js';
+import { createClient, fetchTransport, withHeaders, type MeshClient } from '../net/client.js';
 
 export interface LogRecord {
     readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -109,11 +109,11 @@ export interface KernelServices {
      * handles a credential (spec/network.md section 4). A test replaces it with a fake and needs no
      * server.
      */
-    netClient: (api: Api<Record<string, AnyApiCall>>, owner: string) => NetClient<unknown>;
+    meshClient: (api: Api<Record<string, AnyApiCall>>, owner: string) => MeshClient<unknown>;
     /**
      * The page's one credential seam, and where its API is.
      *
-     * Held on the services rather than inside `netClient` so that the auth Extension can write to it
+     * Held on the services rather than inside `meshClient` so that the auth Extension can write to it
      * *after* clients have already been built — an Application that started before sign-in keeps the
      * client it has, and its next call carries the ticket. A holder that could only be set at
      * construction would need every Application to be restarted by a sign-in.
@@ -185,7 +185,7 @@ export function recordingWindows(): WindowSink & { readonly opened: { id: string
 
 export interface ServiceOptions {
     /**
-     * Where `net` sends requests — roadmap A3.1, spec/hosting.md §5.
+     * Where `mesh` sends requests — roadmap A3.1, spec/hosting.md §5.
      *
      * **From the deployment descriptor**, by way of the build: the builder puts the environment's
      * `api` in `MESH_API`, the site's bundle bakes it in, and the site's entry code passes it here.
@@ -220,12 +220,12 @@ export function createServices(
         // The lookup is per request, so a ticket that arrives later is on the next call rather than
         // on the next page load, and an Application that never declared `credentials` still sends
         // one without ever having seen it (spec/network.md §4).
-        netClient: (api) => createClient(api, {
+        meshClient: (api) => createClient(api, {
             transport: withHeaders(
                 fetchTransport(credentials.origin),
                 () => credentials.headers?.() ?? {},
             ),
-        }) as NetClient<unknown>,
+        }) as MeshClient<unknown>,
     };
 }
 
@@ -296,21 +296,21 @@ export function createContext(
     // key with its value type through a dynamic index, so the short version needs a cast. This is
     // the ten extra lines that spec/type-safety.md section 1 says to write.
     const capabilities: { -readonly [K in keyof CapabilityMap]?: CapabilityMap[K] } = {};
-    let net: NetClient<unknown> | undefined;
+    let mesh: MeshClient<unknown> | undefined;
 
     for (const name of declaredNeeds) {
         switch (name) {
-            // `net` is not in CapabilityMap: it is typed per contribution by the API declared in
+            // `mesh` is not in CapabilityMap: it is typed per contribution by the API declared in
             // the manifest, so it is built here and merged separately (see capabilities.ts).
-            case 'net':
+            case 'mesh':
                 if (declaredApi === undefined) {
                     throw new Error(
-                        `${id} declared needs('net') without declaring an api. ` +
+                        `${id} declared needs('mesh') without declaring an api. ` +
                         `A client with no API can call nothing, so this is a manifest mistake ` +
                         `rather than a run-time condition worth tolerating.`,
                     );
                 }
-                net = services.netClient(declaredApi, id);
+                mesh = services.meshClient(declaredApi, id);
                 break;
             case 'state':
                 capabilities.state = makeState(scope);
@@ -336,7 +336,7 @@ export function createContext(
         }
     }
 
-    const context: ErasedContext = { ...base, ...capabilities, ...(net === undefined ? {} : { net }) };
+    const context: ErasedContext = { ...base, ...capabilities, ...(mesh === undefined ? {} : { mesh }) };
 
     return {
         context,

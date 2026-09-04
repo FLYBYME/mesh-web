@@ -2,7 +2,7 @@
  * The auth Extension — roadmap A6.4, spec/network.md §4.
  *
  * The property being tested is a *negative* one, and it is the reason this Extension exists: an
- * Application that declared `needs('net')` and nothing else sends a ticket it has never seen, cannot
+ * Application that declared `needs('mesh')` and nothing else sends a ticket it has never seen, cannot
  * read, and cannot replace. Most of what follows is therefore about what an Application can reach
  * rather than about what the Extension does.
  *
@@ -98,10 +98,10 @@ const blogApi = defineApi({
 /**
  * An Application that knows nothing about authentication.
  *
- * It declares `needs('net')` and calls its API. There is no `credentials` in its needs, no ticket in
+ * It declares `needs('mesh')` and calls its API. There is no `credentials` in its needs, no ticket in
  * its code, and no way for it to obtain one — which is the whole claim being tested.
  */
-const APP_NEEDS = needs('net');
+const APP_NEEDS = needs('mesh');
 
 class BlogApp implements Application<typeof APP_NEEDS> {
     readonly needs = APP_NEEDS;
@@ -154,7 +154,7 @@ async function boot(options: {
         kernel,
         app,
         auth: entry.api as AuthApi,
-        load: () => (app.context?.net as { call(action: 'post.list'): Promise<unknown> }).call('post.list'),
+        load: () => (app.context?.mesh as { call(action: 'post.list'): Promise<unknown> }).call('post.list'),
     };
 }
 

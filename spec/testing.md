@@ -54,7 +54,7 @@ Every capability is an interface the kernel hands out ([kernel §4](./kernel.md)
 under test gets a **fake context** — real objects with in-memory behaviour, not recorded
 expectations:
 
-- `net` backed by a table of action → response
+- `mesh` backed by a table of action → response
 - `storage` in memory
 - `windows`, `commands`, `menus` recording what was asked for
 - `state` the real implementation, because signals are pure
@@ -64,10 +64,10 @@ An Extension or Application is then testable with **no kernel running and no DOM
 hand it a context, call `activate` or `start`, assert on what it returned and what it asked for.
 
 This is the practical payoff of capability narrowing. A contribution declaring
-`needs('net', 'notifications')` needs a fake with exactly two things on it, and the type system says
+`needs('mesh', 'notifications')` needs a fake with exactly two things on it, and the type system says
 so — you cannot forget one, and you cannot be surprised by a call to something you did not fake.
 
-**Mocks specifically are the wrong tool here.** Asserting "`net.call` was invoked once with these
+**Mocks specifically are the wrong tool here.** Asserting "`mesh.call` was invoked once with these
 arguments" tests the code's shape rather than its behaviour, and this design changes shape often.
 
 ### Conformance suites
@@ -133,7 +133,7 @@ the part nobody can test in CI.
 Already proven rather than proposed. `@ts-expect-error` assertions in `demo/rejected.ts` cover
 undeclared capabilities, undeclared providers, providing what you do not return, and routing to a
 view that does not exist — and they were verified load-bearing: deleting one directive produces
-`Property 'windows' does not exist on type 'Context<readonly ["net", "notifications"]>'` and the file
+`Property 'windows' does not exist on type 'Context<readonly ["mesh", "notifications"]>'` and the file
 stops compiling.
 
 That is the property to preserve. **These assertions fail the build when they start passing**, which
@@ -172,7 +172,7 @@ Testability is not verification. This document is about the first; the second ne
 - **How the test renderer reports layout.** The focus graph needs rects, so a pure focus test needs
   a layout oracle. Either the test renderer computes a simple box layout, or focus tests supply rects
   directly and real layout is only checked in the browser.
-- **Fixtures for the generated client** — whether a fake `net` is generated from the same exposure
+- **Fixtures for the generated client** — whether a fake `mesh` is generated from the same exposure
   descriptor, so a fake cannot drift from the contract it stands in for. Probably yes, and it is not
   free.
 - **Whether contributions get a conformance suite too**, so a third-party Extension can be checked

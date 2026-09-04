@@ -15,7 +15,7 @@
  *
  * ## What an Application sees
  *
- * Nothing. An Application declares `needs('net')` and calls `cx.net.call(...)`, and the ticket is on
+ * Nothing. An Application declares `needs('mesh')` and calls `cx.mesh.call(...)`, and the ticket is on
  * the request. It cannot read the ticket, cannot attach a different one, and does not know whether
  * there is one — which is the whole of "an Application never handles a credential". The Extension
  * reaches that seam through `needs('credentials')`, which is visible in its manifest, so a site can
@@ -115,11 +115,11 @@ export function sessionTicketStore(key = 'mesh-web/ticket'): TicketStore {
 }
 
 /**
- * Deliberately without `net`.
+ * Deliberately without `mesh`.
  *
- * `net` is typed by the API a contribution declares in its manifest, and this Extension is not tied
+ * `mesh` is typed by the API a contribution declares in its manifest, and this Extension is not tied
  * to one generated client — a site may point it at any identity answering the three shapes below.
- * Declaring `needs('net')` with no `api` is a manifest mistake the kernel refuses outright, and it
+ * Declaring `needs('mesh')` with no `api` is a manifest mistake the kernel refuses outright, and it
  * would be the wrong tool here anyway: `credentials` already carries the origin.
  */
 const NEEDS = needs('credentials', 'state', 'log');
@@ -170,7 +170,7 @@ export class AuthExtension implements Extension<typeof NEEDS, readonly [], typeo
         /**
          * One request, by path.
          *
-         * Not `cx.net.call`: `net` is typed by the API a contribution declared, and this Extension
+         * Not `cx.mesh.call`: `mesh` is typed by the API a contribution declared, and this Extension
          * is deliberately not tied to one generated client — a site may point it at any identity
          * that answers these three shapes. The ticket goes on by hand here because this is the one
          * place that legitimately holds it.

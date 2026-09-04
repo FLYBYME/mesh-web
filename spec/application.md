@@ -120,8 +120,8 @@ This is also the answer to handler identity across an isolation boundary
 ([view-layer §5](./view-layer.md)) — one mechanism, because it is the same problem twice.
 
 The reasoning behind the class-export model, `needs` narrowing and provider tokens is identical to
-[Extensions §2 and §4](./extension.md) and is not repeated — including why it is `needs('net', ...)`
-rather than `['net', ...] as const`, which was checked against a typechecker and is recorded there.
+[Extensions §2 and §4](./extension.md) and is not repeated — including why it is `needs('mesh', ...)`
+rather than `['mesh', ...] as const`, which was checked against a typechecker and is recorded there.
 
 ---
 

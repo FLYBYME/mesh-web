@@ -74,7 +74,15 @@ export function withHeaders(inner: Transport, headers: () => Readonly<Record<str
 
 // ---------------------------------------------------------------------------- the client
 
-export interface NetClient<A> {
+/**
+ * What `needs('mesh')` hands a contribution: one API's actions, and nothing else reachable.
+ *
+ * Named for the capability rather than for the transport under it. There is no `get`, no `post` and
+ * no URL on this interface, because there is nowhere else to go — a call names an action on the API
+ * the manifest declared, the way `ctx.call` does on a node ([network §2a](../../spec/network.md)).
+ * The `Transport` above is the HTTP underneath; this is the thing a page is actually given.
+ */
+export interface MeshClient<A> {
     /** The API this client is scoped to. Present so a log line can say which one failed. */
     readonly api: string;
 
@@ -99,7 +107,7 @@ export interface ClientOptions {
 export function createClient<TCalls extends Record<string, AnyApiCall>>(
     api: Api<TCalls>,
     options: ClientOptions,
-): NetClient<Api<TCalls>> {
+): MeshClient<Api<TCalls>> {
     const check = options.checkExposure ?? true;
 
     return {
@@ -133,7 +141,7 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
 
             return interpret(response) as Result<never, CallError<string>>;
         },
-    } as NetClient<Api<TCalls>>;
+    } as MeshClient<Api<TCalls>>;
 }
 
 /**

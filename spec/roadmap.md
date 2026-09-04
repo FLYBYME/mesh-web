@@ -102,6 +102,14 @@ zero, which is the point of the reset — see [status §1](./status.md).
       `minSize` enforced against real layout, a trusted click becoming a command, and `Enter`
       reaching a row without a pointer. Playwright uses the system Chrome (`channel: 'chrome'`), so
       CI needs a browser rather than a 400MB download.
+- [x] **A0.5a-i The browser suite was testing a build nobody had made.** *(fixed 2026-09-04)*
+      `test:browser` ran vitest directly, and the harness tests load the *compiled*
+      `browser/dist/harness.js`. Nothing rebuilt it, so the suite tested whatever was last left on
+      disk. A3.11 found it the loud way: the rename typechecked clean in four projects and 309 unit
+      tests, then 11 browser tests failed against yesterday's JavaScript, which still called
+      `cx.net`. **The dangerous direction is the other one** — a green suite proving nothing about
+      the code just written, which is what it had been doing for however long. `test:browser` now
+      runs `build:browser` first, and `harness` shares the same script rather than repeating it.
 - [ ] **A0.5b Extend the browser project to the rest of §4** — focus in the DOM beyond one
       `activeElement` check, text entry and IME, pen and touch. Gated on A8 for the input adapters
       and on A7.1 for the focus graph. **M** · [testing §4](./testing.md)
@@ -197,7 +205,7 @@ sound; each item below is the interface *and* the implementation behind it.
       clauses were built: the base URL comes from the deployment descriptor (`MESH_API` → the build →
       `createServices({ apiOrigin })`), and the ticket is attached by the auth Extension through the
       new `credentials` capability rather than by any caller. Fully typed throughout —
-      `cx.net.call('credential.resolve', { id })` infers input and output as `ctx.call` does.
+      `cx.mesh.call('credential.resolve', { id })` infers input and output as `ctx.call` does.
       [network.md](./network.md) · [hosting §4](./hosting.md)
 - [x] **A3.1b The `credentials` capability**, which is what made the sentence in network.md §4 true.
       "The auth Extension attaches the ticket for every caller" had no mechanism: wrapping its own
@@ -264,14 +272,21 @@ sound; each item below is the interface *and* the implementation behind it.
 - [ ] **A3.8 `windows`** — see A2.6.
 - [ ] **A3.9 `storage`** — see A4.
 - [ ] **A3.10 `log`** — scoped, level-filtered, and shippable. **S**
-- [ ] **A3.11 ★ Rename `net` to `mesh`.** Decided 2026-09-04. `net` reads as *the network*, which is
+- [x] **A3.11 ★ Rename `net` to `mesh`.** *(done 2026-09-04)* `net` read as *the network*, which is
       exactly what it is not — one API, declared in the manifest, typed from that site's exposure
       descriptor, scoped rather than global. Naming it after the network is what made "can I call a
       weather API with it" a reasonable question, and the answer is no.
       `cx.mesh.call('post.list')` says what is on the other end and mirrors `ctx.call`, which
-      [network §1](./network.md) makes the whole ergonomic target. **Do it before anything outside
-      this repository imports it** — cheap today, expensive once a site exists, which is imminent.
-      **S** · [network §2a](./network.md)
+      [network §1](./network.md) makes the whole ergonomic target. Done the same day as A6.8, which
+      was the last moment it was free: the package became installable that morning, so this was the
+      final hour in which nothing outside the repository could be importing the old name.
+
+      `needs('mesh')`, `cx.mesh`, `MeshClient<A>` and `KernelServices.meshClient`. **`src/net/`
+      stayed** — `Transport`, `NetRequest`, `NetResponse` and `fetchTransport` are the HTTP one
+      level below the capability, and there the name is accurate. Keeping both, each on its own
+      layer, is the §2a distinction stated rather than blurred: `mesh` is a destination, `net` is a
+      medium. 309 tests, four typechecks and `check:consumer` all clean after it. **S** ·
+      [network §2a](./network.md)
 - [ ] **A3.12 `http` — the declared escape.** A separate capability with its own origin allowlist, for
       the page that genuinely must reach a third party. `needs('http')` is *visible in a manifest*,
       which is the whole mechanism: an audit reads "this site talks to its own API, and this one
@@ -446,7 +461,7 @@ because they are written against the same interfaces an outside author gets.
       should not carry a session. A held ticket is a claim and never a session — boot asks the API
       who it belongs to, and drops it if the answer is 401. Sign-out clears locally first, so a
       network failure cannot leave a page believing it is signed in. 12 tests, and the one that
-      matters is negative: an Application declaring only `needs('net')` sends a ticket it never saw,
+      matters is negative: an Application declaring only `needs('mesh')` sends a ticket it never saw,
       cannot read and cannot replace.
 - [ ] **A6.4a The revocation event on the page.** A6.4 handles sign-in, sign-out and restore; it does
       not yet drop the session when the *API* revokes a ticket out from under it. Wants C3.4's SSE

@@ -10,7 +10,7 @@
 import type { CapabilityContext, CapabilityName } from './capabilities.js';
 import type { AnyApiCall, Api } from '../net/api.js';
 import type { LayoutNode } from '../window/layout.js';
-import type { NetClient } from '../net/client.js';
+import type { MeshClient } from '../net/client.js';
 import type { Consumer, ProviderToken, ProviderTokens } from './provider.js';
 import type { Json } from '../description/types.js';
 
@@ -18,21 +18,21 @@ import type { Json } from '../description/types.js';
  * Capabilities, resolved providers, and the declared API. One type parameter per declaration, each
  * written once.
  *
- * The third parameter is what makes `cx.net` worth having: it is the API this contribution declared
- * as `api` in its manifest, so `cx.net.call` accepts that API's action names and infers their input
- * and output (spec/network.md section 4). Declaring `net` in `needs` without an `api` gives a client
- * over an empty action set — every call is a compile error, which is the correct answer to "I asked
- * for the network and never said to where".
+ * The third parameter is what makes `cx.mesh` worth having: it is the API this contribution declared
+ * as `api` in its manifest, so `cx.mesh.call` accepts that API's action names and infers their input
+ * and output (spec/network.md section 4). Declaring `mesh` in `needs` without an `api` gives a
+ * client over an empty action set — every call is a compile error, which is the correct answer to
+ * "I asked to reach the cluster and never said which API".
  */
 export type Context<
     TNeeds extends readonly CapabilityName[],
     TConsumes extends ProviderTokens = readonly [],
     TApi = Api<Record<string, never>>,
-> = CapabilityContext<TNeeds> & Consumer<TConsumes> & NetContext<TNeeds, TApi>;
+> = CapabilityContext<TNeeds> & Consumer<TConsumes> & MeshContext<TNeeds, TApi>;
 
-/** `net` appears on the context only if it was asked for. */
-type NetContext<TNeeds extends readonly CapabilityName[], TApi> =
-    'net' extends TNeeds[number] ? { readonly net: NetClient<TApi> } : unknown;
+/** `mesh` appears on the context only if it was asked for. */
+type MeshContext<TNeeds extends readonly CapabilityName[], TApi> =
+    'mesh' extends TNeeds[number] ? { readonly mesh: MeshClient<TApi> } : unknown;
 
 /** The API a contribution exposes, derived from its `provides` token. */
 export type ApiOf<TProvides> = TProvides extends ProviderToken<infer TApi> ? TApi : void;

@@ -1,7 +1,7 @@
 /**
  * Capabilities: what a contribution may reach, and nothing else.
  *
- * spec/kernel.md section 4. Declaring `needs('net', 'commands')` produces a context with exactly
+ * spec/kernel.md section 4. Declaring `needs('mesh', 'commands')` produces a context with exactly
  * those two on it — a compile error for anything else, and `undefined` at run time, because the
  * kernel builds the object from the same list.
  *
@@ -165,7 +165,7 @@ export interface Chrome {
  *
  * spec/network.md §4 says the auth Extension attaches the ticket "so an Application never handles a
  * credential", and until this existed there was no mechanism by which it could. Wrapping its *own*
- * `net` would attach a ticket to its own calls and nobody else's; the thing that needs wrapping is
+ * `mesh` client would attach a ticket to its own calls and nobody else's; the thing that needs wrapping is
  * how the kernel builds a client, which is not an Application's to reach.
  *
  * So it is a capability, and it is deliberately shaped so that declaring it is *visible*:
@@ -188,7 +188,7 @@ export interface Credentials {
     attach(headers: () => Readonly<Record<string, string>>): void;
     /** Stop attaching. Signing out, not tearing down — an Extension is never deactivated. */
     clear(): void;
-    /** Where `net` sends requests. From the deployment descriptor's `api`; `''` means same origin. */
+    /** Where `mesh` sends requests. From the deployment descriptor's `api`; `''` means same origin. */
     readonly origin: string;
 }
 
@@ -197,7 +197,7 @@ export interface Credentials {
 /**
  * Every capability, by name.
  *
- * `net`, `events`, `keys`, `menus`, `models` and `storage` are specified and not yet built
+ * `mesh`, `events`, `keys`, `menus`, `models` and `storage` are specified and not yet built
  * (spec/roadmap.md A3). They are absent here rather than present-and-throwing: a name that resolves
  * to a broken object is worse than one that does not resolve, because the compile error is the
  * point.
@@ -213,17 +213,17 @@ export interface CapabilityMap {
 }
 
 /**
- * `net` is a capability name, and deliberately not a member of the map above.
+ * `mesh` is a capability name, and deliberately not a member of the map above.
  *
- * Every other capability has one type for everybody. `net` does not: it is typed by the API the
- * contribution declared in its manifest, so `cx.net.call` accepts that API's actions and no others
- * (spec/network.md section 4). A single entry here would have to be `NetClient<unknown>`, which is
+ * Every other capability has one type for everybody. `mesh` does not: it is typed by the API the
+ * contribution declared in its manifest, so `cx.mesh.call` accepts that API's actions and no others
+ * (spec/network.md section 4). A single entry here would have to be `MeshClient<unknown>`, which is
  * the untyped version of exactly the thing being built.
  *
  * The cost is this comment and one `Exclude` in `CapabilityContext`. The alternative costs the
- * type parameter that makes `cx.net.call('resolver.query', { name })` check at all.
+ * type parameter that makes `cx.mesh.call('resolver.query', { name })` check at all.
  */
-export type CapabilityName = keyof CapabilityMap | 'net';
+export type CapabilityName = keyof CapabilityMap | 'mesh';
 
 /** Declares what a contribution needs. See spec/extension.md section 2 for why not `as const`. */
 export function needs<const T extends readonly CapabilityName[]>(...names: T): T {
@@ -239,5 +239,5 @@ export interface ContributionBase {
 }
 
 export type CapabilityContext<TNeeds extends readonly CapabilityName[]> = ContributionBase & {
-    readonly [K in Exclude<TNeeds[number], 'net'>]: CapabilityMap[K];
+    readonly [K in Exclude<TNeeds[number], 'mesh'>]: CapabilityMap[K];
 };
