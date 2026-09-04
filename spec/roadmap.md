@@ -337,6 +337,14 @@ because they are written against the same interfaces an outside author gets.
 - [ ] **A6.3 The workbench as an Extension.** The load-bearing test of the whole design: if the IDE
       shell cannot be written as an ordinary Extension over the window manager, the capability split
       is wrong and better to learn it here. **L** · ⛔ A2, A3
+- [ ] **A6.3a The Workspace Extension**, and the split A6.3 was missing. Decided 2026-09-03: **the
+      IDE is an Application; the Workspace is an Extension it consumes.** §1's test gives two
+      different answers — you quit an IDE and carry on, you kill a workspace and everything consuming
+      it breaks — so these are two kinds of thing that this document had been calling by one name.
+      The constraint that follows: an Extension is singleton and an Application has N instances, so
+      the Workspace Extension **provides** workspaces rather than being one — `provides = WORKSPACE`,
+      `activate()` hands back a handle per caller. A driver, not a document. **M** ·
+      [extension §8](./extension.md)
 - [ ] **A6.4 Auth Extension** — holds the session, attaches the ticket, handles sign-in and the
       revocation event. One per site. **M** · ⛔ C2
 - [x] **A6.5 Notification host** — the surface `notifications` renders into, themed per site.

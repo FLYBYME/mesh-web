@@ -406,6 +406,35 @@ and it is much better to learn that from writing the workbench than from the fir
 It is also what closed the previous attempt: PR #6 proposed shell *profiles* that baked two layouts
 into the framework, which is the same mistake as the `Shell` god object one level up.
 
+### The IDE is an Application that consumes a Workspace Extension — **Decided**
+
+> "the ide is an application that consumes a workspace extension right?"
+
+Yes, and saying it this way fixes a drift: this section called the workbench an *Extension*, while
+[the model §on nesting](./README.md) called it "a workbench **Application** hosting other
+Applications in its own tiles". Both were right about different things and both said "workbench".
+The two names are now separate:
+
+| | what it is | why |
+| --- | --- | --- |
+| **the IDE** | an Application | you start it, you quit it, it is in the process table, and two of them can be open on two projects |
+| **the Workspace** | an Extension | installed, not run; kill it and everything consuming it breaks |
+
+That is §1's test applied twice and getting two different answers, which is what makes the split
+real rather than a naming preference.
+
+**The constraint this puts on the Workspace Extension is the interesting part.** An Extension is
+singleton by nature and an Application has N instances, so a Workspace Extension cannot *be* a
+workspace — two IDE windows on two projects would fight over one Extension's state. It **provides**
+them: `provides = WORKSPACE`, and `activate()` returns an API that opens a project and hands back a
+handle per caller. A driver, not a document. That is the same shape as the auth Extension
+([hosting §on the singleton](./hosting.md)) — one thing that owns the resource, many callers holding
+what it gave them.
+
+It also settles what the nesting line was reaching for: the IDE Application hosts other Applications
+in its tiles, and what they have in common is not the chrome — it is the workspace they all read the
+project through.
+
 ---
 
 ## 9. Open
