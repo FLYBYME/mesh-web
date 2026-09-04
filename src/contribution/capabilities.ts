@@ -77,6 +77,75 @@ export interface Windows {
     readonly own: () => readonly WindowHandle[];
 }
 
+// ---------------------------------------------------------------------------- chrome
+
+/**
+ * One window, as chrome sees it.
+ *
+ * Deliberately **not** `WindowRecord`. Chrome needs to draw a tab and put a frame in a place; it does
+ * not need the record the manager keeps, and handing it over would make every field of an internal
+ * structure part of the contract an outside author writes against.
+ */
+export interface ChromeWindow {
+    readonly id: string;
+    /** Which contribution's window this is. A tab says who it belongs to. */
+    readonly owner: string;
+    readonly view: string;
+    readonly title: string;
+    /** Its slot in the split tree, in tiled mode. `undefined` for a window with no tile. */
+    readonly tile: string | undefined;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+    readonly closable: boolean;
+}
+
+/**
+ * Draw the shell: activity bar, tabs, panels, status bar.
+ *
+ * [extension §8](../../spec/extension.md) makes the workbench an Extension, and calls it the
+ * load-bearing test of the whole design — *if the IDE shell cannot be written as an ordinary
+ * Extension over the window manager, the capability split is wrong.* Writing it found that it could
+ * not: `windows` gives a contribution `open()` and `own()`, so a workbench could see its own windows
+ * and nobody else's, and tabs for every window is the entire job.
+ *
+ * The wrong repair would be to hand the workbench the `WindowManager`. That is the `Shell` god object
+ * [kernel §2](../../spec/kernel.md) rejects, one layer down — the previous generation passed every
+ * extension `layout, activityBar, tabs, docking, transport`, so a blog received a docking system.
+ *
+ * So it is a capability, and it obeys the same three rules `credentials` does:
+ *
+ * - **Declared, therefore visible.** `needs('chrome')` is in a manifest, and observing every window
+ *   is observing every Application. [kernel §4](../../spec/kernel.md)'s question — *could it observe
+ *   another Application's state?* — answers yes, which is exactly why it is written down.
+ * - **Narrow.** `ChromeWindow` above, not the manager's own record.
+ * - **Mechanics stay in the kernel.** [kernel §2](../../spec/kernel.md): moving, resizing and
+ *   stacking are kernel, not a decoration Extension, because a broken chrome must not be able to
+ *   make windows unresizable. What chrome does here is *ask* — it renders a resize edge and reports
+ *   the drag; the kernel decides what that means, applies the minimum size, and clamps to the
+ *   viewport.
+ */
+export interface Chrome {
+    /**
+     * Every window, bottom to top.
+     *
+     * A function rather than a signal so it can be read inside an effect and re-run when the manager
+     * changes — chrome is a view of the window list like any other view of any other state.
+     */
+    windows(): readonly ChromeWindow[];
+    focused(): string | undefined;
+    mode(): 'windowed' | 'tiled';
+
+    focus(id: string): void;
+    /** Refused for a window whose view declared itself unclosable — chrome does not overrule that. */
+    close(id: string): void;
+    /** A drag reported, not a position assigned. The kernel clamps. */
+    move(id: string, dx: number, dy: number): void;
+    resize(id: string, edge: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw', dx: number, dy: number): void;
+    setMode(mode: 'windowed' | 'tiled'): void;
+}
+
 // ---------------------------------------------------------------------------- credentials
 
 /**
@@ -128,6 +197,7 @@ export interface CapabilityMap {
     readonly notifications: Notifications;
     readonly windows: Windows;
     readonly credentials: Credentials;
+    readonly chrome: Chrome;
 }
 
 /**

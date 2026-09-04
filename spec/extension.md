@@ -435,6 +435,44 @@ It also settles what the nesting line was reaching for: the IDE Application host
 in its tiles, and what they have in common is not the chrome — it is the workspace they all read the
 project through.
 
+### What writing it found: the `chrome` capability — **Decided**
+
+Built 2026-09-04. §8 calls this section's claim the load-bearing test of the design, and the first
+honest attempt at it failed: **the capability split, as it stood, could not express a workbench.**
+
+`windows` gives a contribution `open()` and `own()`. A workbench could therefore see the windows it
+opened itself and nobody else's — and drawing a tab for every window is the entire job. There was no
+narrower thing missing; the shape simply was not there.
+
+The wrong repair is to hand the workbench the `WindowManager`. That is [kernel §2](./kernel.md)'s
+`Shell` god object one layer down — the previous generation gave every extension
+`layout, activityBar, tabs, docking, transport`, so a blog received a docking system — and it would
+also make every field the manager happens to store part of what an outside author writes against.
+
+So: `needs('chrome')`, following the three rules the `credentials` capability established
+([network §4](./network.md)):
+
+- **Declared, therefore visible.** Observing every window is observing every Application, and
+  [kernel §4](./kernel.md)'s question answers *yes*. That is the reason it is written down in a
+  manifest rather than made ambient, not a reason to refuse it.
+- **Narrow.** A stated `ChromeWindow` — id, owner, view, title, tile, rect, closable — never the
+  manager's record.
+- **Mechanics stay in the kernel.** §2 is explicit that moving, resizing and stacking are kernel and
+  not a decoration Extension. Chrome renders a resize edge and *reports the drag*; the kernel decides
+  what it means, applies the view's minimum size, and clamps to the viewport. A hostile chrome can
+  ask for anything and get what the kernel allows.
+
+Writing the third rule down immediately caught a violation of it. `closable` was stored on a window,
+handed to chrome, and **enforced nowhere** — so it told chrome which affordance to draw and stopped
+nothing, and any chrome could close a permanent window by asking. It is enforced now. Process
+teardown still ignores it, because the flag means *the user may not dismiss this*, not *this window
+outlives its Application*.
+
+**Still open: where chrome draws.** An activity bar and a tab strip are the frame *around* the
+windows, not windows, and no capability offers a surface outside the window area. It must not be a
+DOM handle — §2 gives the kernel that the DOM exists at all, and it must not be replaceable by the
+code it renders. Roadmap A6.3d.
+
 ---
 
 ## 9. Open

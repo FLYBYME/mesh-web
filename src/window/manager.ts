@@ -200,23 +200,40 @@ export class WindowManager {
         return record;
     }
 
+    /**
+     * Close a window, unless its view said it may not be.
+     *
+     * `closable` was stored, handed to chrome, and enforced nowhere — so it was a hint about which
+     * affordance to draw and nothing more, and any chrome could close a window the Application had
+     * declared permanent by simply asking. A flag that only well-behaved callers respect is not a
+     * flag. Found by the first test that asked chrome to do it (roadmap A6.3).
+     */
     close(id: string): void {
         const record = this.get(id);
-        if (record === undefined) return;
+        if (record === undefined || !record.closable) return;
+        this.#remove(id);
+    }
 
+    /**
+     * Everything one process owns. Called when it stops — the kernel cleans up, not the caller.
+     *
+     * This ignores `closable`, and must: the flag means *the user may not dismiss this*, not *this
+     * window outlives its Application*. A window whose process is gone has nothing behind it, and
+     * leaving one on screen would be a worse outcome than the one the flag guards against.
+     */
+    closeOwnedBy(owner: string): void {
+        for (const record of this.windows().filter((w) => w.owner === owner)) {
+            this.#remove(record.id);
+        }
+    }
+
+    #remove(id: string): void {
         this.windows.set(this.windows().filter((w) => w.id !== id));
         this.order.set(this.order().filter((entry) => entry !== id));
 
         if (this.focused() === id) {
             const remaining = this.order();
             this.focused.set(remaining[remaining.length - 1]);
-        }
-    }
-
-    /** Everything one process owns. Called when it stops — the kernel cleans up, not the caller. */
-    closeOwnedBy(owner: string): void {
-        for (const record of this.windows().filter((w) => w.owner === owner)) {
-            this.close(record.id);
         }
     }
 

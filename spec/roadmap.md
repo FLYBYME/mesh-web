@@ -344,7 +344,31 @@ because they are written against the same interfaces an outside author gets.
 - [ ] **A6.2 Application switcher** — the ordinary hotkey. **S** · ⛔ A2.8
 - [ ] **A6.3 The workbench as an Extension.** The load-bearing test of the whole design: if the IDE
       shell cannot be written as an ordinary Extension over the window manager, the capability split
-      is wrong and better to learn it here. **L** · ⛔ A2, A3
+      is wrong and better to learn it here. **L** · ⛔ A2, A3 · in progress — A6.3c done, A6.3d next
+- [x] **A6.3c The `chrome` capability**, and the answer to A6.3's question so far: **no, not with the
+      capabilities that existed.** `windows` gives a contribution `open()` and `own()`, so a workbench
+      could see its own windows and nobody else's, and tabs for every window is the entire job. The
+      wrong repair is handing it the `WindowManager` — that is [kernel §2](./kernel.md)'s `Shell` god
+      object one layer down, the thing that gave a blog a docking system. So `needs('chrome')`,
+      obeying the rules A3.1b's `credentials` established: declared and therefore visible (observing
+      every window is observing every Application), narrow (a stated `ChromeWindow`, never the
+      manager's own record), and **mechanics stay in the kernel** — chrome reports a drag, the kernel
+      clamps it and applies the view's minimum size. 9 tests. [extension §8](./extension.md)
+- [x] **A6.3c-i `closable` was decoration.** Found by the first test that asked chrome to close a
+      window declared unclosable: the flag was stored, projected to chrome, and enforced nowhere, so
+      any chrome could close it by asking. A flag only well-behaved callers respect is not a flag —
+      and it is the exact thing [kernel §2](./kernel.md) says mechanics-in-the-kernel is *for*, since
+      a broken or hostile chrome must not be able to do what an Application forbade. `close` now
+      refuses; `closeOwnedBy` still does not, because the flag means *the user may not dismiss this*,
+      not *this window outlives its Application*.
+- [ ] **A6.3d Where chrome draws.** The next question, and it wants thought rather than a quick
+      answer. An activity bar, a tab strip and a status bar are not windows — they are the frame
+      *around* the windows — so chrome needs a surface outside the window area, and there is no
+      capability for one. It must not be a DOM handle: [kernel §2](./kernel.md) says the kernel owns
+      that the DOM exists at all and it must not be replaceable by the code it renders. The likely
+      shape is that chrome contributes **descriptions** the way a view does, into regions the kernel
+      mounts — which would make the workbench chrome a set of declared views with a place to go,
+      rather than a special case. **M**
 - [ ] **A6.3a The Workspace Extension**, and the split A6.3 was missing. Decided 2026-09-03: **the
       IDE is an Application; the Workspace is an Extension it consumes.** §1's test gives two
       different answers — you quit an IDE and carry on, you kill a workspace and everything consuming

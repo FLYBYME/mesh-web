@@ -21,9 +21,10 @@ import { createScope } from '../reactivity/scope.js';
 import type { ReactiveScope, Signal } from '../reactivity/types.js';
 import type { Json } from '../description/types.js';
 import type {
-    CapabilityMap, CapabilityName, CommandImpl, Commands, Credentials, Log,
+    CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Credentials, Log,
     NotificationHandle, Notifications, State, WindowHandle, Windows,
 } from '../contribution/capabilities.js';
+import type { ResizeEdge } from '../window/geometry.js';
 import type { ErasedContext } from '../contribution/contract.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import type { AnyApiCall, Api } from '../net/api.js';
@@ -67,6 +68,21 @@ export interface WindowSink {
     focus(id: string): void;
     ownedBy(owner: string): readonly string[];
     closeOwnedBy(owner: string): void;
+
+    /**
+     * The chrome half — everything below is reachable only through `needs('chrome')`.
+     *
+     * On the sink rather than in a second interface because there is one window manager and this is
+     * its whole surface; what narrows access is the *capability*, which is where narrowing belongs.
+     * An Application declaring `windows` cannot reach any of these, and the switch in
+     * `createContext` is the only place that decides so.
+     */
+    all(): readonly ChromeWindow[];
+    focused(): string | undefined;
+    mode(): 'windowed' | 'tiled';
+    setMode(mode: 'windowed' | 'tiled'): void;
+    move(id: string, dx: number, dy: number): void;
+    resize(id: string, edge: ResizeEdge, dx: number, dy: number): void;
 }
 
 /**
@@ -125,6 +141,8 @@ export interface CredentialHolder {
 export function recordingWindows(): WindowSink & { readonly opened: { id: string; owner: string; view: string; params: Readonly<Record<string, Json>>; closed: boolean }[] } {
     const opened: { id: string; owner: string; view: string; params: Readonly<Record<string, Json>>; closed: boolean }[] = [];
     let next = 0;
+    let focused: string | undefined;
+    let mode: 'windowed' | 'tiled' = 'windowed';
 
     return {
         opened,
@@ -137,11 +155,30 @@ export function recordingWindows(): WindowSink & { readonly opened: { id: string
             const entry = opened.find((w) => w.id === id);
             if (entry !== undefined) entry.closed = true;
         },
-        focus() {},
+        focus(id) { focused = id; },
         ownedBy: (owner) => opened.filter((w) => w.owner === owner && !w.closed).map((w) => w.id),
         closeOwnedBy(owner) {
             for (const w of opened) if (w.owner === owner) w.closed = true;
         },
+
+        // Enough for chrome to be exercised with no DOM and no geometry: it can list, focus and
+        // switch mode. Everything positional answers zero, because a sink that records has no
+        // viewport to position anything in — a test that cares about geometry wants the real
+        // manager, and one that cares about what chrome *asked for* does not.
+        all: () => opened.filter((w) => !w.closed).map((w) => ({
+            id: w.id,
+            owner: w.owner,
+            view: w.view,
+            title: w.view,
+            tile: undefined,
+            x: 0, y: 0, width: 0, height: 0,
+            closable: true,
+        })),
+        focused: () => focused,
+        mode: () => mode,
+        setMode(next) { mode = next; },
+        move() {},
+        resize() {},
     };
 }
 
@@ -292,6 +329,9 @@ export function createContext(
             case 'credentials':
                 capabilities.credentials = makeCredentials(id, services);
                 break;
+            case 'chrome':
+                capabilities.chrome = makeChrome(services);
+                break;
         }
     }
 
@@ -436,6 +476,30 @@ function makeWindows(owner: string, services: KernelServices, _next: () => strin
     return {
         open: (options) => handle(services.windows.open(owner, options.view, options.params ?? {})),
         own: () => services.windows.ownedBy(owner).map(handle),
+    };
+}
+
+/**
+ * Chrome: the whole window list, and the mechanics the kernel owns.
+ *
+ * No `owner` parameter, and that is the difference from every other capability here. `windows`,
+ * `commands` and `notifications` all narrow to the contribution asking; chrome's entire job is the
+ * windows that are *not* its own, so narrowing by owner would leave it with nothing to draw. What
+ * takes the place of that narrowing is `needs('chrome')` being written down.
+ */
+function makeChrome(services: KernelServices): Chrome {
+    const sink = services.windows;
+
+    return {
+        windows: () => sink.all(),
+        focused: () => sink.focused(),
+        mode: () => sink.mode(),
+
+        focus: (id) => { sink.focus(id); },
+        close: (id) => { sink.close(id); },
+        move: (id, dx, dy) => { sink.move(id, dx, dy); },
+        resize: (id, edge, dx, dy) => { sink.resize(id, edge, dx, dy); },
+        setMode: (mode) => { sink.setMode(mode); },
     };
 }
 

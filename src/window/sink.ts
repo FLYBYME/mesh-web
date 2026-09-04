@@ -54,5 +54,27 @@ export function windowSink(
         focus: (id) => manager.focus(id),
         ownedBy: (owner) => manager.windows().filter((w) => w.owner === owner).map((w) => w.id),
         closeOwnedBy: (owner) => manager.closeOwnedBy(owner),
+
+        // The chrome half. Reachable only through `needs('chrome')` — see the capability, which is
+        // where the narrowing is decided. Everything here is a *projection* of the manager's records
+        // rather than the records themselves, so what an outside author writes chrome against is a
+        // stated shape and not whatever the manager happens to store this week.
+        all: () => manager.stacked().map((w) => ({
+            id: w.id,
+            owner: w.owner,
+            view: w.view,
+            title: w.title,
+            tile: w.tile,
+            x: w.rect.x,
+            y: w.rect.y,
+            width: w.rect.width,
+            height: w.rect.height,
+            closable: w.closable,
+        })),
+        focused: () => manager.focused(),
+        mode: () => manager.mode(),
+        setMode: (mode) => { manager.setMode(mode); },
+        move: (id, dx, dy) => { manager.move(id, dx, dy); },
+        resize: (id, edge, dx, dy) => { manager.resize(id, edge, dx, dy); },
     };
 }
