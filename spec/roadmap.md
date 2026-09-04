@@ -957,6 +957,41 @@ A3 (the remaining capabilities) · A6.1 · A6.2 · A6.6 · A7 (all) · A0.6
 > The first run is expected to fail badly, and **its failures are the requirements document.** Run it
 > before deciding what A3 and A7 owe, not after.
 
+- [ ] **A6.3g ★ Tiled mode can be entered by a site that has no tiles, and the screen goes blank.**
+      Found 2026-09-04 by looking at A6.7's console. `WindowManager.visible()` returns `[]` when
+      `layout() === undefined`, so an Application that declared no `layout` — and no `tile` on its
+      views — loses every window the moment chrome calls `setMode('tiled')`. No error, no warning, no
+      way back except pressing the button again. The console did exactly this: its three views target
+      no tile, because nothing said they had to.
+
+      Three things are wrong and they are worth separating. **The mode button is offered
+      unconditionally** — `Chrome` has `setMode` and no way to ask whether tiling is *possible* here,
+      so honest chrome cannot grey it out. **The refusal is silent** — a manager asked to tile with no
+      layout should say so, not return an empty list. And **`layout` is optional with no default**,
+      which is right for a blog and wrong as the only answer: a site with three windows and no
+      opinion about arrangement is the common case, so tiled mode should have a fallback tiling
+      rather than requiring a declared one.
+      Probably: `Chrome.canTile()`, a thrown or logged refusal, and a default grid. Decide the three
+      together. **M** · [application §6](./application.md)
+- [ ] **A6.3h ★ Chrome sees windows in stacking order, so a tab strip reorders itself when clicked.**
+      Found the same way, and reported as *"console-tabs switches windows? it moves around a lot."*
+      `windowSink`'s `all()` is `manager.stacked()`, which is z-order, and focusing raises. So
+      clicking a tab moves that tab — the affordance relocates under the pointer at the moment it is
+      used, which is the worst possible time.
+      Stacking order is right for *painting* and wrong for *listing*, and chrome is given only the
+      one. A tab strip wants creation order, which is stable and which nothing currently exposes.
+      `ChromeWindow` should carry the ordering chrome needs — either `windows()` in a stable order
+      with z-order available separately, or an `openedAt` to sort by. The workbench in `browser/` has
+      the same bug and nobody noticed, because it was only ever driven by tests. **S**
+- [ ] **A6.3i Dragging and resizing a window do nothing in the console.** Observed 2026-09-04, **not
+      yet explained, and not reproduced in a test.** Focus works and z-index changes, so the frame's
+      capture-phase `pointerdown` → `manager.focus` path is live; the title bar's own `drag` handler
+      or the `manager.move` it calls is not reaching the paint. The browser suite covers exactly this
+      (`moves a window by its title bar`) and passes, so the difference is something about the
+      console — chrome rendered around the host, its own stylesheet, or the chrome re-render that
+      A6.3h describes firing between `pointerdown` and `pointermove`.
+      **Needs a browser to diagnose and should not be guessed at.** Listed so it is not lost: it is
+      the largest remaining thing wrong with the first real site. **M**
 - [x] **A6.3f ★ Whoever writes `left` owns `position`.** *(fixed 2026-09-04)* `mountShell` set
       `left`, `top`, `width` and `height` on every window from the manager, and never said the box
       was positioned. A site whose stylesheet did not happen to declare `position: absolute` got
@@ -986,6 +1021,30 @@ A3 (the remaining capabilities) · A6.1 · A6.2 · A6.6 · A7 (all) · A0.6
       Splitting them recreates precisely the drift C3.2 and B8 exist to prevent: the site's repo is
       the source of truth for what it exposes and where it runs, and that only holds if there is one
       repo to be the source. **L** · ⛔ A6.8, A6.9
+
+      **Built 2026-09-04, and it works end to end.** `github.com/FLYBYME/surfdns-console`: `service/`
+      composes a MeshApp with identity, its own `console.status` module and the API in one process;
+      `ui/` is an Application plus its own chrome Extension over `@flybyme/mesh-web` **as an installed
+      dependency** — no `paths` mapping, no import map, resolved through `node_modules` and the
+      `exports` map. The client is generated from the service's own exposure with no cluster running.
+      The builder cloned a commit, ran `npm ci && npm run build:ui` with `MESH_API` from `mesh.json`,
+      produced a 201-file artifact, and the CDN served it on a hostname. Sign-in works against real
+      identity and the cluster reports its own modules to the browser.
+
+      **Not closed, because the point of the item is what it finds, and it is still finding things.**
+      Six defects in a day, five of them the framework's: `identity.ticket_issue` was internal so a
+      site could not expose signing in; **an intent carried no value, so a form was impossible to
+      write** (A7.8); the shell positioned windows without saying they were positioned (A6.3f);
+      tiled mode blanks a site with no layout (A6.3g); chrome lists windows in z-order so a tab strip
+      moves when clicked (A6.3h); and dragging does not work in the console for reasons not yet known
+      (A6.3i). Close this when a person can use the console without hitting one.
+
+      Two findings about *method*, worth more than any single bug. **A fixture that supplies what the
+      framework forgot cannot fail on it** — A6.3f survived eight browser tests because the test's own
+      stylesheet provided the missing rule. And **`npm` git refs plus a lockfile make *installed* and
+      *pushed* different things**: the console ran for an hour against a framework that predated
+      A7.8, typechecking clean the whole time, because the syntax was valid in both and only the
+      behaviour differed.
 - [x] **A6.8 Make `@flybyme/mesh-web` installable.** *(done 2026-09-04)* The same defect B2b fixed
       one repository over: `dist/` is gitignored and there was no `prepare` script, so
       `npm i github:FLYBYME/mesh-web` yielded a package whose `main` pointed at a directory that was
