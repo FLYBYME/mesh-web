@@ -678,6 +678,35 @@ mesh-web's server half. **None of it exists** — no server, no builder, no `web
       itself. It must be **refused when `tenantId` is set** and must never be reachable from a
       deployed node's config, because an alias is by construction a way to serve one hostname's
       content under another — exactly what B6 exists to prevent. **S** · ⛔ nothing
+- [ ] **B8c ★ `deploy.mjs` serves one repository, and 404s convincingly while it builds.** Found
+      2026-09-05, both halves by using it. **One repository**: the script builds a single `--repo` and
+      then sits, and the node it starts registers no `api` module — so `builder.build_start` is
+      unreachable from outside the process and a running deploy cannot be told about a second site.
+      The CDN's own routing is already fine for this: `normalizeHostname` lowercases and strips the
+      port, so `localhost` and `127.0.0.1` are distinct keys and one node on one port can serve both.
+      **The multi-tenant claim has therefore never been asked for anything** — every deploy so far has
+      published exactly one hostname. Making `--repo` repeatable is ~10 lines and turns the claim into
+      something that runs.
+      **The 404**: the CDN module is registered *before* `build_start` is called, so for the ~90s of a
+      build the server is live and answering `No site is configured for this hostname.` — a message
+      indistinguishable from the real misconfiguration it exists to report. Either register the CDN
+      after the build, or say plainly that the URL will 404 until the build lands. **S** · ⛔ nothing
+- [ ] **B8d ★ A UI-only repository has no way to generate its client.** Found 2026-09-05, from the
+      observation that `surfdns-console` should not contain a service half at all: the services belong
+      in `surfdns`, and the console is *the UI part of surfdns*. B8b made `service` and `ui` both
+      optional precisely so a repo could be one or the other — and the build-time client generation
+      that C3.1a exists for quietly assumes **both**. `surfdns-console/service/src/generate.ts` imports
+      `descriptor()` from its own `site.js`; with no service half there is no `service.entry`, nothing
+      to call `describeExposure()` on, and no client.
+      So the console's service half is not a design, it is scaffolding: `console.status` was invented
+      to give a screen something to call — the file says so in its own header — and `mesh.json` claims
+      `"domains": ["console"]` for a repo that provides no domain.
+      Three shapes and none is obviously right. **The API repo publishes a client package**, which is
+      simple and adds a release step between a contract changing and a UI seeing it. **The UI takes a
+      build-time dependency on the API repo** and runs its `describeExposure()`, which keeps the
+      no-cluster property and couples two repositories at build time. **`mesh.json` names an external
+      exposure source**, which is the general answer and the most to design. Decide before splitting
+      the console, because the split is blocked on it. **M** · [hosting §0a](./hosting.md)
 - [ ] **B9 Artifact storage and cache invalidation** across nodes. **M**
 - [ ] **B10 Build triggers** — push, manual, promotion between environments. **M**
 - [ ] **B11 Per-tenant quotas and abuse handling.** ⛔ genuinely open: a per-node limit is ten times
@@ -973,6 +1002,18 @@ A3 (the remaining capabilities) · A6.1 · A6.2 · A6.6 · A7 (all) · A0.6
       rather than requiring a declared one.
       Probably: `Chrome.canTile()`, a thrown or logged refusal, and a default grid. Decide the three
       together. **M** · [application §6](./application.md)
+
+      **Worse than the above — found 2026-09-05 when the same button worked in the harness and did
+      nothing in the console.** `setLayout` has exactly one caller outside the tests, and it is
+      `browser/harness.ts:695`: `manager.setLayout(kernel.manifest.layouts.get('blog'))`. **Nothing
+      in `src/` ever calls it.** The kernel gathers `manifest.layouts` from every Application and then
+      never applies one; the harness gets away with it because it *is* the boot code and can reach the
+      manager directly, hardcoding the application name. An installed site cannot: `setLayout` is not
+      on `Chrome`, not on `windows`, and not exported from `src/index.ts`.
+      So tiled mode has never worked for anyone but this repository's own harness, and the fix is not
+      a default grid but the missing wire — the kernel should apply the focused Application's declared
+      layout, and the fallback grid is what it uses when there isn't one. Exactly A6.3f's shape again:
+      **the harness supplied what the framework forgot, so nothing failed.**
 - [ ] **A6.3h ★ Chrome sees windows in stacking order, so a tab strip reorders itself when clicked.**
       Found the same way, and reported as *"console-tabs switches windows? it moves around a lot."*
       `windowSink`'s `all()` is `manager.stacked()`, which is z-order, and focusing raises. So
