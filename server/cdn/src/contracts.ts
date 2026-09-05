@@ -16,12 +16,21 @@
 
 import { defineContract, z } from '@flybyme/mesh';
 
+const MountSchema = z.object({
+    at: z.string().min(1),
+    artifactDigest: z.string().min(1),
+});
+
+// A field missing here is a field deleted from the wire — zod strips what a schema does not
+// mention, which is how `Artifact.declaration` was built, stored and then dropped by its own
+// contract the same day. Adding to `Site` in the protocol package means adding it here.
 const SiteSchema = z.object({
     hostname: z.string(),
     application: z.string(),
     environment: z.string(),
     tenantId: z.string(),
     artifactDigest: z.string(),
+    mounts: z.array(MountSchema).optional(),
     updatedAt: z.number(),
 });
 
@@ -58,6 +67,8 @@ export const sitePutContract = defineContract({
         environment: z.string().min(1),
         tenantId: z.string().min(1),
         artifactDigest: z.string().min(1),
+        /** Further artifacts under a path — the shared kernel, and later each part. See `Mount`. */
+        mounts: z.array(MountSchema).optional(),
     }),
     outputSchema: z.object({ site: SiteSchema, previousDigest: z.string().optional() }),
     rest: { method: 'PUT', path: '/cdn/sites/:hostname' },

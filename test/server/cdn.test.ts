@@ -15,7 +15,7 @@ import { request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-    createCdn, normalizeHostname, pathOf, resolveFile, siteCache, TenantMismatch,
+    createCdn, normalizeHostname, pathOf, resolveFile, resolveMount, siteCache, TenantMismatch,
     type ArtifactSource, type SiteSource,
 } from '../../server/cdn/src/index.js';
 import { artifactDigest, contentTypeOf, digestOf } from '../../server/builder/src/index.js';
@@ -48,9 +48,33 @@ const artifact: Artifact = {
     buildId: 'b1',
 };
 
+/**
+ * A second artifact, standing in for the shared kernel.
+ *
+ * Deliberately with **no `index.html`**: that is what makes a missing module 404 rather than being
+ * answered with the site's page, which arrives in the console as `Unexpected token '<'`.
+ */
+const kernelFiles = [
+    fileOf('index.js', 'export const kernel = 1'),
+    fileOf('window/shell.js', 'export const shell = 1'),
+];
+
+const kernel: Artifact = {
+    digest: artifactDigest(kernelFiles.map((b) => b.file)),
+    files: kernelFiles.map((b) => b.file),
+    totalSize: kernelFiles.reduce((n, b) => n + b.file.size, 0),
+    builtAt: 0,
+    buildId: 'k1',
+};
+
+const all = [...built, ...kernelFiles];
+
 const artifacts: ArtifactSource = {
-    async getArtifact(digest) { return digest === artifact.digest ? artifact : undefined; },
-    async getBlob(digest) { return built.find((b) => b.file.digest === digest)?.content; },
+    async getArtifact(digest) {
+        if (digest === artifact.digest) return artifact;
+        return digest === kernel.digest ? kernel : undefined;
+    },
+    async getBlob(digest) { return all.find((b) => b.file.digest === digest)?.content; },
 };
 
 const site = (over: Partial<Site> = {}): Site => ({
@@ -373,6 +397,82 @@ describe('resolution details', () => {
         expect(resolveFile(artifact, '/about')?.path).toBe('about/index.html');
         expect(resolveFile(artifact, '/anything/at/all')?.path).toBe('index.html');
         expect(resolveFile(artifact, '/missing.js')).toBeUndefined();
+    });
+
+    it('resolves a mounted artifact by longest prefix, on a segment boundary', () => {
+        const mounted = site({
+            mounts: [
+                { at: '/framework', artifactDigest: kernel.digest },
+                { at: '/framework/window', artifactDigest: 'sha256:deeper' },
+            ],
+        });
+
+        // The site's own artifact answers everything unclaimed.
+        expect(resolveMount(mounted, '/index.html')).toEqual({
+            digest: artifact.digest, path: '/index.html',
+        });
+
+        // A mount answers under its prefix, with the prefix stripped.
+        expect(resolveMount(mounted, '/framework/index.js')).toEqual({
+            digest: kernel.digest, path: '/index.js',
+        });
+
+        // Longest wins, so a mount can sit inside another.
+        expect(resolveMount(mounted, '/framework/window/shell.js')).toEqual({
+            digest: 'sha256:deeper', path: '/shell.js',
+        });
+
+        // **A prefix matches a path segment, never a substring.** Otherwise adding a mount would
+        // silently steal pages the site already served.
+        expect(resolveMount(mounted, '/frameworks-of-the-world.html')).toEqual({
+            digest: artifact.digest, path: '/frameworks-of-the-world.html',
+        });
+
+        // The mount point itself asks the mounted artifact for its root.
+        expect(resolveMount(mounted, '/framework')).toEqual({ digest: kernel.digest, path: '/' });
+    });
+
+    it('serves the kernel from a mount and the page from the site, over real HTTP', async () => {
+        const { url } = await serve({
+            sites: sitesFrom([site({ mounts: [{ at: '/framework', artifactDigest: kernel.digest }] })]),
+            artifacts,
+        });
+
+        const page = await fetchAs(url, '/');
+        const module_ = await fetchAs(url, '/framework/index.js');
+
+        expect(await page.text()).toContain('<title>Blog</title>');
+        expect(await module_.text()).toBe('export const kernel = 1');
+        // A module must arrive as one, or the browser refuses to execute it.
+        expect(module_.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    });
+
+    it('404s a missing module under a mount instead of answering with the page', async () => {
+        // The failure this prevents reaches a developer as `Unexpected token '<'`, which says
+        // nothing about what happened. `resolveFile`'s entry-document fallback applies within the
+        // *mounted* artifact, and the kernel has no index.html — so the fallback finds nothing.
+        const { url } = await serve({
+            sites: sitesFrom([site({ mounts: [{ at: '/framework', artifactDigest: kernel.digest }] })]),
+            artifacts,
+        });
+
+        const missing = await fetchAs(url, '/framework/not-a-module.js');
+
+        expect(missing.status).toBe(404);
+        expect(await missing.text()).not.toContain('<title>');
+    });
+
+    it('503s when a mounted artifact is not on this node, naming neither as a 404', async () => {
+        const { url } = await serve({
+            sites: sitesFrom([site({ mounts: [{ at: '/framework', artifactDigest: 'sha256:absent' }] })]),
+            artifacts,
+        });
+
+        // The hostname is configured and the content exists somewhere: this node failing is not the
+        // caller being wrong, and B7 says any node can fetch what it lacks.
+        expect((await fetchAs(url, '/framework/index.js')).status).toBe(503);
+        // The site's own artifact is unaffected — one missing mount does not take the page down.
+        expect((await fetchAs(url, '/')).status).toBe(200);
     });
 
     it('shares one lookup between concurrent requests for a cold hostname', async () => {

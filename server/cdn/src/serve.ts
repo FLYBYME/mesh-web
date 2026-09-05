@@ -10,7 +10,7 @@
  * making one node different from another.
  */
 
-import type { Artifact, ArtifactFile } from '@flybyme/mesh-web-protocol';
+import type { Artifact, ArtifactFile, Mount } from '@flybyme/mesh-web-protocol';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer, type Server } from 'node:http';
 
@@ -106,7 +106,10 @@ export function createCdn(options: CdnOptions): CdnServer {
             // decided.
             assertTenant(hostname, site, options.tenantId);
 
-            const artifact = await artifactFor(site.artifactDigest);
+            // Which artifact answers this path: a mount if one claims it, the site's own otherwise.
+            const mount = resolveMount(site, path);
+
+            const artifact = await artifactFor(mount.digest);
             if (artifact === undefined) {
                 // The site record points at content this node cannot get. Not a 404: the hostname is
                 // configured and the answer exists somewhere, so this is the cluster failing rather
@@ -114,7 +117,7 @@ export function createCdn(options: CdnOptions): CdnServer {
                 return send(res, 503, {}, 'That site’s content is not available from this node yet.');
             }
 
-            const file = resolveFile(artifact, path);
+            const file = resolveFile(artifact, mount.path);
             if (file === undefined) {
                 return send(res, 404, {}, 'Not found');
             }
@@ -213,6 +216,47 @@ export function pathOf(url: string): string {
  * HTML in its place produces "Unexpected token '<'" in the console and nothing that says what
  * actually happened.
  */
+/**
+ * Which artifact answers a path, and what the path is *inside* it — the kernel/apps split.
+ *
+ * A site's own artifact answers `/`. A mount claims a prefix and answers everything under it, with
+ * the prefix stripped: `/framework/index.js` against a mount at `/framework` asks that artifact for
+ * `index.js`. **Longest prefix wins**, so `/app/chrome` can be mounted inside `/app`.
+ *
+ * Two rules that are not obvious and are the reason this is a named function with tests:
+ *
+ * **A prefix matches on a path segment, never a substring.** `/frameworks-of-the-world.html` must
+ * not be captured by a mount at `/framework`, or adding a mount would silently steal pages the site
+ * already served.
+ *
+ * **A mount is not a redirect.** It resolves within its own artifact, so `resolveFile`'s rule 3 —
+ * serve the entry document for an unmatched path — applies to the *mounted* artifact. A framework
+ * mount has no `index.html`, which is what makes a missing module 404 instead of returning HTML that
+ * the browser reports as `Unexpected token '<'`.
+ */
+export function resolveMount(
+    site: { readonly artifactDigest: string; readonly mounts?: readonly Mount[] },
+    path: string,
+): { readonly digest: string; readonly path: string } {
+    let best: Mount | undefined;
+
+    for (const mount of site.mounts ?? []) {
+        const at = mount.at.endsWith('/') ? mount.at.slice(0, -1) : mount.at;
+        if (at === '' || !path.startsWith(at)) continue;
+
+        // The next character must end the segment, or `/framework` would claim `/frameworks`.
+        const next = path.charAt(at.length);
+        if (next !== '' && next !== '/') continue;
+
+        if (best === undefined || at.length > best.at.length) best = { ...mount, at };
+    }
+
+    if (best === undefined) return { digest: site.artifactDigest, path };
+
+    const rest = path.slice(best.at.length);
+    return { digest: best.artifactDigest, path: rest === '' ? '/' : rest };
+}
+
 export function resolveFile(artifact: Artifact, path: string): ArtifactFile | undefined {
     const clean = path.replace(/^\/+/, '');
     const byPath = new Map(artifact.files.map((f) => [f.path, f]));

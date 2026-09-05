@@ -220,9 +220,38 @@ export interface Site {
      * cookies. A serving-layer invariant checks this, and it needs the answer to be here.
      */
     readonly tenantId: string;
-    /** What this hostname currently serves. Changing it is the deploy. */
+    /** What this hostname currently serves at `/`. Changing it is the deploy. */
     readonly artifactDigest: string;
+    /**
+     * Further artifacts, mounted under a path — the kernel/apps split.
+     *
+     * **Until this existed a hostname served exactly one artifact**, so a site that wanted a
+     * framework had no way to reference one and `site.mjs` copied it in. Measured on the first real
+     * site: `out/framework` was 1.1 MB across 192 files against `out/app`'s 72 KB across 8 — **94% of
+     * every artifact was a private copy of the kernel**, and two sites on one node meant two copies
+     * of identical bytes with different URLs.
+     *
+     * Different URLs is the part that matters. Blobs already dedupe in the store, so the waste was
+     * never really storage; it is that a browser resolves modules by URL, so two copies are two
+     * module graphs and two of every singleton the capability model depends on. Mounting one
+     * content-addressed kernel at one path is what makes it one kernel.
+     *
+     * Longest prefix wins, and a mount never shadows a file the root artifact actually has — see
+     * `resolveMount`.
+     */
+    readonly mounts?: readonly Mount[];
     readonly updatedAt: number;
+}
+
+/**
+ * One artifact, served under a path prefix.
+ *
+ * `at` is a name within the site's URL space — `/framework` — not a location on any disk, the same
+ * distinction this file's header draws for `ArtifactFile.path`.
+ */
+export interface Mount {
+    readonly at: string;
+    readonly artifactDigest: string;
 }
 
 // ---------------------------------------------------------------------------- deployment
