@@ -576,6 +576,44 @@ none of this is speculative.
 - [ ] **A8.9 The gamepad poll loop** — only while connected, stopped when hidden, dead zones and
       repeat shaping. It is battery on a handheld. **M** · [input §9](./input.md)
 
+### A9 — Composition and the marketplace
+
+Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned out to be one question,
+and [extension §7a](./extension.md) is where the argument lives.
+
+- [ ] **A9.1 ★ Decide whether a site's composition is code or data.** ⛔ **Gates everything else in
+      this group.** §7 has always said a third-party Extension is "declared by the site that wants
+      it" and has never said *where*. Today the answer is a boot file: `ui/src/main.ts` imports
+      nineteen symbols and the compiler resolves the set, which buys the property that **a running
+      site is exactly a function of a commit**. mesh-ui answered the opposite way and it worked —
+      `uiManifestCrud` records with `disabled` / `autoLoad`, `uiArtifactCrud` bundles, a `ui.build`
+      contract, and `ExtensionManager` doing `await import(url)` on first use — which buys a
+      marketplace and a one-second loop and gives up being able to say what is running.
+      **Proposed: composition is data, resolution is a build.** The marketplace writes a manifest
+      record, the write triggers a build, the build resolves the enabled set into one
+      content-addressed artifact, and the hostname points at the digest. Keeps `site_put` as the
+      deploy and keeps a site nameable as a commit plus a manifest version; gives up runtime
+      `import(url)`. Decide before building any of A9.2–A9.5. **M** ·
+      [extension §7a](./extension.md)
+- [ ] **A9.2 The manifest — what a site says it has installed.** Not `mesh.json`: B8b's descriptor is
+      **build input**, and a manifest a person edits is runtime config. Two files on purpose. Needs
+      an owner (the API), a write gate (`admin` or a permission — never `public`, since the site is
+      the isolation boundary), and an answer for a declared-but-missing part, which today the
+      compiler makes unrepresentable. **M** · ⛔ A9.1
+- [ ] **A9.3 Rebuild as a contract.** mesh-ui had `ui.build` plus `ui.build_started` /
+      `_completed` / `_failed`; mesh-web has `builder.build_start` and no way to reach it, which is
+      B8c. The two are the same contract seen from different ends, and A9.1 decides whether the unit
+      being rebuilt is a site or a part of one. **S** · ⛔ A9.1, B8c
+- [ ] **A9.4 The marketplace Application.** Browse, install, enable, disable, update. **Not shipped
+      with the framework** — §7's own correction about the workbench applies unchanged: a blog
+      installing `@flybyme/mesh-web` should no more receive a shop than an activity bar. Writing it
+      outside the package is the only honest test that the contracts are enough, which is exactly how
+      A6.3d found that `Chrome` was never exported. mesh-ui has an `ExtensionListView.ts` to read
+      first. **L** · ⛔ A9.1, A9.2
+- [ ] **A9.5 Installing must not cost a full site build.** If a site is composed by data, installing
+      one Extension triggering a ninety-second `npm ci` is the difference between a marketplace and a
+      form that occasionally works. Makes A6.8a load-bearing rather than an annoyance. **M** · ⛔ A9.1
+
 ---
 
 ## Track B — The CDN and the builder

@@ -407,6 +407,95 @@ survivable is that the API is the gatekeeper ([kernel §4](./kernel.md), [auth �
 
 ---
 
+## 7a. Where a site *declares* what it installs — **Open, and it gates the marketplace**
+
+> "i think i need to see the 'marketplace' app and extention"
+
+§7 says a third-party Extension is "declared by the site that wants it" and then never says **where**.
+That clause has been carrying the whole question, and three separate asks turn out to be the same
+one underneath it: a marketplace, posting a `mesh.json` to a running builder, and mesh-ui's old
+contract for rebuilding a UI bundle. None of them can be built until this is answered, and each of
+them answers it by implication if built without deciding.
+
+### The answer today is: in code
+
+`surfdns-console/ui/src/main.ts` imports nineteen symbols and hands the kernel a fixed set of
+Extensions and Applications. A site's composition is a **boot file**, resolved by the compiler.
+Adding an Extension means editing that file, committing, and building — one commit, one `npm ci`,
+one artifact, one digest, one hostname. [hosting §2](./hosting.md) closes the loop: *changing what a
+hostname points at is what publishes it.*
+
+Read plainly, that is a strong property and not an accident. **A running site is exactly a function
+of a commit.** Ask what is deployed and the answer is a ref and a digest, both nameable, both
+reproducible by anyone with the repository.
+
+### mesh-ui answered it the other way, and it worked
+
+Worth reading before deciding, because it is the same author solving the same problem with the
+opposite instinct — `~/code/mesh-ui`, `src/services/uiservice/`:
+
+- `uiManifestCrud` — a **CRUD collection** of UI parts: `{ name, domain, sourceDir, entryFile,
+  activeBuildId, status, disabled, autoLoad }`.
+- `uiArtifactCrud` — versioned build outputs, `type: 'shell' | 'extension'`, content hashed.
+- `ui.build` — rebuild one manifest into a new artifact; `ui.build_started` / `ui.build_completed` /
+  `ui.build_failed` say so on the bus.
+- `ExtensionManager` — registers each manifest's icons and menus **without downloading anything**,
+  then on first use: `const module = await import(url)`.
+
+So composition is **data in the mesh**, installing is a write, and the shell lazily loads what is
+enabled. That is a marketplace already; it is missing only a shop front. It also makes the fast loop
+possible — rebuild one extension in a second, rather than one site in ninety.
+
+### The fork
+
+| | composition as code | composition as data |
+| --- | --- | --- |
+| where declared | a boot file, resolved by `tsc` | records, resolved at runtime |
+| installing something | commit, build, publish | a row and a bundle |
+| "what is running on that node?" | a ref and a digest | ⛔ not answerable |
+| a broken third-party bundle | fails the build | fails in the user's browser |
+| cost of one change | a full site build (~90s, A6.8a) | a second |
+
+Neither column is obviously right, and the second column's ⛔ is the exact pain named as the reason
+this project exists — *stale mongo, stale k3d, nobody knows anything*. A marketplace that reintroduces
+it would be a bad trade however good the shop front is.
+
+### Proposed: composition is data, resolution is a build
+
+The middle is available and is probably the answer. **The marketplace writes a manifest record; the
+write triggers a build; the build resolves the enabled set into one content-addressed artifact; the
+hostname points at the digest.**
+
+What that keeps: a running site is still exactly a commit *plus a manifest version*, both nameable,
+both reproducible. `site_put` remains the deploy. The builder stays the only thing that turns source
+into bytes, which is [hosting](./hosting.md)'s position and the reason artifacts are hashed at all.
+
+What it gives up: `await import(url)` at runtime, and with it the one-second loop. A dev-mode
+exception for the *author's own* extension is defensible — it is not what a tenant's site does — but
+it should be an exception that names itself, not the mechanism.
+
+What it costs: the build has to become fast enough that installing something is not a ninety-second
+wait, which makes A6.8a load-bearing rather than an annoyance.
+
+### What must be answered either way
+
+- **Where does the manifest live?** A record in the API is the mesh-ui answer. `mesh.json` is the
+  build-input answer and [B8b](./roadmap.md) already says a descriptor is build input, not runtime
+  config — a manifest a user edits is exactly runtime config, so these are different files and
+  should not be merged into one out of tidiness.
+- **Who may write it?** Installing an Extension into a site is a privilege operation, and the site is
+  the isolation boundary ([hosting §3](./hosting.md)). It is `auth: 'admin'` or a permission, never
+  `public`.
+- **What does the kernel do with a declared-but-missing part?** Today the compiler makes this
+  unrepresentable. Data cannot, so the kernel needs an answer — refuse to boot, or boot degraded and
+  say so. §5's ordering rules are what break if a `consumes` cannot be satisfied.
+- **Does the marketplace ship with the framework?** By §7's own correction about the workbench:
+  **no.** A blog installing `@flybyme/mesh-web` should no more receive a shop than an activity bar.
+  It is an Application over the same contracts, and writing it outside the package is the only honest
+  test that those contracts are enough.
+
+---
+
 ## 8. The workbench is an Extension — **Decided**
 
 > "i think i should be able to write an extention that would cover the 'workbench' idea too"
