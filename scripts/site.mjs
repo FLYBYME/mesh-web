@@ -32,13 +32,39 @@ await cp(join(root, 'browser', 'dist'), join(out, 'app'), { recursive: true });
 
 const page = await readFile(join(root, 'browser', 'index.html'), 'utf8');
 
+/**
+ * Where the API is, baked in — and until 2026-09-05 this repository did not do it.
+ *
+ * `mesh.json` has always declared an `api` per environment, and the builder has always passed it as
+ * `MESH_API`. `surfdns-console` bakes it into the page. **This site ignored it**, because
+ * `browser/harness.ts` hardcoded `http://127.0.0.1:5005` — so mesh-web's own descriptor declared a
+ * field that mesh-web's own site did not honour, and the format's first user was the one disproving
+ * it. Found by deploying two sites side by side, giving one of them a different API port, and
+ * watching nothing change.
+ *
+ * The one value a site cannot discover at run time is where its API is: a browser has only the
+ * origin it was served from, and hosting §1 puts the API behind the same proxy in production and on
+ * another port here.
+ */
+const api = process.env['MESH_API'];
+
 const served = page
     .replace('"@flybyme/mesh-web": "../dist/index.js"', '"@flybyme/mesh-web": "/framework/index.js"')
-    .replace('src="./dist/harness.js"', 'src="/app/harness.js"');
+    .replace('src="./dist/harness.js"', 'src="/app/harness.js"')
+    .replace('<html lang="en">', api === undefined ? '<html lang="en">' : `<html lang="en" data-api="${api}">`);
 
 // Absolute paths, so a deep link into a client-routed app resolves the same modules as `/` does.
 // The CDN serves `index.html` for any non-asset path, and a relative `./app/harness.js` under
 // `/posts/42` would ask for `/posts/app/harness.js` and get the page back as JavaScript.
+if (api !== undefined && !served.includes(`data-api="${api}"`)) {
+    // The same argument as the markers below: a rewrite that quietly did nothing produces a site
+    // that runs and calls the wrong place, which is worse than one that fails to build.
+    throw new Error(
+        'MESH_API was set but the page was not rewritten: browser/index.html no longer opens with ' +
+        '<html lang="en">, so the site would silently keep the harness\'s built-in default.',
+    );
+}
+
 for (const marker of ['/framework/index.js', '/app/harness.js']) {
     if (!served.includes(marker)) {
         throw new Error(

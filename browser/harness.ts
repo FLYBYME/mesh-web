@@ -398,6 +398,18 @@ kernel.services.windows = windowSink(manager, (owner, view) => kernel.viewOf(own
  * in as somebody else without reloading.
  */
 const API_ORIGIN = new URLSearchParams(location.search).get('api')
+    /**
+     * What the *build* said, from `mesh.json`'s `api` for the environment — added 2026-09-05.
+     *
+     * Until this line the constant below was the whole answer, so this repository declared an `api`
+     * in its own descriptor and then ignored it. Deploying this site and the console side by side,
+     * with different API ports, changed nothing at all: the page went on calling 5005 because it was
+     * written down here. **The descriptor's first user was the one disproving the field.**
+     *
+     * `?api=` still wins, because a test pointing one page at a specific server is a stronger
+     * statement than a deployment default.
+     */
+    ?? document.documentElement.dataset['api']
     // A page served from somewhere other than the local dev server has no mesh-api to reach, so it
     // runs against the in-page transport below. `?api=http://…` points it at a real one.
     ?? (location.hostname === 'localhost' || location.hostname === '127.0.0.1'
