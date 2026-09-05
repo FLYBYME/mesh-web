@@ -766,7 +766,27 @@ mesh-web's server half. **None of it exists** — no server, no builder, no `web
       **The 404**: the CDN module is registered *before* `build_start` is called, so for the ~90s of a
       build the server is live and answering `No site is configured for this hostname.` — a message
       indistinguishable from the real misconfiguration it exists to report. Either register the CDN
-      after the build, or say plainly that the URL will 404 until the build lands. **S** · ⛔ nothing
+      after the build, or say plainly that the URL will 404 until the build lands.
+      **Done 2026-09-05, and running it found more than the entry did.** `--repo` is repeatable, with
+      two tests that ask the multi-tenant claim for something. The first real run published **both
+      repositories to `localhost`**, and the second silently won: `site_put` is last-write-wins, which
+      is correct — pointing a hostname at an artifact *is* the deploy — so from the CDN's position that
+      is two deploys of one site. The script is the only thing that knows otherwise, and now refuses
+      before the first build rather than after two minutes of `npm ci`. `--repo <path>#<environment>`
+      exists because two hostnames need two environments, which one global `--environment` could not
+      express.
+      **The other half of this entry was wrong.** Registering the CDN after the builds cannot work:
+      publishing *is* `cdn.site_put`, so the module must be mounted first — and the module that owns
+      the site map is the one that binds the port. Deferring only the listener would put a
+      `listen: false` on a production serving module for a dev script's sake. So the script says it up
+      front instead.
+      **Still open, one layer down: every `local` environment also names `http://127.0.0.1:5005`.**
+      Two sites on one node need two APIs, and the hostname collision this entry fixed has an exact
+      twin in the `api` field — with the difference that the deployer *cannot* detect it, because it
+      does not run APIs and a URL that is not listening yet is indistinguishable from one that never
+      will. `mesh-web`'s `loopback` environment now names `:5006` for this reason. Whether the answer
+      is one API serving many sites, a port allocator, or simply a documented convention is
+      undecided. **S**
 - [ ] **B8d ★ A UI-only repository has no way to generate its client.** Found 2026-09-05, from the
       observation that `surfdns-console` should not contain a service half at all: the services belong
       in `surfdns`, and the console is *the UI part of surfdns*. B8b made `service` and `ui` both
