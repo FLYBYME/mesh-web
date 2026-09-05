@@ -5,3 +5,6 @@ dist/
 out/
 *.tsbuildinfo
 .DS_Store
+
+# Dispatch results are per-run and land in the main tree; the worktrees are transient.
+agent-runs/results/*.result.md
