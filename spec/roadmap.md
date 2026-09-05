@@ -114,6 +114,46 @@ zero, which is the point of the reset — see [status §1](./status.md).
       `activeElement` check, text entry and IME, pen and touch. Gated on A8 for the input adapters
       and on A7.1 for the focus graph. **M** · [testing §4](./testing.md)
 - [ ] **A0.6 Router** — routing, scoped routers, scroll and focus restoration. **M**
+      *(design noted 2026-09-06)* **Routes are declared, not registered**, alongside `commands` and
+      `keys`:
+      ```ts
+      readonly routes = [
+          { path: '/', view: 'feed' },
+          { path: '/posts/:slug', view: 'post' },
+      ];
+      ```
+      Same rule as A9.1d, and it is the whole argument: a routes table is **data**, so a server can
+      render `/posts/my-post` without executing the Application; a router the app calls imperatively
+      is **code**, and only a browser can run it. The kernel also needs to know what routes exist
+      before an Application starts, exactly as it already does for `views` and `commands` — a route
+      registered inside `start()` cannot answer the first request that arrives.
+      **`ViewContext.params` already exists** (`contract.ts:76`), typed `TParams` and unused. The
+      interface was built for this; matching `/posts/:slug` fills it with `{ slug }` and the view
+      reads `vx.params.slug`. Nothing about the view layer has to change.
+      **Prefix transparency**: an Application never knows where it is mounted. `navigate('/posts/1')`
+      from an app the site mounted at `/blog` becomes `/blog/posts/1` in the address bar. The same
+      property that lets one artifact serve every site, one level down — and it is why the router has
+      to be *scoped*, which is what makes it more than a `location.pathname` read.
+      Navigation seam, undecided between: `needs('router')` → `cx.router.navigate(…)`, which is
+      visible in a manifest and refusable by a site, or `vx.router` on the view context, which is
+      narrower but invisible. **The capability is probably right** for the same reason `http` was: a
+      part that can change the address bar is a part that can change what a shared page appears to be,
+      and that should be declared.
+- [ ] **A0.6a ★ What does one URL mean on a desktop with three windows open?** *(raised 2026-09-06,
+      unanswered)* The hard part, and no routing design above touches it. This is a **window
+      manager**: several Applications are on screen at once, deliberately — that is what
+      `spec/serving.md` means by *focus changes what is on top, not what things look like*. A browser
+      has one address bar.
+      So a URL cannot simply be "the current route", and the options each cost something. **The
+      focused window owns the URL** — simple, and the address bar changes as you click between
+      windows, which is disorienting and makes a bookmark mean whichever window happened to be
+      focused. **The URL encodes the whole desktop** — honest, restores a session exactly, and is
+      unshareable and unreadable. **One designated Application owns it** and the rest are chrome —
+      workable, and it needs a site to say which. **No URL at all** — a desktop is not a document,
+      which is defensible and forfeits deep links and SEO entirely.
+      It has to be answered before A0.6 is built rather than after, because it decides whether the
+      router is per-Application (scoped, several at once) or per-page (one, global). Those are not
+      the same object. **S** to decide, and it gates the **M**.
 
 A0.3 and A0.6 are parts of the deleted runtime with no design defect against them — deleted because
 the repository was emptied, not because they were wrong, and history is the reference
