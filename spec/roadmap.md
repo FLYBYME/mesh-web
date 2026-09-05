@@ -630,6 +630,21 @@ Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned ou
       the site actually serves, and **refuses or reports** — the decision is the same one A9.2 owes
       for a declared-but-missing part, and it should be made once for both. Until then the field is
       evidence for a person, not a guard. **S** · ⛔ A9.2
+- [ ] **A9.1c ★ The kernel owes a `start(composition)`.** *(found 2026-09-06, writing the cdn's page
+      generator in mesh-serve)* The generated boot module is three imports and one call — but that
+      call has no function behind it. `surfdns-console/src/main.ts` was 140 lines and **almost none of
+      it was about that console**: a `WindowManager`, four settings hives and their providers,
+      `windowPersistence`, `kernel.services.meshClient` through `withHeaders`, `createRegistry`
+      (`PRIMITIVES`), `mountPage`, an `effect` rendering notifications into `#notifications`, and a
+      resize listener. Identical on every site.
+      **This is the framework's job, not the generator's.** If the cdn emitted those 140 lines it
+      would have to be updated whenever the kernel changed, and a generator that tracks another
+      package's internals is a second copy of that package. So the kernel exports one entry point
+      taking `{ application, api, policy, parts }` and does the rest.
+      Two things fall out that are worth having anyway: the page stops needing a `#console` or a
+      `#notifications` element for a bundle to find by id (five undeclared contracts between a bundle
+      and an HTML file, none of them checked), and `export { page }` — which nothing ever imported —
+      becomes the return value it was always trying to be. **M** · blocks mesh-serve's cdn
 - [ ] **A9.2 The composition collection — what a site loads.** Not `mesh.json`: B8b's descriptor is
       **build input**, and a composition a person edits is runtime state. Two files on purpose. Needs
       an owner (the API), a write gate (`admin` or a permission — never `public`, since the site is
