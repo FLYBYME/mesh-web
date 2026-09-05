@@ -1,9 +1,10 @@
 // src/ and test/ together, with node types for the tests.
 //
-// `server/` is checked by its own project (`server/tsconfig.json`) because it is node code and the
-// browser package sets `types: []` deliberately. It appears here only because `test/server/*` imports
-// it, so the path mapping is needed to resolve the package name — the imports read as they will once
-// the packages are installed rather than as relative paths.
+// The `paths` mapping is what lets a test import `@flybyme/mesh-web` **by name**, the way an outside
+// author does, rather than by a relative path into the package's insides. It mirrors the alias
+// `vitest.browser.config.ts` sets for the same reason — a test that reached in through `../src` would
+// be testing something no consumer can reach, and the browser-testing harness in particular exists to
+// be used from another repository entirely.
 {
     "extends": "./tsconfig.json",
     "compilerOptions": {
@@ -12,7 +13,10 @@
         "types": ["node"],
         "baseUrl": ".",
         "paths": {
-            "@flybyme/mesh-web-protocol": ["./server/protocol/src/index.ts"]
+            "@flybyme/mesh-web": ["./src/index.ts"],
+            "@flybyme/mesh-web/testing": ["./src/testing/index.ts"],
+            "@flybyme/mesh-web/testing/config": ["./src/testing/config.ts"],
+            "@flybyme/mesh-web/config": ["./src/testing/config.ts"]
         }
     },
     "include": ["src/**/*.ts", "test/**/*.ts"]

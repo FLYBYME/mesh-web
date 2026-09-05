@@ -74,7 +74,19 @@ import { Kernel } from './kernel.js';
  */
 export interface PartRef {
     readonly id: string;
-    readonly contribution: ErasedContribution | (new (options?: unknown) => ErasedContribution);
+    /**
+     * `never[]` and not `(options?: unknown)`, which is what this said until a real part broke it.
+     *
+     * Constructor parameters are **contravariant**: a class taking `{ endpoints?: … }` is *not*
+     * assignable to one taking `unknown`, because `unknown` is wider than what it accepts. So the
+     * first version rejected every part with a typed constructor — which is every realistic part,
+     * since taking options is the reason a part exports a constructor at all.
+     *
+     * It typechecked because the fixture that tested it took `unknown` too. A type tested only
+     * against a shape built to satisfy it is a type that has not been tested. Found by the first
+     * part written by somebody else.
+     */
+    readonly contribution: ErasedContribution | (new (...args: never[]) => ErasedContribution);
     /** Passed to the constructor. From the site record, never from the part. */
     readonly options?: unknown;
 }

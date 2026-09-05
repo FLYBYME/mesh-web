@@ -1,0 +1,28 @@
+
+> @flybyme/mesh-web@0.4.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /home/ubuntu/code/mesh-web-dispatch-1
+
+ ✓ |unit| test/boundaries.test.ts (58 tests) 17ms
+ ✓ |unit| test/description.test.ts (15 tests) 19ms
+ ✓ |unit| test/http.test.ts (12 tests) 25ms
+ ✓ |unit| test/chrome.test.ts (9 tests) 18ms
+ ✓ |unit| test/auth.test.ts (12 tests) 50ms
+ ✓ |unit| test/layout.test.ts (16 tests) 27ms
+ ✓ |unit| test/window.test.ts (17 tests) 22ms
+ ✓ |unit| test/keys.test.ts (17 tests) 33ms
+ ✓ |unit| test/net.test.ts (22 tests) 34ms
+ ✓ |unit| test/registry.test.ts (26 tests) 36ms
+ ✓ |unit| test/kernel.test.ts (27 tests) 46ms
+ ✓ |unit| test/persistence.test.ts (8 tests) 223ms
+ ✓ |unit| test/render.test.ts (30 tests) 80ms
+ ✓ |unit| test/endtoend.test.ts (5 tests) 53ms
+ ✓ |unit| test/start.test.ts (16 tests) 187ms
+
+ Test Files  15 passed (15)
+      Tests  290 passed (290)
+   Start at  19:16:44
+   Duration  1.90s (transform 1.49s, setup 0ms, collect 5.34s, tests 870ms, environment 2.89s, prepare 2.11s)
+
