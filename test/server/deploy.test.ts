@@ -413,3 +413,111 @@ describe('what a build refuses', () => {
         })).rejects.toThrow(/tenant/i);
     }, 60_000);
 });
+
+/**
+ * Roadmap B8c. [hosting §2](../../spec/hosting.md) says any CDN node asked for a hostname can serve
+ * it, and every deploy so far has published **exactly one** — `deploy.mjs` builds a single `--repo`
+ * and then sits. So the claim that one node serves many sites has never been asked for anything, and
+ * an untested claim in a hosting layer is the kind that fails the first time it matters.
+ *
+ * Two repositories, one CDN, two hostnames, on one port.
+ */
+describe('one node serves many sites', () => {
+    it('serves two repositories on one port, told apart by Host alone', async () => {
+        const blog = await repository();
+        const shop = await repository({
+            application: 'shop',
+            ui: { build: 'sh ./build.sh', output: 'dist' },
+            environments: {
+                // A different `api`, which the build bakes into the page — so the two artifacts
+                // differ in content. With identical descriptors they hash to the *same* digest,
+                // which is content addressing working correctly and makes "served the wrong one"
+                // unobservable. The first draft of this test asserted they differed and was wrong.
+                production: { host: 'shop.example.com', api: 'https://shop.example.com/api' },
+            },
+        });
+
+        const cluster = await boot();
+
+        const first = await deploy(cluster, blog);
+        const second = await deploy(cluster, shop);
+
+        expect(first.hostname).toBe('blog.example.com');
+        expect(second.hostname).toBe('shop.example.com');
+
+        // Different artifacts, because the descriptors differ — so serving the wrong one is visible
+        // rather than a coincidence of identical fixtures.
+        expect(first.build.artifactDigest).not.toBe(second.build.artifactDigest);
+
+        const one = await get(cluster.url, '/', 'blog.example.com');
+        const two = await get(cluster.url, '/', 'shop.example.com');
+
+        expect(one.status).toBe(200);
+        expect(two.status).toBe(200);
+        expect(one.headers['x-artifact']).toBe(first.build.artifactDigest);
+        expect(two.headers['x-artifact']).toBe(second.build.artifactDigest);
+
+        // A hostname nobody published is still a 404 on a node that is serving two others.
+        expect((await get(cluster.url, '/', 'unknown.example.com')).status).toBe(404);
+    }, 120_000);
+
+    it('tells localhost and 127.0.0.1 apart, which is what makes two local sites possible', async () => {
+        // `normalizeHostname` lowercases and strips the port, and these normalise to different keys.
+        // It is how one deployer on one port can serve a site *and* the thing you are comparing it
+        // against — the case that found A6.3g by putting the harness and the console side by side.
+        const loopback = await repository({
+            application: 'blog',
+            ui: { build: 'sh ./build.sh', output: 'dist' },
+            environments: { production: { host: '127.0.0.1', api: 'https://api.example.com' } },
+        });
+        const named = await repository({
+            application: 'other',
+            ui: { build: 'sh ./build.sh', output: 'dist' },
+            environments: { production: { host: 'localhost', api: 'https://elsewhere.example.com' } },
+        });
+
+        const cluster = await boot();
+        const first = await deploy(cluster, loopback);
+        const second = await deploy(cluster, named);
+
+        expect((await get(cluster.url, '/', '127.0.0.1:8080')).headers['x-artifact'])
+            .toBe(first.build.artifactDigest);
+        expect((await get(cluster.url, '/', 'localhost:8080')).headers['x-artifact'])
+            .toBe(second.build.artifactDigest);
+    }, 120_000);
+});
+
+/**
+ * Roadmap A9.1a. The declaration is built in `declaration.test.ts` against a directory; this is the
+ * assertion that it survives a **real build** — fetched from a commit, built by a shell script,
+ * collected, hashed and stored — and comes back out of the artifact store attached to the artifact.
+ */
+describe('a published artifact carries its declaration', () => {
+    it('records the parts the repository declared', async () => {
+        const repo = await repository({
+            application: 'blog',
+            ui: {
+                build: 'sh ./build.sh',
+                output: 'dist',
+                parts: [{ kind: 'application', id: 'reader', entry: 'assets/app.js' }],
+            },
+            environments: {
+                production: { host: 'blog.example.com', api: 'https://api.example.com' },
+            },
+        });
+
+        const cluster = await boot();
+        const deployed = await deploy(cluster, repo);
+        // Read back through the contract, not out of the store: the schema is where a field silently
+        // disappears, because zod strips what it does not mention. Reading the store would have
+        // asserted the build's memory rather than what a caller receives.
+        const { artifact } = await cluster.call<{
+            artifact?: { declaration?: { parts: unknown[]; builtAgainst: unknown[] } };
+        }>('builder.artifact_get', { digest: deployed.build.artifactDigest });
+
+        expect(artifact?.declaration?.parts).toEqual([
+            { kind: 'application', id: 'reader', entry: 'assets/app.js' },
+        ]);
+        expect(artifact?.declaration?.builtAgainst).toEqual([]);
+    }, 120_000);
+});

@@ -53,12 +53,42 @@ const ArtifactFileSchema = z.object({
     contentType: z.string(),
 });
 
+const DeclaredPartSchema = z.object({
+    kind: z.enum(['application', 'extension', 'service']),
+    id: z.string(),
+    entry: z.string(),
+    provides: z.string().optional(),
+    consumes: z.array(z.string()).optional(),
+    needs: z.array(z.string()).optional(),
+    domains: z.array(z.string()).optional(),
+});
+
+const DeclarationSchema = z.object({
+    parts: z.array(DeclaredPartSchema),
+    builtAgainst: z.array(z.object({
+        package: z.string(),
+        version: z.string(),
+        commit: z.string().optional(),
+    })),
+});
+
+/**
+ * **A field missing here is a field deleted from the wire.**
+ *
+ * zod strips what a schema does not mention, so `declaration` was built, hashed into the store and
+ * then silently dropped by `artifact_get` — the TypeScript type and the wire disagreed, and nothing
+ * complained at either end. Found by a test that read an artifact back through the contract rather
+ * than out of the store, which is the only place the two can be compared.
+ *
+ * So: adding a field to `Artifact` in the protocol package means adding it here, in the same change.
+ */
 const ArtifactSchema = z.object({
     digest: z.string(),
     files: z.array(ArtifactFileSchema),
     totalSize: z.number(),
     builtAt: z.number(),
     buildId: z.string(),
+    declaration: DeclarationSchema.optional(),
 });
 
 const BuildSchema = z.object({

@@ -46,6 +46,8 @@ export interface BuilderModuleOptions {
     readonly fetcher?: Fetcher;
     readonly timeoutMs?: number;
     readonly maxBytes?: number;
+    /** A package cache outliving the disposable workspace — A6.8a. See `BuilderOptions`. */
+    readonly packageCache?: string;
     /** How many finished builds to keep for `build_status`. */
     readonly history?: number;
     /**
@@ -79,6 +81,7 @@ export function createBuilderModule(options: BuilderModuleOptions = {}): Builder
         ...(options.fetcher === undefined ? {} : { fetcher: options.fetcher }),
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
         ...(options.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }),
+        ...(options.packageCache === undefined ? {} : { packageCache: options.packageCache }),
         ...(options.now === undefined ? {} : { now: options.now }),
     });
 

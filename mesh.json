@@ -15,6 +15,13 @@
             "policy": {
                 "window-manager/mode": "tiled"
             }
+        },
+        "loopback": {
+            "host": "127.0.0.1",
+            "api": "http://127.0.0.1:5005",
+            "policy": {
+                "window-manager/mode": "tiled"
+            }
         }
     }
 }

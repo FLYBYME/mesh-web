@@ -41,6 +41,23 @@ export interface BuilderOptions {
     readonly timeoutMs?: number;
     /** Largest artifact this builder will publish. */
     readonly maxBytes?: number;
+    /**
+     * A package cache that outlives the workspace — roadmap A6.8a.
+     *
+     * The workspace is fetched fresh and destroyed, which is what makes a build reproducible from a
+     * ref and is not negotiable. The consequence is that **every build starts with no
+     * `node_modules`**, so it pays a full network install: measured at ~75s for `surfdns-console`,
+     * whose framework dependency is a git ref and is therefore *cloned* to be installed.
+     *
+     * The workspace has to be disposable. The cache does not. Pointing npm at a directory outside it
+     * turns a download into a disk copy and changes nothing about what gets built — the lockfile
+     * still pins every version, and content-addressed cache entries are the same bytes whoever
+     * fetched them.
+     *
+     * Absent means npm's own default, which is per-user and therefore already shared when a builder
+     * runs as one user. Set it when builds run somewhere that would otherwise start empty.
+     */
+    readonly packageCache?: string;
     readonly now?: () => number;
     readonly onLog?: (line: string) => void;
     /** Overridable so a test can build from a directory without a git server. */
@@ -221,6 +238,13 @@ export function createBuilder(options: BuilderOptions) {
                             MESH_ENVIRONMENT: request.environment,
                             MESH_API: environment.api,
                             MESH_HOST: environment.host,
+                            // A cache that outlives the disposable workspace — A6.8a. Set as an
+                            // environment variable rather than an npm flag because the build command
+                            // belongs to the repository: it may run npm, or pnpm, or neither, and
+                            // the builder does not get to assume.
+                            ...(options.packageCache === undefined
+                                ? {}
+                                : { npm_config_cache: options.packageCache }),
                         },
                     });
                     if (stdout.trim() !== '') record(stdout.trim());
