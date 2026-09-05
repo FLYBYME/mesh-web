@@ -21,8 +21,8 @@ import { createScope } from '../reactivity/scope.js';
 import type { ReactiveScope, Signal } from '../reactivity/types.js';
 import type { Json } from '../description/types.js';
 import type {
-    CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Credentials, Log,
-    NotificationHandle, Notifications, State, WindowHandle, Windows,
+    CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Credentials, Http,
+    HttpRequest, HttpResponse, Log, NotificationHandle, Notifications, State, WindowHandle, Windows,
 } from '../contribution/capabilities.js';
 import type { ResizeEdge } from '../window/geometry.js';
 import { windowHost } from '../window/page.js';
@@ -333,6 +333,9 @@ export function createContext(
             case 'chrome':
                 capabilities.chrome = makeChrome(services);
                 break;
+            case 'http':
+                capabilities.http = makeHttp(id, services);
+                break;
         }
     }
 
@@ -502,6 +505,66 @@ function makeChrome(services: KernelServices): Chrome {
         move: (id, dx, dy) => { sink.move(id, dx, dy); },
         resize: (id, edge, dx, dy) => { sink.resize(id, edge, dx, dy); },
         setMode: (mode) => { sink.setMode(mode); },
+    };
+}
+
+/**
+ * Requests to somewhere that is not the site's API.
+ *
+ * Three decisions are baked in here rather than left to each caller, because each of them is one a
+ * part would get wrong in the same way:
+ *
+ * **The page's credentials are never attached.** `mesh` goes through the credential seam because it
+ * goes to the site's own API; this goes wherever it is told, so attaching the ticket would let any
+ * part holding `needs('http')` post the page's session to an origin of its choosing. The ticket is
+ * the auth Extension's to send explicitly, per request.
+ *
+ * **`credentials: 'omit'`**, so no cookie rides along either. This page authenticates with a bearer
+ * ticket, and an ambient cookie on an outbound request is a CSRF surface nobody asked for.
+ *
+ * **A status is not an exception.** `401` is an answer and `500` is a failure, and a caller that
+ * cannot tell them apart reads an outage as a sign-out. Only a transport failure throws.
+ */
+function makeHttp(owner: string, services: KernelServices): Http {
+    const send = async <T,>(url: string, init: HttpRequest = {}): Promise<HttpResponse<T>> => {
+        const method = init.method ?? 'GET';
+        const hasBody = init.body !== undefined;
+
+        const response = await fetch(url, {
+            method,
+            headers: {
+                ...(hasBody ? { 'content-type': 'application/json' } : {}),
+                ...init.headers,
+            },
+            ...(hasBody ? { body: JSON.stringify(init.body) } : {}),
+            ...(init.signal === undefined ? {} : { signal: init.signal }),
+            credentials: 'omit',
+        });
+
+        // A 204, an empty body, or a non-JSON error page. None of them is a reason to throw: the
+        // status is the answer, and `body` being absent says the rest.
+        let body: T | undefined;
+        try {
+            body = await response.json() as T;
+        } catch {
+            body = undefined;
+        }
+
+        // Logged against the contribution that made the call, so *which part is talking to what* is
+        // answerable from the page rather than only from a network tab.
+        services.logs.push({
+            level: 'debug',
+            source: owner,
+            message: `${method} ${url} → ${String(response.status)}`,
+        });
+
+        return { ok: response.ok, status: response.status, body };
+    };
+
+    return {
+        request: send,
+        get: (url, init) => send(url, { ...init, method: 'GET' }),
+        post: (url, body, init) => send(url, { ...init, method: 'POST', body }),
     };
 }
 

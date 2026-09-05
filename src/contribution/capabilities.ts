@@ -192,6 +192,66 @@ export interface Credentials {
     readonly origin: string;
 }
 
+// ---------------------------------------------------------------------------- http
+
+export interface HttpRequest {
+    readonly method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    /** Serialised as JSON. A part that needs to send something else is a case this does not cover. */
+    readonly body?: unknown;
+    readonly headers?: Readonly<Record<string, string>>;
+    readonly signal?: AbortSignal;
+}
+
+/**
+ * A response, **not** a thrown error for a status the caller may want to act on.
+ *
+ * `401` is an answer — *that credential is not good* — while `500` is the server failing, and a
+ * client that cannot tell them apart reads an outage as a sign-out. So the status comes back and
+ * the caller decides; only a transport failure throws.
+ */
+export interface HttpResponse<T> {
+    readonly ok: boolean;
+    readonly status: number;
+    /** Parsed JSON, or `undefined` for an empty or unparseable body. */
+    readonly body: T | undefined;
+}
+
+/**
+ * Talking to something that is not the site's API.
+ *
+ * `mesh` is the typed client for the contracts a contribution declared. This is the other case — an
+ * identity endpoint during sign-in, a third-party service — and it exists so that case is
+ * **declared** rather than reached for ambiently.
+ *
+ * ## What it buys, and what it does not
+ *
+ * A part that calls global `fetch` gets network access nobody granted and nobody can see. `fetch` is
+ * on `globalThis` and the DOM lib types it, so nothing here can take it away — **this does not
+ * prevent that**, and pretending otherwise would be worse than not having it.
+ *
+ * What it does is make the honest case auditable: `needs('http')` appears in a manifest, a site can
+ * refuse to compose a part that declares it, and a build can flag a bundle that reaches for `fetch`
+ * without having declared this. Enforcement is CSP on the generated page, which is per-document and
+ * therefore a property of the whole composition. Declared, checked, enforced — three levels, and
+ * this is the first.
+ *
+ * ## It never attaches the page's credentials
+ *
+ * `mesh` goes through the credential seam because it goes to the site's own API. This goes wherever
+ * it is told, so attaching the ticket would let any part holding `needs('http')` post the page's
+ * session to an origin of its choosing. **The ticket is the auth Extension's to send, deliberately,
+ * per request** — which is exactly why the one contribution that does that also holds
+ * `needs('credentials')` and is visible in the manifest for it.
+ *
+ * Cookies are omitted for the same reason: this page authenticates with a bearer ticket, and a
+ * request that also carried ambient cookies would be a CSRF surface nobody asked for.
+ */
+export interface Http {
+    request<T>(url: string, init?: HttpRequest): Promise<HttpResponse<T>>;
+    get<T>(url: string, init?: Omit<HttpRequest, 'method' | 'body'>): Promise<HttpResponse<T>>;
+    post<T>(url: string, body?: unknown, init?: Omit<HttpRequest, 'method' | 'body'>): Promise<HttpResponse<T>>;
+}
+
 // ---------------------------------------------------------------------------- the map
 
 /**
@@ -210,6 +270,7 @@ export interface CapabilityMap {
     readonly windows: Windows;
     readonly credentials: Credentials;
     readonly chrome: Chrome;
+    readonly http: Http;
 }
 
 /**
