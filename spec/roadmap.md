@@ -645,6 +645,23 @@ Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned ou
       `#notifications` element for a bundle to find by id (five undeclared contracts between a bundle
       and an HTML file, none of them checked), and `export { page }` — which nothing ever imported —
       becomes the return value it was always trying to be. **M** · blocks mesh-serve's cdn
+- [ ] **A9.1d ★ A part declares its page metadata; it does not write to `document`.** *(decided
+      2026-09-06)* A small `cx.page` capability — `cx.page.title(…)`, `cx.page.meta(…)` — rather than a
+      part calling `document.title =` or appending to `<head>`.
+      **This is the code/data rule applied to the head.** A part *declaring* its title is data, and
+      data can be rendered anywhere, including on a server. A part *calling* `document.title` is code,
+      and code can only run in a browser. The difference decides whether server-side rendering is a
+      feature that can be added later or a rewrite.
+      It matters now because of how mesh-serve settled page generation: **`index.html` is not an
+      artifact**, it is generated per request from the site record and the release. Site-level title,
+      description, og and canonical go into the document, so crawlers see them — but anything a part
+      renders is invisible to a crawler that does not run JS. That is fine for a console and wrong for
+      a blog, and the seam that makes the blog case possible later is this one.
+      Second reason, smaller and immediate: two Applications both writing `document.title` fight, and
+      whoever ran last wins. A declared title has an owner the window manager can arbitrate — the
+      focused window's, or the site's when nothing is focused.
+      **0.2.0 is the moment.** The kernel API is not stable yet; adding this after it is means
+      changing how every part already written talks to the page. **S**
 - [ ] **A9.2 The composition collection — what a site loads.** Not `mesh.json`: B8b's descriptor is
       **build input**, and a composition a person edits is runtime state. Two files on purpose. Needs
       an owner (the API), a write gate (`admin` or a permission — never `public`, since the site is
