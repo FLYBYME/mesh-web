@@ -165,6 +165,43 @@ Testability is not verification. This document is about the first; the second ne
 
 ---
 
+## 6a. Testing a part, from outside this repository — **built 0.5.0**
+
+Everything above is about testing *this* package. A part repository — `mesh-auth`,
+`surfdns-console` — is the other side, and until 0.5.0 it had nothing: a part could be built,
+published and served, and the only way to find out whether it activated was to open a page and look.
+
+```ts
+// vitest.browser.config.ts
+import { definePartBrowserConfig } from '@flybyme/mesh-web/testing/config';
+export default definePartBrowserConfig();
+```
+
+```ts
+const site = await mountPart({ parts: [{ id: 'auth', contribution: AuthExtension }] });
+expect(site.kernel.provided(AUTH)).toBeDefined();
+site.dispose();
+```
+
+Three properties earn it, and each is a mistake a part author would otherwise make once:
+
+**It boots through `start()`.** The same path a deployed site takes. A harness that booted a part its
+own way would be testing something that does not ship — which is precisely what happened to this
+repository's previous harness, and it took a while to notice because the harness worked.
+
+**It asserts one copy of the framework.** A part is built with `@flybyme/mesh-web` external and the
+page's import map resolves it to one kernel; two copies under two URLs are two module graphs and two
+of every singleton the capability model depends on. A test setup that quietly gave a part its own
+copy would pass everything and prove nothing, so the check is explicit rather than assumed.
+
+**The configuration is the framework's knowledge.** Resolving to one copy, a real Chrome rather than
+jsdom, a viewport large enough that a window is not clamped to nothing — a part author writing that
+by hand would be copying thirty lines they cannot evaluate.
+
+**The test tools stay in a part's own `devDependencies`.** They are not dependencies of this package:
+a browser automation tool in `dependencies` means every part *and every site* downloads Chromium to
+install a UI library.
+
 ## 7. Open
 
 - **Snapshot testing descriptions.** Tempting, since a description is data. Also the classic way to
@@ -176,4 +213,11 @@ Testability is not verification. This document is about the first; the second ne
   descriptor, so a fake cannot drift from the contract it stands in for. Probably yes, and it is not
   free.
 - **Whether contributions get a conformance suite too**, so a third-party Extension can be checked
-  against the contract before a site trusts it.
+  against the contract before a site trusts it. §6a is the machinery for it — `mountPart` already
+  boots a part the way a site does, so a suite would be assertions rather than infrastructure.
+- **A test that fails when a part ships a class the kernel cannot construct.** `PartRef` accepted
+  `new (options?: unknown) => …` until 0.5.0, which *rejected every part with a typed constructor*
+  because constructor parameters are contravariant. It typechecked because the fixture testing it
+  took `unknown` too — **a type tested only against a shape built to satisfy it has not been
+  tested** — and it was found by the first part somebody else wrote. The type is fixed; the class of
+  mistake is not covered.
