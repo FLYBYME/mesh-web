@@ -17,6 +17,8 @@ two things it loads. Where they and this document overlap, they are the more spe
 Also: [Storage and the registry](./storage-and-registry.md) ·
 [Hosting: the builder, the CDN, and how a site is found](./hosting.md) ·
 [Authentication](./auth.md) · [Service modules](./service-modules.md) ·
+[HTML5 and web platform capabilities](./html5.md) ·
+[Declarative canvas](./declarative-canvas.md) ·
 [the roadmap](./roadmap.md).
 
 ---

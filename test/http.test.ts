@@ -14,16 +14,31 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createContext, createServices } from '../src/kernel/broker.js';
-import { needs } from '../src/contribution/capabilities.js';
+import { needs, type CapabilityName } from '../src/contribution/capabilities.js';
 
 const identity = { id: 'part-1', declaredBy: 'test' };
 const noProviders = () => undefined;
 
+/**
+ * The shape a test reaches for, since `ErasedContext` deliberately does not index.
+ *
+ * Narrow on purpose: `http` optional is the assertion half of these tests — a capability that was
+ * not declared is *absent*, not present-and-broken.
+ */
+interface Probe {
+    readonly http?: {
+        get<T>(url: string, init?: { headers?: Record<string, string> }):
+            Promise<{ ok: boolean; status: number; body: T | undefined }>;
+        post<T>(url: string, body?: unknown):
+            Promise<{ ok: boolean; status: number; body: T | undefined }>;
+    };
+}
+
 /** A context with exactly the declared capabilities, as the kernel builds one. */
-const contextWith = (...names: Parameters<typeof needs>) => {
+const contextWith = (...names: readonly CapabilityName[]) => {
     const services = createServices();
-    const handle = createContext(identity, needs(...names), [], noProviders, services);
-    return { context: handle.context as Record<string, never>, services };
+    const handle = createContext(identity, names, [], noProviders, services);
+    return { context: handle.context as unknown as Probe, services };
 };
 
 const respondWith = (
@@ -45,12 +60,12 @@ describe('it is a declared capability, not an ambient one', () => {
         // The whole of "narrowed": a part that never asked for network access does not get an
         // object it could use to make a request.
         const { context } = contextWith('state', 'log');
-        expect(context['http']).toBeUndefined();
+        expect(context.http).toBeUndefined();
     });
 
     it('is present when it was', () => {
         const { context } = contextWith('http');
-        expect(context['http']).toBeDefined();
+        expect(context.http).toBeDefined();
     });
 });
 
@@ -61,7 +76,7 @@ describe('what it never sends', () => {
         const fetchMock = respondWith({ ok: true });
         const { context } = contextWith('http');
 
-        await (context['http'] as never as { get(u: string): Promise<unknown> }).get('/thing');
+        await (context.http!).get('/thing');
 
         expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ credentials: 'omit' });
     });
@@ -76,7 +91,7 @@ describe('what it never sends', () => {
         services.credentials.headers = () => ({ authorization: 'Bearer secret-ticket' });
 
         const handle = createContext(identity, needs('http'), [], noProviders, services);
-        const http = (handle.context as never as { http: { get(u: string): Promise<unknown> } }).http;
+        const http = (handle.context as unknown as Probe).http!;
 
         await http.get('https://somewhere-else.example/collect');
 
@@ -90,9 +105,7 @@ describe('what it never sends', () => {
         // request, on a call to an endpoint it named.
         const fetchMock = respondWith({ userId: 'u1' });
         const { context } = contextWith('http');
-        const http = context['http'] as never as {
-            get(u: string, i?: { headers?: Record<string, string> }): Promise<unknown>;
-        };
+        const http = context.http!;
 
         await http.get('/identity/whoami', { headers: { authorization: 'Bearer mine' } });
 
@@ -104,7 +117,7 @@ describe('a status is an answer, not an exception', () => {
     const call = async (status: number, body: unknown = { detail: 'x' }) => {
         respondWith(body, status);
         const { context } = contextWith('http');
-        const http = context['http'] as never as {
+        const http = context.http as never as {
             get<T>(u: string): Promise<{ ok: boolean; status: number; body: T | undefined }>;
         };
         return http.get<{ detail: string }>('/thing');
@@ -126,7 +139,7 @@ describe('a status is an answer, not an exception', () => {
     it('parses a body on success', async () => {
         respondWith({ detail: 'here' });
         const { context } = contextWith('http');
-        const http = context['http'] as never as {
+        const http = context.http as never as {
             get<T>(u: string): Promise<{ ok: boolean; body: T | undefined }>;
         };
 
@@ -139,7 +152,7 @@ describe('a status is an answer, not an exception', () => {
         // A 204, or an HTML error page from a proxy. The status is still the answer.
         vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>nope', { status: 502 })));
         const { context } = contextWith('http');
-        const http = context['http'] as never as {
+        const http = context.http as never as {
             get<T>(u: string): Promise<{ status: number; body: T | undefined }>;
         };
 
@@ -153,7 +166,7 @@ describe('post', () => {
     it('sends JSON and says so', async () => {
         const fetchMock = respondWith({ token: 't' });
         const { context } = contextWith('http');
-        const http = context['http'] as never as {
+        const http = context.http as never as {
             post(u: string, b: unknown): Promise<unknown>;
         };
 
@@ -175,7 +188,7 @@ describe('what it does not claim to do', () => {
         const fetchMock = respondWith({ ok: true });
         const { context } = contextWith('state');
 
-        expect(context['http']).toBeUndefined();
+        expect(context.http).toBeUndefined();
         await fetch('https://anywhere.example');
         expect(fetchMock).toHaveBeenCalled();
     });
@@ -188,7 +201,7 @@ describe('it is logged against the part that called', () => {
         respondWith({ ok: true });
         const { context, services } = contextWith('http');
 
-        await (context['http'] as never as { get(u: string): Promise<unknown> }).get('/thing');
+        await (context.http!).get('/thing');
 
         const line = services.logs.find((l) => l.message.includes('/thing'));
         expect(line?.source).toBe('part-1');

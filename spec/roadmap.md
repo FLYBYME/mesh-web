@@ -670,7 +670,24 @@ Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned ou
       the site actually serves, and **refuses or reports** — the decision is the same one A9.2 owes
       for a declared-but-missing part, and it should be made once for both. Until then the field is
       evidence for a person, not a guard. **S** · ⛔ A9.2
-- [ ] **A9.1c ★ The kernel owes a `start(composition)`.** *(found 2026-09-06, writing the cdn's page
+- [x] **A9.1c ★ The kernel owes a `start(composition)`.** *(built 2026-09-06)* `src/kernel/start.ts`,
+      16 tests. Three of the five undeclared contracts between a bundle and a hand-written page are
+      gone: **the kernel creates what it mounts into**, mounts its own notification surface, and
+      reads `data-api` from the document rather than being told twice. The import map and the
+      stylesheet stay with the page, where they belong — they are what a browser needs before any of
+      this runs.
+      **A part is a class or an instance, and accepting both is not laziness.** Extracting
+      `AuthExtension` showed why: it takes `endpoints` and a ticket `store`, which are the *site's*
+      decisions, so the package cannot construct itself and its default export has to be the
+      constructor. The kernel is the only thing holding both the class and the site's options.
+      Two things writing the tests found. `kernel.start` does **not** throw when an Application's
+      `start()` rejects — it leaves the process `failed`, *"a resting state, not a disappearance"* —
+      so a wrapper that only catches would report nothing and a window that never appeared would be
+      indistinguishable from one nobody asked for. `open()` reads the process table. And a first
+      draft of the chrome test wrote `element('div', …)`; the registry refused it **by name**, which
+      is the view-layer rule holding rather than being asked for.
+      *(original entry below, kept — it is the argument)*
+- [x] **A9.1c ★ The kernel owes a `start(composition)`.** *(found 2026-09-06, writing the cdn's page
       generator in mesh-serve)* The generated boot module is three imports and one call — but that
       call has no function behind it. `surfdns-console/src/main.ts` was 140 lines and **almost none of
       it was about that console**: a `WindowManager`, four settings hives and their providers,

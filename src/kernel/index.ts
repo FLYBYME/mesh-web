@@ -11,3 +11,6 @@ export { mergeManifests } from './manifest.js';
 
 export type { ExtensionEntry, KernelOptions, Loaded, ProcessEntry, ProcessState } from './kernel.js';
 export { Kernel } from './kernel.js';
+
+export type { Composition, PartRef, Started } from './start.js';
+export { start } from './start.js';
