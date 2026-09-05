@@ -19,9 +19,7 @@
         "build": "tsc -p tsconfig.json",
         "prepare": "npm run build",
         "typecheck": "tsc -p tsconfig.check.json --noEmit",
-        "test:browser": "npm run build:browser && vitest run --config vitest.browser.config.ts",
-        "build:browser": "tsc -p tsconfig.json && tsc -p tsconfig.browser.json",
-        "harness": "npm run build:browser && npx --yes http-server . -p 8080 -c-1 -s",
+        "test:browser": "vitest run --config vitest.browser.config.ts",
         "check:consumer": "node scripts/check-consumer.mjs",
         "test": "vitest run",
         "test:watch": "vitest"
