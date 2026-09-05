@@ -578,41 +578,58 @@ none of this is speculative.
 
 ### A9 — Composition and the marketplace
 
-Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned out to be one question,
-and [extension §7a](./extension.md) is where the argument lives.
+Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned out to be one question.
+[extension §7a](./extension.md) holds the argument; A9.1 was decided the same day.
 
-- [ ] **A9.1 ★ Decide whether a site's composition is code or data.** ⛔ **Gates everything else in
-      this group.** §7 has always said a third-party Extension is "declared by the site that wants
-      it" and has never said *where*. Today the answer is a boot file: `ui/src/main.ts` imports
-      nineteen symbols and the compiler resolves the set, which buys the property that **a running
-      site is exactly a function of a commit**. mesh-ui answered the opposite way and it worked —
-      `uiManifestCrud` records with `disabled` / `autoLoad`, `uiArtifactCrud` bundles, a `ui.build`
-      contract, and `ExtensionManager` doing `await import(url)` on first use — which buys a
-      marketplace and a one-second loop and gives up being able to say what is running.
-      **Proposed: composition is data, resolution is a build.** The marketplace writes a manifest
-      record, the write triggers a build, the build resolves the enabled set into one
-      content-addressed artifact, and the hostname points at the digest. Keeps `site_put` as the
-      deploy and keeps a site nameable as a commit plus a manifest version; gives up runtime
-      `import(url)`. Decide before building any of A9.2–A9.5. **M** ·
+- [x] **A9.1 ★ A site's composition is data, and every part is its own artifact.**
+      *(decided 2026-09-05)* §7 always said a third-party Extension is "declared by the site that
+      wants it" and never said *where*. The answer is now: **each Application and Extension is built
+      separately and published as its own content-addressed artifact; a site declares the parts it
+      loads, each pinned by digest.** mesh-ui's shape, with hashes.
+      **The objection that was withdrawn is the part worth keeping.** The first draft of §7a rejected
+      this on the grounds that a runtime-loaded site is "a function of nothing you can name", and
+      proposed a middle — composition as data, *resolved by a build* into one artifact per site. That
+      objection only holds if the loaded bundles are anonymous. Content-address them, which the CDN
+      already does for everything it stores, and a running site is exactly a list of
+      `(extension, digest)` pairs: as nameable as a commit, and more legible, because the parts are
+      visible rather than fused. There was no trade to make and the middle path cost the one-second
+      loop for nothing.
+      Three consequences are not optional. **The framework stays shared** — `out/framework/` and the
+      import map already do this, and a per-part copy would mean N kernels, so none of the singletons
+      the capability model rests on would be singleton. **Identity is the digest**, so upgrade and
+      rollback are both writes, exactly like `site_put`. And **declared is written at build**, decided
+      the same day, so an artifact carries its own description and registering it needs no rebuild.
+      One model now covers both halves of the platform — see
+      [declared/desired/observed](https://github.com/FLYBYME/mesh/blob/master/docs/DECLARED_DESIRED_OBSERVED.md).
+      · [extension §7a](./extension.md)
+- [ ] **A9.1a ★ Record what framework version an artifact was built against.** ⛔ **Must exist in the
+      first version.** This is the whole price of A9.1: there is no longer one build, so nothing
+      catches an Extension compiled against framework v1 being loaded into a site serving v2 — it
+      fails at runtime, in a user's browser, with no build to have caught it. Declared carries the
+      framework version; the site refuses or reports on mismatch. Added later it is added never, and
+      the failure it prevents is the kind that only ever appears on someone else's machine. **S** ·
       [extension §7a](./extension.md)
-- [ ] **A9.2 The manifest — what a site says it has installed.** Not `mesh.json`: B8b's descriptor is
-      **build input**, and a manifest a person edits is runtime config. Two files on purpose. Needs
+- [ ] **A9.2 The composition collection — what a site loads.** Not `mesh.json`: B8b's descriptor is
+      **build input**, and a composition a person edits is runtime state. Two files on purpose. Needs
       an owner (the API), a write gate (`admin` or a permission — never `public`, since the site is
       the isolation boundary), and an answer for a declared-but-missing part, which today the
-      compiler makes unrepresentable. **M** · ⛔ A9.1
+      compiler makes unrepresentable and data cannot. **M** · ⛔ A9.1a
 - [ ] **A9.3 Rebuild as a contract.** mesh-ui had `ui.build` plus `ui.build_started` /
       `_completed` / `_failed`; mesh-web has `builder.build_start` and no way to reach it, which is
-      B8c. The two are the same contract seen from different ends, and A9.1 decides whether the unit
-      being rebuilt is a site or a part of one. **S** · ⛔ A9.1, B8c
+      B8c. The two are the same contract seen from different ends, and A9.1 settled which end: the
+      unit being rebuilt is **one part**, not a site. **S** · ⛔ B8c
 - [ ] **A9.4 The marketplace Application.** Browse, install, enable, disable, update. **Not shipped
       with the framework** — §7's own correction about the workbench applies unchanged: a blog
       installing `@flybyme/mesh-web` should no more receive a shop than an activity bar. Writing it
       outside the package is the only honest test that the contracts are enough, which is exactly how
       A6.3d found that `Chrome` was never exported. mesh-ui has an `ExtensionListView.ts` to read
-      first. **L** · ⛔ A9.1, A9.2
-- [ ] **A9.5 Installing must not cost a full site build.** If a site is composed by data, installing
-      one Extension triggering a ninety-second `npm ci` is the difference between a marketplace and a
-      form that occasionally works. Makes A6.8a load-bearing rather than an annoyance. **M** · ⛔ A9.1
+      first. **L** · ⛔ A9.2
+- [x] **A9.5 Installing must not cost a full site build.** *(answered by A9.1, 2026-09-05)* The
+      concern was that installing one Extension would trigger a ninety-second `npm ci`, which is the
+      difference between a marketplace and a form that occasionally works. Separately-built,
+      separately-published parts remove the problem rather than optimising it: a rebuild is one part,
+      and A6.8a drops back to being an annoyance about the *framework's* own install rather than
+      something load-bearing.
 
 ---
 
@@ -745,6 +762,23 @@ mesh-web's server half. **None of it exists** — no server, no builder, no `web
       no-cluster property and couples two repositories at build time. **`mesh.json` names an external
       exposure source**, which is the general answer and the most to design. Decide before splitting
       the console, because the split is blocked on it. **M** · [hosting §0a](./hosting.md)
+- [ ] **B8e ★ This repository is the browser half only.** Decided 2026-09-05: **mesh-web is the web
+      framework, and the server half moves out.** `cdn`, `builder` and `protocol` are mesh service
+      modules — contracts and tools on a broker, the same species as identity — and nothing about them
+      is browser. They join `api` and `identity` in **one repository**, by the test that decides repo
+      granularity: *do these release together*, not *are these conceptually different*.
+      The split is cheap and already enforced: `grep -rn "server/\|mesh-web-protocol" src/` returns
+      nothing, and `test/boundaries.test.ts` has been holding the wall the whole time. It is a
+      `git mv`, not a refactor.
+      **The evidence it should have happened already**: `npx mesh generate` run in this repository
+      wrote `src/generated/api.ts` — a server artifact inside the tree whose one rule is *nothing here
+      imports node*. The tool assumed one product per repository and picked the wrong half. That file
+      is untracked and should be deleted rather than committed.
+      Related, and settled the same day: `surfdns` holds all of surfdns's own services (it is the
+      ground-up rewrite of paas), and `surfdns-console` becomes `ui/` only — one of several frontends
+      that repository pattern will have to support cheaply, alongside a marketing site, a customer
+      portal, a blog and docs. Blocked on B8d, which is what a UI-only repository needs to generate a
+      client at all. **M** · ⛔ B8d
 - [ ] **B9 Artifact storage and cache invalidation** across nodes. **M**
 - [ ] **B10 Build triggers** — push, manual, promotion between environments. **M**
 - [ ] **B11 Per-tenant quotas and abuse handling.** ⛔ genuinely open: a per-node limit is ten times

@@ -407,7 +407,7 @@ survivable is that the API is the gatekeeper ([kernel §4](./kernel.md), [auth �
 
 ---
 
-## 7a. Where a site *declares* what it installs — **Open, and it gates the marketplace**
+## 7a. Where a site *declares* what it installs — **Decided 2026-09-05**
 
 > "i think i need to see the 'marketplace' app and extention"
 
@@ -446,53 +446,74 @@ So composition is **data in the mesh**, installing is a write, and the shell laz
 enabled. That is a marketplace already; it is missing only a shop front. It also makes the fast loop
 possible — rebuild one extension in a second, rather than one site in ninety.
 
-### The fork
+### The fork, and the objection that dissolved
 
 | | composition as code | composition as data |
 | --- | --- | --- |
 | where declared | a boot file, resolved by `tsc` | records, resolved at runtime |
 | installing something | commit, build, publish | a row and a bundle |
-| "what is running on that node?" | a ref and a digest | ⛔ not answerable |
+| "what is running on that node?" | a ref and a digest | see below |
 | a broken third-party bundle | fails the build | fails in the user's browser |
 | cost of one change | a full site build (~90s, A6.8a) | a second |
 
-Neither column is obviously right, and the second column's ⛔ is the exact pain named as the reason
-this project exists — *stale mongo, stale k3d, nobody knows anything*. A marketplace that reintroduces
-it would be a bad trade however good the shop front is.
+Row three was first written as *⛔ not answerable*, and a middle path was proposed to avoid it:
+composition as data, but *resolved by a build* into one artifact per site.
 
-### Proposed: composition is data, resolution is a build
+**That was wrong, and the error is worth keeping visible because it nearly cost the fast loop for
+nothing.** "Not answerable" only holds if the separately-loaded bundles are anonymous. Give each
+Extension its own **content-addressed** artifact — which the CDN already does for every artifact it
+stores — and a running site is exactly a list of `(extension, digest)` pairs. That is as nameable as a
+commit and more legible, because the parts are visible instead of fused. There is no trade to make,
+so the middle path is withdrawn.
 
-The middle is available and is probably the answer. **The marketplace writes a manifest record; the
-write triggers a build; the build resolves the enabled set into one content-addressed artifact; the
-hostname points at the digest.**
+### Decided: an Extension is its own artifact — **2026-09-05**
 
-What that keeps: a running site is still exactly a commit *plus a manifest version*, both nameable,
-both reproducible. `site_put` remains the deploy. The builder stays the only thing that turns source
-into bytes, which is [hosting](./hosting.md)'s position and the reason artifacts are hashed at all.
+> "i think the 'application' and 'extention' should be self contained and not included in the full
+> framework? like how mesh-ui did it"
 
-What it gives up: `await import(url)` at runtime, and with it the one-second loop. A dev-mode
-exception for the *author's own* extension is defensible — it is not what a tenant's site does — but
-it should be an exception that names itself, not the mechanism.
+**Every Application and Extension is built separately, published as its own content-addressed
+artifact, and loaded by the site that declares it.** mesh-ui's shape, with digests.
 
-What it costs: the build has to become fast enough that installing something is not a ninety-second
-wait, which makes A6.8a load-bearing rather than an annoyance.
+What follows:
 
-### What must be answered either way
+- **The framework is shared, never bundled per part.** `out/framework/` plus the import map already
+  does this: `site.mjs` copies `@flybyme/mesh-web/dist` once and every part resolves to it. If each
+  Extension carried its own copy there would be N kernels, and **none of the singletons this whole
+  capability model rests on would be singleton.** This is not an optimisation; it is a correctness
+  requirement.
+- **A site's composition is a collection**: site → the parts it loads, each pinned by digest.
+- **Identity is the digest, not the name.** Desired state says `X@sha256:…`. Upgrading is a write and
+  rollback is a write — the same shape as `site_put` pointing a hostname at a digest. `X, latest`
+  hands reproducibility back for nothing.
+- **One model for both halves.** An artifact declares what it provides, a site's desired state lists
+  what it loads, the browser reports what it actually loaded. That is
+  [declared/desired/observed](https://github.com/FLYBYME/mesh/blob/master/docs/DECLARED_DESIRED_OBSERVED.md)
+  unchanged, so services and UI parts are one system rather than two that mean the same thing.
+- **Declared is written at build** — decided the same day. An artifact carries its own description,
+  so registering it needs no rebuild.
 
-- **Where does the manifest live?** A record in the API is the mesh-ui answer. `mesh.json` is the
-  build-input answer and [B8b](./roadmap.md) already says a descriptor is build input, not runtime
-  config — a manifest a user edits is exactly runtime config, so these are different files and
-  should not be merged into one out of tidiness.
-- **Who may write it?** Installing an Extension into a site is a privilege operation, and the site is
-  the isolation boundary ([hosting §3](./hosting.md)). It is `auth: 'admin'` or a permission, never
-  `public`.
-- **What does the kernel do with a declared-but-missing part?** Today the compiler makes this
-  unrepresentable. Data cannot, so the kernel needs an answer — refuse to boot, or boot degraded and
-  say so. §5's ordering rules are what break if a `consumes` cannot be satisfied.
-- **Does the marketplace ship with the framework?** By §7's own correction about the workbench:
-  **no.** A blog installing `@flybyme/mesh-web` should no more receive a shop than an activity bar.
-  It is an Application over the same contracts, and writing it outside the package is the only honest
-  test that those contracts are enough.
+### The price: version skew
+
+A build no longer catches a mismatch, because there is no longer one build. An Extension compiled
+against framework v1, loaded into a site serving v2, fails at runtime in a user's browser. That is the
+whole of what is given up, and it is payable on one condition:
+
+**Declared must record which framework version each artifact was built against, and the site must
+refuse or report on mismatch.** That field has to exist in the first version. Added later, it is added
+never, and the failure it prevents is the kind that appears only in someone else's browser.
+
+### Still open
+
+- **What the kernel does with a declared-but-missing part.** Today the compiler makes this
+  unrepresentable; data cannot. Refuse to boot, or boot degraded and say so — §5's ordering is what
+  breaks when a `consumes` goes unsatisfied.
+- **Who may write a site's composition.** A privilege operation: the site is the isolation boundary
+  ([hosting §3](./hosting.md)), so `admin` or a permission, never `public`.
+- **The manifest is not `mesh.json`.** [B8b](./roadmap.md) says a descriptor is build input; a
+  composition a person edits is runtime state. Two files, deliberately.
+- **Does the marketplace ship with the framework?** By §7's own correction about the workbench: **no.**
+  A blog installing `@flybyme/mesh-web` should no more receive a shop than an activity bar. Writing it
+  outside the package is the only honest test that these contracts are enough.
 
 ---
 
