@@ -81,6 +81,85 @@ export interface Artifact {
     readonly builtAt: number;
     /** Which build produced it, for tracing back. Not needed to serve it. */
     readonly buildId: string;
+    /**
+     * What this artifact provides, and what it was built against — roadmap A9.1a.
+     *
+     * Optional only because artifacts built before this existed do not have one. A build produces it
+     * now, always.
+     */
+    readonly declaration?: Declaration;
+}
+
+// ---------------------------------------------------------------------------- declaration
+
+/**
+ * What an artifact says it provides — *declared*, in the sense of
+ * [declared/desired/observed](https://github.com/FLYBYME/mesh/blob/master/docs/DECLARED_DESIRED_OBSERVED.md).
+ *
+ * **The artifact carries this, rather than a registry computing it later.** Decided 2026-09-05: a
+ * build writes the description, so registering an artifact is a write rather than a compile, and an
+ * artifact that has been copied to another node arrives already able to say what it is.
+ *
+ * It is deliberately *not* a copy of the deployment descriptor. `mesh.json` is build input — what
+ * someone asked to be built. This is build output — what was actually produced, with the versions
+ * that were actually resolved.
+ */
+export interface Declaration {
+    readonly parts: readonly DeclaredPart[];
+    /**
+     * The resolved versions this artifact's code was compiled and linked against — roadmap A9.1a.
+     *
+     * **This is the whole price of building parts separately.** With one build per site, a mismatched
+     * framework could not happen: everything compiled together or nothing did. With a part built
+     * against `@flybyme/mesh-web` 1.2 and loaded into a site serving 2.0, nothing catches it — there
+     * is no longer a build that sees both. It fails at run time, in a user's browser.
+     *
+     * So the version is recorded here, at the only moment it is known for certain, and whatever loads
+     * a part compares before loading. Resolved from the built tree, never from a range in a
+     * `package.json`: `^1.2.0` is a wish, and the installed version is the fact.
+     */
+    readonly builtAgainst: readonly ResolvedDependency[];
+}
+
+/**
+ * One Application, Extension or service module an artifact contains.
+ *
+ * `entry` is a path *within the artifact*, the same kind of name as `ArtifactFile.path` — a name, not
+ * a location, for exactly the reasons in the header of this file.
+ */
+export interface DeclaredPart {
+    readonly kind: 'application' | 'extension' | 'service';
+    /** Stable across builds. What a site's composition names when it says it loads this. */
+    readonly id: string;
+    readonly entry: string;
+    /** For an extension: the provider key it returns, so a consumer can be matched to it. */
+    readonly provides?: string;
+    readonly consumes?: readonly string[];
+    /** Capability names, for an Extension or Application. Declared, so it is readable before loading. */
+    readonly needs?: readonly string[];
+    /** For a service: the mesh domains it mounts, so declared can answer "who provides `identity.*`". */
+    readonly domains?: readonly string[];
+}
+
+export interface ResolvedDependency {
+    readonly package: string;
+    /** An exact version. Never a range — see `builtAgainst`. */
+    readonly version: string;
+    /**
+     * The commit, for a dependency installed from a git ref — and **the only identity that means
+     * anything for one.**
+     *
+     * Found 2026-09-05 by running this against the first real repository. `@flybyme/mesh-web` is
+     * installed as `github:FLYBYME/mesh-web`, and the version in its `package.json` is `0.1.0`. It
+     * will be `0.1.0` on every build forever, because nothing bumps the version of a package consumed
+     * from a branch. So `version` — the field A9.1a added specifically to catch a framework
+     * mismatch — is **constant across every framework change**, and would have caught nothing.
+     *
+     * The lockfile knows: `resolved` carries `…mesh-web.git#3482d5d…`. That is the fact worth
+     * recording, and it is the same defect the console already met once, when it ran for an hour
+     * against a framework that predated A7.8 and type-checked clean the whole time.
+     */
+    readonly commit?: string;
 }
 
 // ---------------------------------------------------------------------------- builds
@@ -200,6 +279,26 @@ export interface UiDescriptor {
     readonly build: string;
     /** The directory the build writes, relative to the fetched source. Becomes the artifact. */
     readonly output: string;
+    /**
+     * The Applications and Extensions this repository builds — roadmap A9.1.
+     *
+     * Declared rather than discovered, for the same reason [Extensions §3](../../../spec/extension.md)
+     * gives: the kernel needs to know what a part *is* before running it, and a site's composition
+     * names these ids. A build turns them into an artifact's `Declaration`.
+     *
+     * Only what a JSON file can honestly hold: an id, a kind and an entry. `provides`, `consumes` and
+     * `needs` are facts about the *code* and are deliberately not repeated here — a hand-written copy
+     * of a `needs(...)` call is a second source of truth that drifts silently.
+     */
+    readonly parts?: readonly DescribedPart[];
+}
+
+/** A part as its repository names it, before a build resolves anything about it. */
+export interface DescribedPart {
+    readonly kind: 'application' | 'extension';
+    readonly id: string;
+    /** Path within `output` — the built entry, not the source file. */
+    readonly entry: string;
 }
 
 export interface EnvironmentDescriptor {

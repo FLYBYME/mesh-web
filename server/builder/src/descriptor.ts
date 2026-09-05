@@ -23,7 +23,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type {
-    DeploymentDescriptor, EnvironmentDescriptor, ServiceDescriptor, UiDescriptor,
+    DeploymentDescriptor, DescribedPart, EnvironmentDescriptor, ServiceDescriptor, UiDescriptor,
 } from '@flybyme/mesh-web-protocol';
 
 /**
@@ -167,7 +167,62 @@ function parseUi(value: unknown): UiDescriptor | undefined {
         throw new DescriptorError(`${where} has an "output" that leaves the source: "${output}".`);
     }
 
-    return { build, output };
+    const parts = parseParts(raw['parts'], where);
+
+    return parts === undefined ? { build, output } : { build, output, parts };
+}
+
+/**
+ * The Applications and Extensions a repository declares — roadmap A9.1.
+ *
+ * Absent is allowed: a repository built before this existed, or one whose output is a single page
+ * with no separately-loadable parts, is not in error. An empty array is a different statement — *I
+ * have thought about this and there are none* — and is refused, because it is far more likely to be a
+ * half-finished edit.
+ */
+function parseParts(value: unknown, uiWhere: string): readonly DescribedPart[] | undefined {
+    if (value === undefined) return undefined;
+
+    const where = `${uiWhere} "parts"`;
+    if (!Array.isArray(value)) throw new DescriptorError(`${where} must be an array.`);
+    if (value.length === 0) {
+        throw new DescriptorError(`${where} is empty — leave it out rather than declaring none.`);
+    }
+
+    const seen = new Set<string>();
+
+    return value.map((entry, index): DescribedPart => {
+        const at = `${where}[${String(index)}]`;
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            throw new DescriptorError(`${at} must be an object.`);
+        }
+
+        const raw = entry as Record<string, unknown>;
+
+        const kind = raw['kind'];
+        if (kind !== 'application' && kind !== 'extension') {
+            throw new DescriptorError(`${at} needs a "kind" of "application" or "extension".`);
+        }
+
+        const id = raw['id'];
+        if (typeof id !== 'string' || id.trim() === '') {
+            throw new DescriptorError(`${at} needs an "id".`);
+        }
+        // A site's composition names parts by id, so two parts sharing one would make a composition
+        // ambiguous about which it loaded — and the artifact would still build.
+        if (seen.has(id)) throw new DescriptorError(`${where} declares "${id}" twice.`);
+        seen.add(id);
+
+        const partEntry = raw['entry'];
+        if (typeof partEntry !== 'string' || partEntry.trim() === '') {
+            throw new DescriptorError(`${at} needs an "entry" — the built file, inside the output.`);
+        }
+        if (partEntry.startsWith('/') || partEntry.split('/').includes('..')) {
+            throw new DescriptorError(`${at} has an "entry" that leaves the artifact: "${partEntry}".`);
+        }
+
+        return { kind, id, entry: partEntry };
+    });
 }
 
 function parseEnvironment(name: string, value: unknown): EnvironmentDescriptor {

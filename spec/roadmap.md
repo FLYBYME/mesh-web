@@ -602,13 +602,34 @@ Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned ou
       One model now covers both halves of the platform — see
       [declared/desired/observed](https://github.com/FLYBYME/mesh/blob/master/docs/DECLARED_DESIRED_OBSERVED.md).
       · [extension §7a](./extension.md)
-- [ ] **A9.1a ★ Record what framework version an artifact was built against.** ⛔ **Must exist in the
-      first version.** This is the whole price of A9.1: there is no longer one build, so nothing
-      catches an Extension compiled against framework v1 being loaded into a site serving v2 — it
-      fails at runtime, in a user's browser, with no build to have caught it. Declared carries the
-      framework version; the site refuses or reports on mismatch. Added later it is added never, and
-      the failure it prevents is the kind that only ever appears on someone else's machine. **S** ·
-      [extension §7a](./extension.md)
+- [x] **A9.1a ★ Record what an artifact was built against.** *(built 2026-09-05)* The price of A9.1:
+      there is no longer one build, so nothing catches an Extension compiled against framework v1
+      being loaded into a site serving v2 — it fails at runtime, in a user's browser. An `Artifact`
+      now carries a `Declaration`: the parts it provides, and `builtAgainst`, resolved **from the
+      built tree** rather than from a range, because `^1.2.0` is a wish and the installed version is
+      the fact.
+      **Two things were wrong with it, and running it against a real repository found both.** The
+      unit fixtures passed on the first try and proved nothing about either.
+      **Workspaces are the normal case.** The first draft read only the root `package.json` and
+      returned *nothing at all* for `surfdns-console`, whose root manifest has only
+      `devDependencies` — `@flybyme/mesh-web` is declared in `ui/package.json` and installed hoisted
+      to the root. That is not an exotic layout; it is what a repo with a service half and a UI half
+      naturally is, which is the shape [hosting §0a](./hosting.md) describes.
+      **A version cannot identify a git dependency**, which is the one this exists to describe.
+      `@flybyme/mesh-web` reports `0.1.0` and will report `0.1.0` on every build forever, because
+      nothing bumps the version of a package consumed from a branch. The field added specifically to
+      catch a framework mismatch was **constant across every framework change.** The lockfile has the
+      real identity, so `ResolvedDependency.commit` carries it. This is A6.7's finding again — *npm
+      git refs plus a lockfile make installed and pushed different things* — and it is now recorded in
+      the artifact rather than rediscovered.
+      Against the real console: three parts (`chrome`, `console`, and the service half with its
+      domains) and four dependencies, each pinned by commit — which immediately showed the console
+      running four commits behind mesh-web's master, at `3482d5d`. 18 tests. · [extension §7a](./extension.md)
+- [ ] **A9.1b The mismatch has to be acted on, not only recorded.** A9.1a writes what an artifact was
+      built against and nothing reads it. Whatever loads a part compares its `builtAgainst` with what
+      the site actually serves, and **refuses or reports** — the decision is the same one A9.2 owes
+      for a declared-but-missing part, and it should be made once for both. Until then the field is
+      evidence for a person, not a guard. **S** · ⛔ A9.2
 - [ ] **A9.2 The composition collection — what a site loads.** Not `mesh.json`: B8b's descriptor is
       **build input**, and a composition a person edits is runtime state. Two files on purpose. Needs
       an owner (the API), a write gate (`admin` or a permission — never `public`, since the site is

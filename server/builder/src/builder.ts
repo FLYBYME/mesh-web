@@ -21,10 +21,12 @@ import { join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 import type {
-    Artifact, ArtifactFile, Build, BuildInputs, EnvironmentDescriptor, SourceRef,
+    Artifact, ArtifactFile, Build, BuildInputs, DeploymentDescriptor, EnvironmentDescriptor,
+    SourceRef,
 } from '@flybyme/mesh-web-protocol';
 
 import { artifactDigest, contentTypeOf, digestOf, inputHash } from './content.js';
+import { declarationOf } from './declaration.js';
 import { DESCRIPTOR_FILE, environmentOf, loadDescriptor } from './descriptor.js';
 import type { ArtifactStore } from './store.js';
 
@@ -169,6 +171,12 @@ export function createBuilder(options: BuilderOptions) {
 
             let environment: EnvironmentDescriptor | undefined = request.descriptor;
 
+            // The whole descriptor, not just the environment: `ui.parts` is what an artifact
+            // declares it provides, and it lives above the environments because a part is the same
+            // part in production as in development. Absent when the caller supplied an environment
+            // descriptor and the file was therefore never read — see `declarationOf`.
+            let deployment: DeploymentDescriptor | undefined;
+
             try {
                 record(`fetching ${describeSource(request.source)}`);
                 await fetch(request.source, workspace);
@@ -179,6 +187,7 @@ export function createBuilder(options: BuilderOptions) {
 
                 if (environment === undefined) {
                     const declared = await loadDescriptor(root);
+                    deployment = declared;
                     environment = environmentOf(declared, request.environment);
                     base = {
                         ...base,
@@ -241,12 +250,17 @@ export function createBuilder(options: BuilderOptions) {
                     );
                 }
 
+                // Read from the tree the build just produced, so the versions are the ones that were
+                // actually linked rather than the ones that were asked for — roadmap A9.1a.
+                const declaration = await declarationOf(root, deployment, record);
+
                 const artifact: Artifact = {
                     digest: artifactDigest(files),
                     files,
                     totalSize: files.reduce((sum, f) => sum + f.size, 0),
                     builtAt: now(),
                     buildId: id,
+                    declaration,
                 };
 
                 await store.putArtifact(artifact);

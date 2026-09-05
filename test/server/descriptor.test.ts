@@ -168,6 +168,75 @@ describe('a path in the descriptor may not leave the source', () => {
     });
 });
 
+/**
+ * Roadmap A9.1: every Application and Extension is its own artifact, and a site's composition names
+ * them by id. So the ids have to be real before anything is built with them — a duplicate id makes a
+ * composition ambiguous about which part it loaded, and the artifact would still build.
+ */
+describe('a repository declares the parts it builds', () => {
+    const withParts = (parts: unknown) => ({ ...UI_ONLY, ui: { ...UI_ONLY.ui, parts } });
+
+    it('reads the declared parts', () => {
+        const descriptor = parse(withParts([
+            { kind: 'extension', id: 'console.chrome', entry: 'app/chrome.js' },
+            { kind: 'application', id: 'console', entry: 'app/main.js' },
+        ]));
+
+        expect(descriptor.ui?.parts).toEqual([
+            { kind: 'extension', id: 'console.chrome', entry: 'app/chrome.js' },
+            { kind: 'application', id: 'console', entry: 'app/main.js' },
+        ]);
+    });
+
+    it('is absent, not empty, when a repository declares none', () => {
+        expect(parse(UI_ONLY).ui?.parts).toBeUndefined();
+    });
+
+    it('refuses an empty list rather than reading it as none', () => {
+        // "I have none" and "I have not finished editing this" look identical as `[]`, and the second
+        // is far more likely.
+        expect(refusal(withParts([]))).toContain('leave it out');
+    });
+
+    it('refuses two parts sharing an id, naming the id', () => {
+        const message = refusal(withParts([
+            { kind: 'extension', id: 'chrome', entry: 'a.js' },
+            { kind: 'application', id: 'chrome', entry: 'b.js' },
+        ]));
+
+        expect(message).toContain('"chrome"');
+        expect(message).toContain('twice');
+    });
+
+    it('names a missing kind, id and entry separately', () => {
+        expect(refusal(withParts([{ id: 'x', entry: 'a.js' }]))).toContain('"kind"');
+        expect(refusal(withParts([{ kind: 'extension', entry: 'a.js' }]))).toContain('"id"');
+        expect(refusal(withParts([{ kind: 'extension', id: 'x' }]))).toContain('"entry"');
+    });
+
+    it('refuses a kind that is not an application or an extension', () => {
+        // 'service' is a real DeclaredPart kind, but it comes from `service.domains` — a UI part
+        // claiming to be one would put a mesh domain in an artifact that cannot mount it.
+        expect(refusal(withParts([{ kind: 'service', id: 'x', entry: 'a.js' }]))).toContain('"kind"');
+    });
+
+    it('refuses an entry that leaves the artifact, naming it', () => {
+        const message = refusal(withParts([{ kind: 'extension', id: 'x', entry: '../secrets.js' }]));
+
+        expect(message).toContain('leaves the artifact');
+        expect(message).toContain('../secrets.js');
+    });
+
+    it('says which entry of the list is wrong', () => {
+        const message = refusal(withParts([
+            { kind: 'extension', id: 'ok', entry: 'a.js' },
+            { kind: 'extension', id: 'bad' },
+        ]));
+
+        expect(message).toContain('[1]');
+    });
+});
+
 describe('every refusal names the field', () => {
     it('says which file it is talking about', () => {
         expect(DESCRIPTOR_FILE).toBe('mesh.json');
