@@ -60,6 +60,24 @@ test passes and the thing it is testing is not what ships. A test that asserts
 this property directly is worth more than several that assume it.
 
 ================================================================================
+WHAT MUST NOT HAPPEN TO package.json
+================================================================================
+
+**`vitest`, `@vitest/browser` and `playwright` stay in `devDependencies`.**
+
+A previous attempt at this task proposed moving them to `dependencies` so a part
+repository would get them transitively. Do not. This package is a *browser
+framework*: everything that depends on it is a part or a site, and putting a
+browser automation tool in `dependencies` means every one of them downloads
+Chromium to install a UI library. A test tool is not a runtime dependency of the
+thing it tests.
+
+If a part repository needs them, it installs them itself — one line in its own
+`devDependencies`, which is where a test tool belongs and where its author can
+see it. `peerDependencies` is acceptable if you want the version pinned; a hard
+`dependency` is not.
+
+================================================================================
 WHAT DONE LOOKS LIKE
 ================================================================================
 
