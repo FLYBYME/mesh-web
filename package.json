@@ -9,6 +9,18 @@
         ".": {
             "types": "./dist/index.d.ts",
             "default": "./dist/index.js"
+        },
+        "./testing": {
+            "types": "./dist/testing/index.d.ts",
+            "default": "./dist/testing/index.js"
+        },
+        "./testing/config": {
+            "types": "./dist/testing/config.d.ts",
+            "default": "./dist/testing/config.js"
+        },
+        "./config": {
+            "types": "./dist/testing/config.d.ts",
+            "default": "./dist/testing/config.js"
         }
     },
     "files": [
