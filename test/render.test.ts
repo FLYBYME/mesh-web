@@ -136,6 +136,60 @@ describe('fine-grained updates: one signal, one node', () => {
         expect(div.style.gap).toBe('8px');
         expect(div.hasAttribute('gap')).toBe(false);
     });
+
+    it('updates a dirty text input when a controlled value signal changes', () => {
+        const { host, components, dispatch } = setup();
+        const draft = signal('initial');
+
+        render(
+            element('Input', { props: { value: () => draft() } }),
+            host,
+            { components, dispatch },
+        );
+
+        const input = host.querySelector('input');
+        expect(input).toBeInstanceOf(HTMLInputElement);
+        if (!(input instanceof HTMLInputElement)) return;
+        expect(input.value).toBe('initial');
+
+        // User types into the input, setting the DOM dirty value flag
+        input.value = 'user typed something';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // Clearing or updating the signal must update the dirty input's value
+        draft.set('');
+        tick();
+
+        expect(input.value).toBe('');
+    });
+
+    it('updates a dirty checkbox when a controlled checked signal changes', () => {
+        const { host, components, dispatch } = setup();
+        const checked = signal(true);
+
+        render(
+            element('Input', { props: { type: 'checkbox', checked: () => checked() } }),
+            host,
+            { components, dispatch },
+        );
+
+        const input = host.querySelector('input');
+        expect(input).toBeInstanceOf(HTMLInputElement);
+        if (!(input instanceof HTMLInputElement)) return;
+        expect(input.checked).toBe(true);
+
+        // User toggles the checkbox to false, setting the DOM dirty checked flag
+        input.checked = false;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // Signal sets it back to true; without DOM property assignment (setAttribute), dirty flag prevents update
+        checked.set(false);
+        tick();
+        checked.set(true);
+        tick();
+
+        expect(input.checked).toBe(true);
+    });
 });
 
 describe('when', () => {
@@ -332,6 +386,56 @@ describe('intents, not device events', () => {
             { kind: 'command', id: 'blog.newPost' },
             { kind: 'command', id: 'blog.newPost' },
         ]);
+    });
+
+    it('Space activates a Button but not an Input text field', () => {
+        const { host, components, dispatch, seen } = setup();
+        const buttonAction = command('button.click');
+        const inputAction = command('input.submit');
+
+        render(
+            element('Stack', {
+                children: [
+                    element('Button', { intents: { activate: { action: buttonAction } } }),
+                    element('Input', { intents: { activate: { action: inputAction } } }),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const button = host.querySelector('button')!;
+        const input = host.querySelector('input')!;
+
+        // Space on a Button MUST activate (non-pointer path)
+        button.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+        expect(seen).toEqual([buttonAction]);
+
+        // Space on an Input (text) MUST NOT activate (space is text input)
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+        expect(seen).toEqual([buttonAction]);
+
+        // Enter on an Input MUST still activate
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(seen).toEqual([buttonAction, inputAction]);
+    });
+
+    it('Space activates a checkbox Input where space is not text input', () => {
+        const { host, components, dispatch, seen } = setup();
+        const action = command('check.toggle');
+
+        render(
+            element('Input', {
+                props: { type: 'checkbox' },
+                intents: { activate: { action } },
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const input = host.querySelector('input')!;
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+        expect(seen).toEqual([action]);
     });
 
     it('a handler action routes back to the function that stayed on the app side', () => {

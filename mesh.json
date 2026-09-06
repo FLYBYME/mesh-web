@@ -3,7 +3,7 @@
         {
             "kind": "kernel",
             "id": "mesh-web",
-            "version": "0.6.3",
+            "version": "0.7.0",
             "entry": "src/index.ts"
         }
     ]

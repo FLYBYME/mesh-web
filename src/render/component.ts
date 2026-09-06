@@ -27,6 +27,19 @@ export interface ComponentDefinition {
 
     /** Where children are appended, if not the host element itself. */
     slot?(el: Element): Element;
+
+    /**
+     * Whether Space typed into this element counts as text input rather than the `activate` intent.
+     *
+     * spec/input.md §3 requires every action to have a non-pointer path (so Space activating a button
+     * is part of how that holds). But on an element where Space is text entry, pressing Space mid-word
+     * must enter a space rather than firing `activate` (roadmap A7.0b).
+     *
+     * This knowledge belongs on ComponentDefinition rather than as a hardcoded tag-name list in
+     * `bindIntents`: components understand their own input semantics, and Extension-contributed
+     * custom editors or inputs can declare this without modifying the renderer.
+     */
+    readonly spaceIsTextInput?: boolean | ((el: Element) => boolean);
 }
 
 export interface ComponentRegistry {
@@ -120,7 +133,50 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
     tag('Text', 'span'),
     tag('Heading', 'h2'),
     tag('Button', 'button'),
-    tag('Input', 'input'),
+    tag('Input', 'input', {
+        spaceIsTextInput(el) {
+            // Checkbox and radio inputs are toggled by Space; for text/search/password/etc., Space is text entry.
+            if (!('type' in el)) return true;
+            const type = (el as HTMLInputElement).type;
+            return type !== 'checkbox' && type !== 'radio' && type !== 'button' && type !== 'submit' && type !== 'reset';
+        },
+        apply(el, name, value) {
+            if (!('value' in el) || !('checked' in el)) return false;
+            const input = el as HTMLInputElement;
+
+            if (name === 'value') {
+                const next = value === null ? '' : String(value);
+                // Assigning input.value moves the caret/cursor to the end of the text box. If the
+                // signal write was triggered by an `input` event while the user is typing mid-word,
+                // re-assigning .value on every keystroke throws the caret to the end of the word.
+                // Checking input.value !== next is therefore a correctness requirement for cursor
+                // preservation, not a performance optimization.
+                if (input.value !== next) {
+                    input.value = next;
+                }
+                return true;
+            }
+
+            if (name === 'checked') {
+                const next = Boolean(value);
+                // Like value, HTMLInputElement.checked has a dirty checked flag in the DOM. Once
+                // toggled by the user, setAttribute('checked', ...) only updates defaultChecked,
+                // leaving the live .checked unchanged. Assigning the DOM property directly fixes this.
+                if (input.checked !== next) {
+                    input.checked = next;
+                }
+                return true;
+            }
+
+            // Note on other DOM properties with dirty flags (roadmap A7.0):
+            // `selected` on an <option> and `indeterminate` on a checkbox cannot arise here yet.
+            // There is currently no Option or Select primitive, and `indeterminate` is not yet
+            // declared in the primitive vocabulary (which is deferred to the A7.1 audit).
+            // They are deliberately omitted rather than added speculatively.
+
+            return false;
+        },
+    }),
     tag('Form', 'form'),
     tag('List', 'ul'),
     tag('ListItem', 'li'),

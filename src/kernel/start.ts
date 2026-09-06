@@ -228,6 +228,7 @@ export function start(composition: Composition): Started {
             return process === undefined ? undefined : kernel.viewOf(process.pid, view);
         },
         apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
+        isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',
         render: { components, dispatch: { dispatch: run } },
         onCommand: run,
     });

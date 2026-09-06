@@ -69,9 +69,10 @@ export interface SettingDecl {
  * What a view receives.
  *
  * `app` is whatever the Application's `start()` returned. It is here, rather than on the
- * Application as a field, because a view mounts only after `start()` resolves — so the guarantee is
- * carried by the types instead of by a definite-assignment assertion papering over a gap
- * (spec/application.md section 6).
+ * Application as a field, because a view mounts only after `start()` resolves (when the process
+ * reaches `running`) — so the guarantee is carried by the types and enforced at runtime by holding
+ * view mounting until `start()` finishes, instead of by a definite-assignment assertion papering
+ * over a gap (spec/application.md section 6, roadmap A5.7b).
  */
 export interface ViewContext<TParams = Record<string, never>, TApi = unknown> {
     readonly params: TParams;

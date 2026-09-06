@@ -105,6 +105,7 @@ async function boot(frame?: FrameChrome): Promise<Site> {
         manager,
         viewOf: (owner, view) => kernel.viewOf(owner, view),
         apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
+        isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',
         render: { components: createRegistry(PRIMITIVES), dispatch: { dispatch: () => {} } },
         onCommand: () => {},
         ...(frame === undefined ? {} : { frame }),

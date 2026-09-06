@@ -15,6 +15,8 @@ import type { ProviderToken } from '../contribution/provider.js';
 import { createContext, createServices, type BrokerHandle, type KernelServices } from './broker.js';
 import { resolveOrder } from './graph.js';
 import { mergeManifests, type Manifest } from './manifest.js';
+import { signal } from '../reactivity/signal.js';
+import type { Signal } from '../reactivity/types.js';
 
 export interface Loaded {
     readonly id: string;
@@ -67,12 +69,18 @@ export class Kernel {
     #handles = new Map<string, BrokerHandle>();
     #applications = new Map<string, ErasedApplication>();
     #instanceCounts = new Map<string, number>();
+    #processesSignal: Signal<readonly ProcessEntry[]>;
     #pid = 0;
     #now: () => number;
 
     constructor(options: KernelOptions = {}) {
         this.#now = options.now ?? (() => Date.now());
         this.services = options.services ?? createServices();
+        this.#processesSignal = signal<readonly ProcessEntry[]>([]);
+    }
+
+    #syncProcesses(): void {
+        this.#processesSignal.set([...this.#processes.values()]);
     }
 
     /** A view declaration, by the pid that owns it. What the window sink needs to size a window. */
@@ -116,7 +124,7 @@ export class Kernel {
     }
 
     get processes(): readonly ProcessEntry[] {
-        return [...this.#processes.values()];
+        return this.#processesSignal();
     }
 
     /**
@@ -242,6 +250,7 @@ export class Kernel {
             startedAt: this.#now(),
         };
         this.#processes.set(pid, entry);
+        this.#syncProcesses();
 
         const handle = createContext(
             // Scoped to the instance, so two windows do not share a log source or a namespace —
@@ -262,7 +271,10 @@ export class Kernel {
                 this.#providers.set(contribution.provides.id, entry.api);
             }
 
+            // A view mounts only after start() resolves, when the process reaches running (roadmap A5.7b).
+            // Syncing processes here notifies any reactive shell waiting to mount views for this pid.
             entry.state = 'running';
+            this.#syncProcesses();
         } catch (cause) {
             // `failed` is a resting state, not a disappearance. An Application that vanishes on
             // error is one nobody can debug (spec/application.md section 4).
@@ -270,6 +282,7 @@ export class Kernel {
             this.#handles.delete(pid);
             entry.state = 'failed';
             entry.error = cause instanceof Error ? cause : new Error(String(cause));
+            this.#syncProcesses();
         }
 
         return pid;
@@ -282,6 +295,7 @@ export class Kernel {
 
         const contribution = this.#applications.get(entry.applicationId);
         entry.state = 'stopping';
+        this.#syncProcesses();
 
         try {
             await contribution?.stop?.();
@@ -299,6 +313,7 @@ export class Kernel {
         }
 
         entry.state = 'stopped';
+        this.#syncProcesses();
     }
 
     /** Stop then start. A **new pid**: it is not a resumption and nothing is carried over. */

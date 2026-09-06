@@ -397,15 +397,16 @@ The kernel around them is new design and has never existed in any form.
       `applicationId` + instance; N instances of one Application. **M** · [kernel §5](./kernel.md)
 - [x] **A5.7 Lifecycle** — Extensions activate once and are never deactivated; Applications start,
       stop, restart and can rest in `failed`. **M** · [application §4](./application.md)
-- [ ] **A5.7b `cx.windows.open` during `start()` crashes the view it opens.** `kernel.ts:247` is
-      `entry.api = await contribution.start(handle.context)` — the assignment happens *after* the
-      await. A view opened synchronously inside `start()` mounts while `start()` is still running, so
-      `apiOf(owner)` is `undefined` and `render(vx)` throws on the first signal read. `ViewContext.app`
-      is documented as guaranteed because *"a view mounts only after `start()` resolves"* — the
-      guarantee is stated in the types and not enforced anywhere. Either assign `entry.api` eagerly
-      or hold view mounting until the process reaches `running`. mesh-todo hit it on its first run
-      and worked around it with `queueMicrotask`, which is exactly the papering-over that comment
-      says the design avoids. **S**
+- [x] **A5.7b `cx.windows.open` during `start()` crashes the view it opens.** *(fixed 2026-09-05)* Held
+      view mounting in the shell until the owner process reaches `running`, making the `ViewContext.app` guarantee true.
+      `kernel.ts:247` is `entry.api = await contribution.start(handle.context)` — the assignment
+      happens *after* the await. A view opened synchronously inside `start()` mounts while `start()`
+      is still running, so `apiOf(owner)` is `undefined` and `render(vx)` throws on the first signal
+      read. `ViewContext.app` is documented as guaranteed because *"a view mounts only after `start()`
+      resolves"* — the guarantee is stated in the types and not enforced anywhere. Either assign
+      `entry.api` eagerly or hold view mounting until the process reaches `running`. mesh-todo hit
+      it on its first run and worked around it with `queueMicrotask`, which is exactly the papering-over
+      that comment says the design avoids. **S**
 - [ ] **A5.8 Fault containment** — the kernel catches at every boundary it calls across and nowhere
       else; a failed Extension cascades to its consumers as one error naming the root; a failed
       Application leaves the rest untouched. **M** · [kernel §7](./kernel.md)
@@ -532,7 +533,8 @@ because they are written against the same interfaces an outside author gets.
 then a missing component is a blocked Application — there is no `div` to fall back to
 ([view-layer §3](./view-layer.md)).
 
-- [ ] **A7.0 ★★ `Input` cannot be controlled, and no text input can be cleared.** `PRIMITIVES` has
+- [x] **A7.0 ★★ `Input` cannot be controlled, and no text input can be cleared.** *(fixed 2026-09-05)* Added `apply` on `Input` assigning live DOM `.value` (with caret-preserving inequality check) and `.checked` properties.
+      `PRIMITIVES` has
       `tag('Input', 'input')` with no `apply`, so `value` and `checked` fall through to
       `applyDefaultProp` → `setAttribute('value', …)`. Once a user types, the element's **dirty value
       flag** is set and the attribute only moves `defaultValue`: the live `.value` never changes.
@@ -540,7 +542,8 @@ then a missing component is a blocked Application — there is no `div` to fall 
       Fix: an `apply` that assigns the DOM properties, `(el as HTMLInputElement).value = String(value)`
       and `.checked`. **Every form in the framework is affected**; found by mesh-todo, which had to
       key the input inside an `each` and bump a revision counter to force a fresh DOM node. **S**
-- [ ] **A7.0b `activate` fires on Space, so it cannot be bound to an `Input`.** `bindIntents`
+- [x] **A7.0b `activate` fires on Space, so it cannot be bound to an `Input`.** *(fixed 2026-09-05)* Added `spaceIsTextInput` to `ComponentDefinition` and suppressed `activate` on Space for text input elements.
+      `bindIntents`
       (`render/dom.ts`) binds `activate` to `keydown` for `'Enter'` **and `' '`** — correct for a
       button, wrong for a text field, where pressing space mid-word runs the command. mesh-todo
       worked around it with `commit` on the enclosing `Form`. The A8.2 rule is *every action has a

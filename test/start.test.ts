@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { needs } from '../src/contribution/capabilities.js';
-import type { Context, Extension, Application, ViewDecl } from '../src/contribution/contract.js';
+import type { Context, Extension, Application, ViewContext, ViewDecl } from '../src/contribution/contract.js';
 import { provider, type ProviderToken } from '../src/contribution/provider.js';
 import { start } from '../src/kernel/start.js';
 import { PAGE_CHROME, windowHost } from '../src/window/page.js';
@@ -332,6 +332,43 @@ describe('what it returns', () => {
 
         await started.ready;
         expect(finished).toBe(true);
+        started.dispose();
+    });
+
+    it('allows a view opened synchronously during start() to access vx.app', async () => {
+        clean();
+        const WINDOWS_NEEDS = needs('windows');
+
+        interface TodoApi {
+            readonly title: string;
+        }
+        const TODO = provider<TodoApi>('test/todo');
+
+        class TodoApp implements Application<typeof WINDOWS_NEEDS, readonly [], typeof TODO> {
+            readonly needs = WINDOWS_NEEDS;
+            readonly provides = TODO;
+            readonly views = [{
+                id: 'main',
+                title: 'Todo',
+                render(vx: ViewContext<Record<string, never>, TodoApi>) {
+                    return element('Text', { children: [text(vx.app.title)] });
+                },
+            }];
+
+            async start(cx: Context<typeof WINDOWS_NEEDS, readonly []>): Promise<TodoApi> {
+                cx.windows.open({ view: 'main' });
+                return { title: 'Todos from start API' };
+            }
+        }
+
+        const started = start({
+            application: 'test',
+            parts: [{ id: 'todo', contribution: new TodoApp() }],
+        });
+        await started.ready;
+
+        const textSpan = started.page.host?.querySelector('.content span');
+        expect(textSpan?.textContent).toBe('Todos from start API');
         started.dispose();
     });
 });

@@ -74,6 +74,13 @@ export interface ShellOptions {
     viewOf(owner: string, view: string): ViewDecl<never, never> | undefined;
     /** What that window's process provides to its views. */
     apiOf(owner: string): unknown;
+    /**
+     * Whether the process owning a window has reached running and is ready to mount views.
+     *
+     * roadmap A5.7b: holds view mounting until start() resolves so views opened during start()
+     * never render against an undefined API.
+     */
+    isReady?(owner: string): boolean;
     readonly render: RenderOptions;
     readonly onCommand: (action: Action) => void;
     /**
@@ -127,6 +134,12 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
     const mounted = new Map<string, Mounted>();
 
     const build = (record: WindowRecord): Mounted | undefined => {
+        if (options.isReady !== undefined && !options.isReady(record.owner)) {
+            // The process is still starting. View mounting is held until start() resolves and the
+            // process reaches running, so vx.app is guaranteed to be defined (roadmap A5.7b).
+            return undefined;
+        }
+
         const decl = options.viewOf(record.owner, record.view);
         if (decl === undefined) {
             // The manager refuses an undeclared view at `open`, so reaching here means the process

@@ -19,7 +19,7 @@ import type {
     Action, EachNode, ElementNode, Intents, IntentValue, Json, Node, Reactive,
 } from '../description/types.js';
 import { isDynamic, read } from '../description/types.js';
-import { applyDefaultProp, type ComponentRegistry } from './component.js';
+import { applyDefaultProp, type ComponentDefinition, type ComponentRegistry } from './component.js';
 
 /**
  * Where an action goes.
@@ -140,7 +140,7 @@ function buildElement(node: ElementNode, options: RenderOptions, scope: Reactive
     }
 
     if (node.intents !== undefined) {
-        bindIntents(el, node.intents, options.dispatch);
+        bindIntents(el, node.intents, options.dispatch, definition);
     }
 
     const slot = definition.slot ? definition.slot(el) : el;
@@ -326,7 +326,12 @@ function insertBefore(nodes: readonly ChildNode[], marker: ChildNode): void {
  * first cut covering pointer and keyboard; touch, pen and gamepad are roadmap A8 and will land here
  * without changing anything above this line, which is the property worth having.
  */
-function bindIntents(el: Element, intents: Intents, dispatch: Dispatcher): void {
+function bindIntents(
+    el: Element,
+    intents: Intents,
+    dispatch: Dispatcher,
+    definition?: ComponentDefinition,
+): void {
     const fire = (name: keyof Intents, event: Event): void => {
         const binding = intents[name];
         if (binding === undefined) return;
@@ -350,7 +355,20 @@ function bindIntents(el: Element, intents: Intents, dispatch: Dispatcher): void 
         el.addEventListener('click', (e) => fire('activate', e));
         el.addEventListener('keydown', (e) => {
             const key = (e as KeyboardEvent).key;
-            if (key === 'Enter' || key === ' ') fire('activate', e);
+            if (key === 'Enter') {
+                fire('activate', e);
+            } else if (key === ' ') {
+                // spec/input.md §3: every action has a non-pointer path (Space on Button, Row, etc.).
+                // roadmap A7.0b: Space must not activate an element for which Space is text input (like an Input text field).
+                // This knowledge belongs on ComponentDefinition rather than hardcoded tag names in this renderer,
+                // so components define their own interaction model and Extension-contributed editors/inputs work cleanly.
+                const isTextInput = typeof definition?.spaceIsTextInput === 'function'
+                    ? definition.spaceIsTextInput(el)
+                    : Boolean(definition?.spaceIsTextInput);
+                if (!isTextInput) {
+                    fire('activate', e);
+                }
+            }
         });
     }
 
