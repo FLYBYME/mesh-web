@@ -1,0 +1,159 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+Build the `storage` capability. Roadmap **A3.9**; the design is already written
+and decided in `spec/storage-and-registry.md` §1, §4 and §6.
+
+**A part cannot persist anything correctly today.** That is not a gap in
+convenience — it is a hole in the capability boundary, and it is open right now.
+
+================================================================================
+WHY THIS IS URGENT RATHER THAN NEXT
+================================================================================
+
+`storage` is deliberately absent from `CapabilityMap`, with a good reason stated
+in `src/contribution/capabilities.ts`:
+
+> `mesh`, `events`, `keys`, `menus`, `models` and `storage` are specified and not
+> yet built. They are absent here rather than present-and-throwing: a name that
+> resolves to a broken object is worse than one that does not resolve, because
+> the compile error is the point.
+
+That reasoning is sound and it had never been tested, because nothing had
+persisted anything. Then something did. The `theme` Extension in `mesh-demos`
+needed to remember a theme across reloads, found `needs('storage')` would not
+compile, and reached for this instead:
+
+```ts
+import { localProvider } from '@flybyme/mesh-web/registry/providers.js';
+await provider.write('theme', 'config', value);
+```
+
+A part reaching past the broker into the kernel's own registry machinery.
+**Nothing namespaces it, nothing scopes it to the contributor, and nothing can
+revoke it** — which is the entire job of a capability. The compile error worked
+exactly as designed and the author routed around it into something strictly worse
+than `localStorage`, because it looks legitimate.
+
+Every part that needs to remember something will do the same until this exists.
+
+================================================================================
+WHAT TO BUILD — THE DESIGN IS DECIDED, DO NOT REDESIGN IT
+================================================================================
+
+Read first, and follow it:
+
+    spec/storage-and-registry.md   §1 registry vs storage, §4 providers, §6 the interface
+    spec/type-safety.md            §2 — why there is no type parameter
+    src/registry/registry.ts       the registry, which is the sibling of this
+    src/registry/providers.ts      the provider abstraction both sit on
+    src/contribution/capabilities.ts   where a capability is declared and scoped
+    src/kernel/broker.ts           how a capability is built per contributor
+
+§6 gives the shape, and it is not negotiable:
+
+```ts
+const Drafts = store({
+    name: 'drafts',
+    hive: 'device',
+    schema: z.object({ title: z.string(), body: z.string(), savedAt: z.number() }),
+});
+
+const drafts = cx.storage.open(Drafts);
+
+await drafts.set('123', { title, body, savedAt: Date.now() });
+drafts.get('123');            // ReadonlySignal<Draft | undefined> — no type parameter
+await drafts.list();          // ReadonlySignal<readonly EntryStat[]>
+await drafts.remove('123');
+```
+
+The four consequences §6 states, and the third is the one that matters:
+
+- **No type parameter anywhere.** The type comes from the declaration. A caller
+  supplying `get<Draft>(...)` is the pattern type-safety §2 bans: the compiler
+  vouches for whatever happens to be on disk.
+- **Writes are validated** against the schema, so a bug cannot persist a
+  malformed record that breaks the next read.
+- **Reads that fail the schema fall back loudly** rather than being cast. This is
+  version skew: a user running last month's build has last month's shape on disk,
+  and no care at the call site would have caught it. Decide what "loudly" is —
+  a logged warning and the fallback is probably right; silently returning
+  `undefined` is not.
+- **The store appears in the manifest**, so what an Application persists, and in
+  which hive, is visible without reading its code.
+
+================================================================================
+WHAT MAKES IT A CAPABILITY RATHER THAN A LIBRARY
+================================================================================
+
+This is the part that closes the hole, so do not treat it as plumbing:
+
+- **Namespaced per contributor.** Two parts declaring a store called `drafts` get
+  two stores. A part must not be able to read or write another's data, and must
+  not be able to name its way into one — check what the registry already does for
+  `namespacePrefix` and be consistent with it.
+- **Built by the broker**, per contributor, from `needs('storage')` — like every
+  other capability. Not a module a part imports.
+- **Disposed by the kernel**, not the contributor.
+- **Bound to a hive**, on the same provider abstraction the registry uses (§4).
+  `device` on `localStorage` is the default that makes a reload remember; do not
+  invent a second storage backend.
+
+Then add `storage` to `CapabilityMap` and delete it from that "not yet built"
+comment — leave the other names alone.
+
+================================================================================
+WHAT NOT TO DO
+================================================================================
+
+**Do not touch the registry's behaviour.** Settings are layered, typed and
+reactive; storage is not layered. §1 is explicit that conflating them gets the
+worst of both. They share the provider abstraction and nothing else.
+
+**Do not build §7 caching/offline or migration.** Both are marked **Open** in the
+spec. A declared schema makes version skew *visible*, which is this task; it does
+not migrate anything, and inventing a migration story here would be deciding an
+open question in code.
+
+**Do not port `mesh-demos` onto it.** That repository has its own dispatch queue
+and a job already scheduled to strip its workarounds. Note in your report that
+`theme` should migrate.
+
+================================================================================
+WHAT GOOD LOOKS LIKE
+================================================================================
+
+- A test that **one part cannot reach another's store**, by any name it can
+  construct. That is the assertion this whole capability exists for.
+- A test that a write failing the schema is refused, and that a *read* of
+  malformed data falls back loudly rather than returning it.
+- A test that a value survives a remount — the reload case, which is the reason
+  anybody wants this.
+- `npm run typecheck` clean, **zero `as any`, zero `as never`, zero casts.** A
+  cast in a storage layer is the exact bug this design exists to prevent.
+- `npm test` green — all 300 unit and 34 browser tests plus yours.
+- Version bump to **0.8.0** in `package.json` and `mesh.json`: new capability,
+  additive, but parts will pin against it.
+- Tick A3.9 in `spec/roadmap.md`, dated, with one line on what was built.
+- If any part of §6 turns out to be wrong once it is real, **say so in the report
+  rather than quietly doing something else.** The spec is decided, not sacred, and
+  a written reason to change it is worth more than compliance.
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/reports/4-storage-capability.md`  ← `reports/`, and committed.
+`agent-runs/results/` is gitignored and destroyed with the worktree.
+
+- what the isolation mechanism is, and how you know a part cannot escape it
+- what "falls back loudly" turned out to mean
+- anything in §6 that did not survive contact
+- whether `store` in the manifest was straightforward or awkward, given nothing
+  currently reads the manifest for anything but commands
+- anything you found that belongs in the reader audit — a field or mechanism
+  written and never read. You are in the registry and broker, which is where the
+  last three came from.
