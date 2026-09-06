@@ -21,6 +21,13 @@ import type { WindowState } from './geometry.js';
 /** One window's remembered geometry. Keyed by view, because that is what comes back. */
 export interface RememberedWindow {
     readonly view: string;
+    /**
+     * Where this window sits **when it is not maximized**, never its current box.
+     *
+     * The distinction is the whole of why a maximized window can be turned back after a reload —
+     * see `save()`. A maximized window's own rect is the viewport, which says nothing about where
+     * it came from and is not worth remembering: the viewport is already known.
+     */
     readonly x: number;
     readonly y: number;
     readonly width: number;
@@ -126,14 +133,32 @@ export function windowPersistence(options: PersistenceOptions): WindowPersistenc
         try {
             // Saved back-to-front, so restoring in order rebuilds the stacking without storing a
             // separate z-index that could disagree with it.
-            const windows = manager.stacked().map((w): RememberedWindow => ({
-                view: w.view,
-                x: Math.round(w.rect.x),
-                y: Math.round(w.rect.y),
-                width: Math.round(w.rect.width),
-                height: Math.round(w.rect.height),
-                state: w.state,
-            }));
+            /**
+             * **The geometry saved is where the window lives when it is *not* maximized.**
+             *
+             * This wrote `w.rect` — which for a maximized window is the whole viewport — alongside
+             * `state: 'maximized'`, and never wrote `restoreRect` at all. Restoring then placed the
+             * window at the maximized rect and called `maximize()`, which captures the *current*
+             * rect as the one to restore to. So a window maximized before a reload came back with
+             * its restore rect equal to its maximized rect, and **the restore button became a
+             * permanent no-op**: the window could be maximized and never turned back.
+             *
+             * Saving the normal geometry instead makes the two fields mean one thing each — where
+             * it sits, and whether it is currently blown up over that — and restoring is then
+             * `place(normal)` followed by `maximize()`, which lands the restore rect on the normal
+             * geometry by construction rather than by luck.
+             */
+            const windows = manager.stacked().map((w): RememberedWindow => {
+                const normal = w.restoreRect ?? w.rect;
+                return {
+                    view: w.view,
+                    x: Math.round(normal.x),
+                    y: Math.round(normal.y),
+                    width: Math.round(normal.width),
+                    height: Math.round(normal.height),
+                    state: w.state,
+                };
+            });
 
             await registry.write(geometry, windows);
             await registry.write(mode, manager.mode());

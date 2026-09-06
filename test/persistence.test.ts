@@ -197,3 +197,62 @@ describe('the declarations', () => {
         });
     });
 });
+
+describe('a window maximized before a reload can still be turned back', () => {
+    it('remembers where it was, not the viewport it was filling', async () => {
+        /**
+         * The defect this exists for: `save()` wrote `w.rect`, which for a maximized window is the
+         * whole viewport, alongside `state: 'maximized'`. Restoring placed the window at that rect
+         * and called `maximize()`, which captures the *current* rect as the one to restore to — so
+         * the restore rect became the maximized rect and **the restore button was a permanent
+         * no-op**. Reported by a user who could maximize a window and never get it back.
+         *
+         * The fix is that the saved geometry means *where this window sits when it is not
+         * maximized*, so restoring is `place(normal)` then `maximize()` and the restore rect lands
+         * on the normal geometry by construction.
+         */
+        const device = memoryProvider('device');
+
+        const first = new WindowManager({ width: 1000, height: 600 });
+        const saving = windowPersistence({
+            manager: first, registry: registryOver(device), application: 'blog', debounceMs: 5,
+        });
+
+        openThree(first);
+        const stop = saving.watch();
+
+        const window = first.windows()[0]!;
+        first.move(window.id, 120, 60);
+        const normal = { ...first.get(window.id)!.rect };
+
+        first.maximize(window.id);
+        expect(first.get(window.id)!.rect).toEqual({ x: 0, y: 0, width: 1000, height: 600 });
+        await afterSave();
+        stop();
+
+        const restored = await windowPersistence({
+            manager: new WindowManager({ width: 1000, height: 600 }),
+            registry: registryOver(device),
+            application: 'blog',
+        }).restore();
+
+        const saved = restored.find((w) => w.view === window.view)!;
+        expect(saved.state).toBe('maximized');
+        expect({ x: saved.x, y: saved.y, width: saved.width, height: saved.height })
+            .toEqual({
+                x: Math.round(normal.x), y: Math.round(normal.y),
+                width: Math.round(normal.width), height: Math.round(normal.height),
+            });
+
+        // And the round trip a page actually performs: place the normal geometry, maximize, then
+        // ask to be turned back. This is the assertion that failed before the fix.
+        const second = new WindowManager({ width: 1000, height: 600 });
+        const again = second.open({ owner: 'p1', view: window.view });
+        second.place(again.id, { x: saved.x, y: saved.y, width: saved.width, height: saved.height });
+        second.maximize(again.id);
+        second.restore(again.id);
+
+        expect(second.get(again.id)!.rect).toEqual(normal);
+        expect(second.get(again.id)!.state).toBe('normal');
+    });
+});
