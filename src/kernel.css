@@ -1,0 +1,259 @@
+/**
+ * @flybyme/mesh-web kernel stylesheet.
+ *
+ * The kernel owns the rules; the site owns the values (spec/serving.md §3).
+ *
+ * Every colour is a custom property token with a fallback so un-themed pages
+ * remain legible. The tokens a site or theme can set on :root or on a window host:
+ *
+ *   --page:            page / background color (default: #0d1117)
+ *   --chrome:          title bar and frame chrome background (default: #161b22)
+ *   --surface:         window background, cards, notifications (default: #161b22)
+ *   --surface-hover:   hovered controls, buttons (default: #21262d)
+ *   --ink:             primary text color (default: #e6edf3)
+ *   --ink-dim:         muted text, labels, subtle controls (default: #8b949e)
+ *   --edge:            borders and dividers (default: #30363d)
+ *   --accent:          focus rings, active borders, highlights (default: #58a6ff)
+ *   --on-accent:       text on accent background (default: #0d1117)
+ *   --info:            info notice border and accent (default: #58a6ff)
+ *   --warn:            warning notice border and accent (default: #d29922)
+ *   --error:           error notice border and accent (default: #f85149)
+ *   --shadow:          window and notice box shadows (default: rgba(0, 0, 0, 0.35))
+ */
+
+/* ---------------------------------------------------------------------------- page & hosts */
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--page, #0d1117);
+    color: var(--ink, #e6edf3);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+#mesh-web-root {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+    overflow: hidden;
+}
+
+/*
+ * The window host needs a height. The manager measures its host, and an auto-height
+ * host is zero tall, clamping every window to nothing.
+ */
+[data-mesh-window-host] {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------- window frame */
+
+/*
+ * Position belongs to whoever writes left. The kernel writes geometry as inline styles,
+ * so position is not forced here.
+ */
+.window {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface, #161b22);
+    color: var(--ink, #e6edf3);
+    border: 1px solid var(--edge, #30363d);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px var(--shadow, rgba(0, 0, 0, 0.25));
+}
+
+.window.focused {
+    border-color: var(--accent, #58a6ff);
+    box-shadow: 0 8px 24px var(--shadow, rgba(0, 0, 0, 0.35));
+}
+
+.window.tiled {
+    border-radius: 0;
+}
+
+.window.tiled .grip {
+    display: none;
+}
+
+.titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 28px;
+    padding: 0 10px;
+    background: var(--chrome, #161b22);
+    color: var(--ink, #e6edf3);
+    border-bottom: 1px solid var(--edge, #30363d);
+    flex: 0 0 auto;
+    cursor: move;
+    user-select: none;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.titlebar .label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.titlebar .buttons {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    flex: 0 0 auto;
+}
+
+.titlebar .buttons button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: var(--ink-dim, #8b949e);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+}
+
+.titlebar .buttons button:hover {
+    background: var(--surface-hover, #21262d);
+    color: var(--ink, #e6edf3);
+}
+
+.content {
+    flex: 1 1 auto;
+    overflow: auto;
+    min-height: 0;
+    position: relative;
+    color: var(--ink, #e6edf3);
+}
+
+.grip {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    cursor: se-resize;
+    touch-action: none;
+    z-index: 1;
+}
+
+/* ---------------------------------------------------------------------------- notifications */
+
+.mesh-notifications {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 10000;
+    pointer-events: none;
+    max-width: 400px;
+}
+
+.mesh-notice {
+    padding: 8px 12px;
+    background: var(--surface, #161b22);
+    color: var(--ink, #e6edf3);
+    border: 1px solid var(--edge, #30363d);
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+    box-shadow: 0 4px 12px var(--shadow, rgba(0, 0, 0, 0.3));
+    pointer-events: auto;
+}
+
+.mesh-notice.info {
+    border-color: var(--info, #58a6ff);
+}
+
+.mesh-notice.warn {
+    border-color: var(--warn, #d29922);
+}
+
+.mesh-notice.error {
+    border-color: var(--error, #f85149);
+}
+
+/* ---------------------------------------------------------------------------- component primitives */
+
+button {
+    font: inherit;
+    color: var(--ink, #e6edf3);
+    background: var(--surface, #161b22);
+    border: 1px solid var(--edge, #30363d);
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+}
+
+button:hover {
+    border-color: var(--accent, #58a6ff);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+input {
+    font: inherit;
+    color: var(--ink, #e6edf3);
+    background: var(--page, #0d1117);
+    border: 1px solid var(--edge, #30363d);
+    border-radius: 4px;
+    padding: 4px 8px;
+    box-sizing: border-box;
+}
+
+input:focus {
+    outline: none;
+    border-color: var(--accent, #58a6ff);
+}
+
+section {
+    box-sizing: border-box;
+    background: var(--surface, #161b22);
+    border: 1px solid var(--edge, #30363d);
+    border-radius: 6px;
+    padding: 12px;
+}
+
+h2 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ink, #e6edf3);
+}
+
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
