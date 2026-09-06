@@ -1,0 +1,138 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+Fix the three defects that the first real Applications written against this
+framework all had to route around. They are on the roadmap as **A7.0, A7.0b and
+A5.7b**; read `spec/roadmap.md` for each.
+
+None was found by this repository's 291 tests. All three were found by somebody
+writing an app, which is the thing worth keeping in mind while fixing them: the
+test that would have caught each one is as much the deliverable as the fix.
+
+================================================================================
+A7.0 — `Input` cannot be controlled, and no text input can be cleared
+================================================================================
+
+`PRIMITIVES` in `src/render/component.ts` has `tag('Input', 'input')` with no
+`apply`. So `value` and `checked` fall through to `applyDefaultProp`, which calls
+`el.setAttribute(name, String(value))`.
+
+In the DOM, once a user types into an `<input>`, the element's **dirty value
+flag** is set. From then on `setAttribute('value', …)` only moves
+`defaultValue` — the live `HTMLInputElement.value` never changes. So a
+controlled input, `props: { value: () => draft() }`, fails **silently**: after
+submitting, the typed text is still sitting in the box.
+
+Every form in the framework is affected. mesh-todo worked around it by wrapping
+the Input in a keyed `each` over a revision counter, so the whole DOM node is
+torn down and rebuilt on each submit. That is a real cost and a strange thing to
+have to know.
+
+The fix is an `apply` on `Input` that assigns the DOM **properties**:
+
+    (el as HTMLInputElement).value = String(value)
+    (el as HTMLInputElement).checked = Boolean(value)
+
+Think about, and decide deliberately:
+
+- **Do not clobber what the user is typing.** Assigning `.value` on every signal
+  read will move the caret to the end mid-word if the signal is written from an
+  `input` event. Only assign when the incoming value actually differs from
+  `el.value`. Say in a comment why that check is not an optimisation.
+- `checked` has the same dirty-flag problem and the same fix.
+- Are there other properties with this shape? `selected` on an option,
+  `indeterminate` on a checkbox. Check whether they can arise here yet; if they
+  cannot, say so rather than adding speculative cases.
+- `applyDefaultProp` stays as it is. This is `Input` knowing about itself, which
+  is exactly what `ComponentDefinition.apply` exists for — `Stack` already does
+  it for `gap`.
+
+================================================================================
+A7.0b — `activate` fires on Space, so it cannot go on a text field
+================================================================================
+
+`bindIntents` in `src/render/dom.ts` (~line 349) binds `activate` to `keydown`
+for `'Enter'` **and `' '`**. Correct for a Button. Wrong for an Input: pressing
+space mid-word runs the command.
+
+The constraint this has to respect is `spec/input.md` §3 — *every action has a
+non-pointer path*. Space activating a button is part of how that holds, so the
+fix is not "stop binding Space". It is that **Space should not activate an
+element for which space is text input**.
+
+Decide where that knowledge belongs. A list of tag names in `bindIntents` is one
+answer and probably the wrong one; a property on the `ComponentDefinition` is
+another. Argue for what you choose in a comment.
+
+================================================================================
+A5.7b — a view opened during `start()` renders against an undefined api
+================================================================================
+
+`src/kernel/kernel.ts` line ~247:
+
+    entry.api = await contribution.start(handle.context);
+
+The assignment happens **after** the await. So a view opened synchronously
+inside `start()` mounts while `start()` is still running: `apiOf(owner)` returns
+`undefined`, and `render(vx)` throws on the first signal read from `vx.app`.
+
+`ViewContext.app` is documented in `src/contribution/contract.ts` (~line 71) as
+guaranteed, *"so the guarantee is carried by the types instead of by a
+definite-assignment assertion papering over a gap"*. The guarantee is stated in
+the types and enforced nowhere.
+
+Two candidate fixes, and they are not equivalent:
+
+1. **Hold view mounting** until the process reaches `running`. Keeps `start()`
+   as the moment the api comes into being; means a window opened during start
+   appears a tick later.
+2. **Let a contribution publish its api eagerly**, before `start()` resolves.
+   Makes `cx.windows.open` during `start()` legal, and means the api exists
+   while `start()` is still running — which is a weaker guarantee than the
+   comment currently claims.
+
+Pick one and say why in the commit. Then **make the comment on `ViewContext.app`
+true**, whichever way you went. mesh-todo worked around this with
+`queueMicrotask`, which is precisely the papering-over that comment says the
+design avoids.
+
+================================================================================
+WHAT GOOD LOOKS LIKE
+================================================================================
+
+- **A test per defect that fails before your fix and passes after.** Write the
+  test first and watch it fail; a test written after a fix tends to test the
+  fix rather than the defect.
+- For A7.0 specifically: the existing tests all pass a *fresh* input. The defect
+  needs a **dirty** one — type into it, then set the signal, then assert on
+  `el.value`. That is the shape the 291 tests were missing.
+- `npm run typecheck` clean. **Zero `as any`, zero `as never`.** A cast to
+  `HTMLInputElement` after a real check is fine and is not what this means.
+- `npm test` green — all 291 plus yours.
+- Bump the version to **0.7.0** in `package.json` and `mesh.json`. A7.0 changes
+  how every existing form behaves, which is not a patch.
+- Update `spec/roadmap.md`: tick the three, with the date and one line each on
+  what was actually done.
+
+================================================================================
+WHAT NOT TO DO
+================================================================================
+
+**Do not do the A7.1 primitive audit.** It is the next item and it is large and
+it is gated on the focus graph. Three defects, their tests, a version bump.
+
+**Do not touch `spec/` beyond the roadmap ticks.**
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/results/3-the-three-defects.result.md`:
+
+- what each fix was, and for A7.0b and A5.7b, **which option you chose and why**
+- the test for each: what it asserts, and confirmation you saw it fail first
+- anything you found while in there that is worth a roadmap line
+- anything you decided *not* to fix, and why
