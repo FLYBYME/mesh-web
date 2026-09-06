@@ -256,6 +256,26 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
 export function drag(handle: HTMLElement, onMove: (dx: number, dy: number) => void): void {
     handle.addEventListener('pointerdown', (event: PointerEvent) => {
         if (event.button !== 0) return;
+
+        /**
+         * **A control inside the handle is not a drag surface**, and this is the line that makes
+         * every title bar button work.
+         *
+         * The buttons live inside the title bar and the title bar is the drag handle. Without this
+         * check, `setPointerCapture` below redirects the rest of the gesture to the handle, so the
+         * button never receives its own `pointerup` — and a browser only synthesises `click` when
+         * down and up land on the same element. Result: maximize and close did nothing at all under
+         * a real mouse.
+         *
+         * It survived every test because `button.click()` dispatches the click directly and never
+         * performs the pointer sequence. So the tests exercised the handler and the user could not
+         * reach it, which is the most expensive shape a bug can have.
+         */
+        if (event.target instanceof Element
+            && event.target.closest('button, a, input, select, textarea, [role="button"]') !== null) {
+            return;
+        }
+
         event.preventDefault();
         handle.setPointerCapture(event.pointerId);
 

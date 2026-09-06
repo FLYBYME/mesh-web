@@ -62,6 +62,7 @@ class TwoWindowApp implements Application<typeof APP_NEEDS> {
 interface Site {
     readonly manager: WindowManager;
     readonly shell: Shell;
+    readonly kernel: Kernel;
     dispose(): void;
 }
 
@@ -114,6 +115,7 @@ async function boot(frame?: FrameChrome): Promise<Site> {
     await kernel.start('app');
 
     const created: Site = {
+        kernel,
         manager,
         shell,
         dispose() {
@@ -310,11 +312,21 @@ describe('the shell positions windows without help from a stylesheet', () => {
         expect(Math.round(box.left - desktop.left)).toBe(rect.x);
         expect(Math.round(box.top - desktop.top)).toBe(rect.y);
 
-        // The failure this replaces was two windows stacked at x = 0, each the *right size* — so a
-        // size assertion alone passed, and did. Only their relative placement catches it.
+        /**
+         * The failure this replaces was two windows stacked at x = 0, each the *right size* — so a
+         * size assertion alone passed, and did. Only their relative placement catches it.
+         *
+         * Against the manager's own numbers rather than a literal `28`, which is what this said
+         * until the cascade step became adaptive. Hardcoding the step made this a test of a
+         * constant; the claim it is here to defend is that **the DOM agrees with the manager**, and
+         * that holds whatever the step is.
+         */
+        const secondRect = created.manager.rectOf(second!)!;
         const other = created.shell.hostOf(second!)!.getBoundingClientRect();
-        expect(other.left - box.left).toBe(28);
-        expect(other.top - box.top).toBe(28);
+
+        expect(other.left - box.left).toBe(secondRect.x - rect.x);
+        expect(other.top - box.top).toBe(secondRect.y - rect.y);
+        expect(secondRect.x).toBeGreaterThan(rect.x);
     });
 
     it('makes the window area a containing block when the site left it static', async () => {
@@ -357,5 +369,100 @@ describe('the shell positions windows without help from a stylesheet', () => {
 
         shell.dispose();
         host.remove();
+    });
+});
+
+/**
+ * What a real mouse does, which is not what `.click()` does.
+ *
+ * Every one of these passed against the defect, because a test that calls `button.click()`
+ * dispatches the click directly and never performs the pointer sequence a person performs. The
+ * handler was reachable from a test and unreachable from a mouse — so the suite agreed with the
+ * code and disagreed with the screen.
+ */
+describe('title bar controls under a real pointer', () => {
+    afterEach(() => { site?.dispose(); site = undefined; });
+
+    it('closes when the close button is actually clicked', async () => {
+        // The drag handler is on the title bar; the buttons are inside it. Its
+        // `setPointerCapture` redirected the rest of the gesture to the bar, so the button never
+        // saw its own pointerup and the browser never synthesised a click. Close did nothing.
+        const s = await boot();
+        flushSync();
+
+        const before = s.manager.windows().length;
+        expect(before).toBeGreaterThan(0);
+
+        const win = s.shell.hostOf(s.manager.windows()[0]!.id)!;
+        const close = [...win.querySelectorAll('.titlebar .buttons button')]
+            .find((b) => b.textContent?.includes('×'))!;
+
+        await userEvent.click(close);
+        flushSync();
+
+        expect(s.manager.windows()).toHaveLength(before - 1);
+    });
+
+    it('maximizes when the maximize button is actually clicked', async () => {
+        const s = await boot();
+        flushSync();
+
+        const record = s.manager.windows()[0]!;
+        const win = s.shell.hostOf(record.id)!;
+        const max = [...win.querySelectorAll('.titlebar .buttons button')]
+            .find((b) => b.textContent?.includes('□'))!;
+
+        await userEvent.click(max);
+        flushSync();
+
+        expect(s.manager.get(record.id)?.state).toBe('maximized');
+    });
+
+    it('still drags from the bar itself', async () => {
+        // The guard must not cost the bar its actual job: a drag started on the bar, rather than on
+        // a control inside it, still moves the window.
+        const s = await boot();
+        flushSync();
+
+        const record = s.manager.windows()[0]!;
+        const before = s.manager.get(record.id)!.rect.x;
+        const bar = s.shell.hostOf(record.id)!.querySelector<HTMLElement>('.titlebar')!;
+
+        const box = bar.getBoundingClientRect();
+        bar.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true, button: 0, pointerId: 1,
+            clientX: box.x + box.width / 2, clientY: box.y + 4,
+        }));
+        bar.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true, pointerId: 1,
+            clientX: box.x + box.width / 2 + 60, clientY: box.y + 4,
+        }));
+        bar.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+        flushSync();
+
+        expect(s.manager.get(record.id)!.rect.x).toBe(before + 60);
+    });
+});
+
+describe("instances: 'one' means one window for the view", () => {
+    afterEach(() => { site?.dispose(); site = undefined; });
+
+    it('focuses the window it already has instead of opening another', async () => {
+        // Declared on ViewDecl and read by nothing, so a button that opened a view opened a fourth,
+        // fifth and sixth copy of it, each identical and stacked on the last. An Application cannot
+        // fix that without tracking its own windows — the bookkeeping the manager exists to own.
+        const s = await boot();
+        flushSync();
+
+        const first = s.manager.windows().find((w) => w.view === 'alpha')!;
+        const before = s.manager.windows().length;
+
+        const pid = first.owner;
+        const again = s.kernel.services.windows.open(pid, 'alpha', {});
+        flushSync();
+
+        expect(s.manager.windows()).toHaveLength(before);
+        expect(again).toBe(first.id);
+        expect(s.manager.focused()).toBe(first.id);
     });
 });

@@ -154,3 +154,67 @@ describe('the window manager', () => {
         expect(m.get(small.id)!.rect.x).toBeLessThanOrEqual(600 - 32);
     });
 });
+
+/**
+ * The four window defects a real desktop found, all on one page.
+ *
+ * Six windows from two Applications is the first time anything ran more than two, and all four of
+ * these were invisible below that. Every one is a mechanism that existed and was not reached.
+ */
+describe('what six windows on a real page found', () => {
+    it('places a cascade across the room it has, not into the corner', () => {
+        // Six 320x420 windows on 1400x950 all landed inside the top-left 180px with a fixed 28px
+        // step: every body covered, two thirds of the screen empty. Correct by the rule that each
+        // title bar stays clickable, and useless to look at.
+        const viewport = { width: 1400, height: 950 };
+        const size = { width: 320, height: 420 };
+
+        const sixth = cascade(5, size, viewport);
+        expect(sixth.x).toBeGreaterThan(300);
+
+        // Still monotonic, and still a diagonal: a cascade, not a scatter.
+        const positions = [0, 1, 2, 3, 4, 5].map((i) => cascade(i, size, viewport).x);
+        expect(positions).toEqual([...positions].sort((a, b) => a - b));
+        expect(new Set(positions).size).toBe(6);
+    });
+
+    it('keeps one title bar of step when the viewport is small', () => {
+        // The degenerate case the 28 was chosen for. A step below a title bar would hide the only
+        // affordance a covered window has left.
+        const tight = cascade(1, { width: 300, height: 400 }, { width: 360, height: 460 });
+        const origin = cascade(0, { width: 300, height: 400 }, { width: 360, height: 460 });
+        expect(tight.x - origin.x).toBeGreaterThanOrEqual(28);
+    });
+
+    it('places a window exactly, which is what restoring geometry needs', () => {
+        // `move` takes deltas because a drag reports deltas. Restoring has an absolute answer in
+        // hand, and expressing it as a delta from wherever the cascade happened to put the window
+        // is arithmetic standing in for an assignment.
+        const m = new WindowManager({ width: 1200, height: 800 });
+        const w = m.open({ owner: 'p1', view: 'editor' });
+
+        m.place(w.id, { x: 500, y: 300, width: 400, height: 350 });
+        expect(m.get(w.id)?.rect).toEqual({ x: 500, y: 300, width: 400, height: 350 });
+    });
+
+    it('pulls a window restored from a bigger monitor back within reach', () => {
+        /**
+         * The failure this feature is judged by: geometry saved on a large display must not come
+         * back somewhere a mouse cannot get to.
+         *
+         * **Within reach, not wholly inside.** `constrainToViewport` keeps `edgeMargin` on screen
+         * and lets the rest hang off, which is what every real window manager does — a window
+         * wider than the display has to overhang something, and forcing it fully inside would
+         * resize a window the user never asked to resize.
+         */
+        const m = new WindowManager({ width: 800, height: 600 });
+        const w = m.open({ owner: 'p1', view: 'editor' });
+
+        m.place(w.id, { x: 3000, y: 2000, width: 400, height: 300 });
+        const rect = m.get(w.id)!.rect;
+
+        expect(rect.x).toBeLessThanOrEqual(800 - 32);
+        expect(rect.y).toBeLessThanOrEqual(600 - 32);
+        expect(rect.x + rect.width).toBeGreaterThan(0);
+    });
+});

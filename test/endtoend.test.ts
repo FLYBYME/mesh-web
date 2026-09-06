@@ -242,9 +242,19 @@ describe('an Application reaches the screen', () => {
         first.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
         expect(site.dispatched).toEqual([{ kind: 'command', id: 'blog.open', args: ['a'] }]);
-        // Which opened a second window, owned by the same process.
-        expect(site.manager.windows()).toHaveLength(2);
+
+        /**
+         * **One window, because `sidebar` declares `instances: 'one'`.**
+         *
+         * This asserted two until the declaration was actually enforced. `instances` sat on
+         * `ViewDecl` and was read by nothing, so every open minted another window and this test
+         * wrote that down as the expectation — which is how a test built on top of a defect
+         * defends it. The subject here is *a click reaching a command through the kernel*, and
+         * that is the assertion above; the window count was only ever incidental.
+         */
+        expect(site.manager.windows()).toHaveLength(1);
         expect(site.manager.windows().every((w) => w.owner === pid)).toBe(true);
+        expect(site.manager.focused()).toBe(site.manager.windows()[0]?.id);
     });
 
     it('application state drives the view, and the window is not involved', async () => {

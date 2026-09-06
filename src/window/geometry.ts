@@ -94,9 +94,28 @@ export function maximize(viewport: Size): Rect {
  * second one hides the first.
  */
 export function cascade(index: number, size: Size, viewport: Size, step = 28): Rect {
-    const offset = (index % 8) * step;
+    const margin = 40;
+
+    /**
+     * **The step grows with the room available**, and that is the difference between a cascade and
+     * a pile.
+     *
+     * A fixed 28px offset is one title bar: it guarantees every window's bar is clickable, which is
+     * the property a cascade has to keep. But with six 320×420 windows on a 1400×950 viewport it
+     * put all six inside the top-left 180 pixels, every body covered, with two thirds of the screen
+     * empty. Correct by its own rule and useless to look at.
+     *
+     * So: spread over the space a run of eight would need, and never below one title bar. A small
+     * viewport degrades to exactly the old behaviour, which is the case the 28 was chosen for.
+     */
+    const spread = Math.max(step, Math.floor(Math.min(
+        (viewport.width - margin * 2 - size.width) / 8,
+        (viewport.height - margin * 2 - size.height) / 8,
+    )));
+
+    const offset = (index % 8) * spread;
     return constrainToViewport(
-        { x: 40 + offset, y: 40 + offset, width: size.width, height: size.height },
+        { x: margin + offset, y: margin + offset, width: size.width, height: size.height },
         viewport,
     );
 }

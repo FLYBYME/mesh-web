@@ -32,6 +32,26 @@ export function windowSink(
                 );
             }
 
+            /**
+             * `instances: 'one'` means **one window for this view, not one per open call.**
+             *
+             * The field was declared on `ViewDecl` and read by nothing, so every open produced
+             * another window: a "Notes Overview" button opened a fourth, fifth and sixth Notes
+             * Overview, each identical, stacked on the last. An Application cannot fix that itself
+             * without tracking its own windows, which is precisely the bookkeeping the window
+             * manager exists to own.
+             *
+             * Focus rather than ignore, because the caller asked to *see* the view. Silently doing
+             * nothing would make the button look broken for the opposite reason.
+             */
+            if (decl.instances === 'one') {
+                const already = manager.windows().find((w) => w.owner === owner && w.view === view);
+                if (already !== undefined) {
+                    manager.focus(already.id);
+                    return already.id;
+                }
+            }
+
             const record = manager.open({
                 owner,
                 view,

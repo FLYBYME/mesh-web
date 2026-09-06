@@ -55,6 +55,7 @@ import { localProvider, memoryProvider } from '../registry/providers.js';
 import { mountPage, PAGE_CHROME } from '../window/page.js';
 import type { Page } from '../window/page.js';
 import { windowPersistence } from '../window/persistence.js';
+import type { RememberedWindow, WindowPersistence } from '../window/persistence.js';
 import { windowSink } from '../window/sink.js';
 import { WindowManager } from '../window/manager.js';
 import type { Action } from '../description/types.js';
@@ -181,7 +182,23 @@ export function start(composition: Composition): Started {
         },
     });
 
-    windowPersistence({ manager, registry: settings, application: composition.application });
+    /**
+     * Window geometry across reloads.
+     *
+     * **The return value used to be discarded**, and that was the whole bug: `windowPersistence`
+     * builds a complete mechanism — debounced saves, a restore that the boot sequence can await, a
+     * mode setting backed by the `device` hive on `localStorage` — and it does none of it until
+     * something calls `watch()`. Constructed and dropped, it wrote nothing and read nothing back,
+     * so `localStorage` stayed empty and every window came back at its cascade position.
+     *
+     * `watch()` here; the restore is applied in `open()` below, after the Applications that own
+     * those windows have started — a geometry for a view whose Application is not running has
+     * nothing to be applied to.
+     */
+    const persistence = windowPersistence({
+        manager, registry: settings, application: composition.application,
+    });
+    const stopPersisting = persistence.watch();
 
     kernel.services.windows = windowSink(manager, (owner, view) => kernel.viewOf(owner, view));
 
@@ -243,8 +260,9 @@ export function start(composition: Composition): Started {
 
     return {
         kernel, manager, page, settings, components,
-        ready: open(kernel, composition),
+        ready: open(kernel, composition, manager, persistence),
         dispose() {
+            stopPersisting();
             page.dispose();
             notifications.remove();
         },
@@ -327,7 +345,12 @@ function mountNotifications(doc: Document, root: Element, kernel: Kernel): Eleme
  * returns a pid either way, and the process table is what has to be read. It *does* throw for an
  * application id nothing declared, which is a composition naming a part it does not have.
  */
-async function open(kernel: Kernel, composition: Composition): Promise<void> {
+async function open(
+    kernel: Kernel,
+    composition: Composition,
+    manager: WindowManager,
+    persistence: WindowPersistence,
+): Promise<void> {
     const wanted = composition.open ?? defaultOpen(kernel);
 
     if (wanted.length === 0 && composition.parts.length > 0) {
@@ -372,6 +395,50 @@ async function open(kernel: Kernel, composition: Composition): Promise<void> {
         for (const view of entry.views ?? []) {
             kernel.services.windows.open(pid, view, {});
         }
+    }
+
+    await restoreGeometry(kernel, manager, persistence);
+}
+
+/**
+ * Put windows back where this device left them.
+ *
+ * **After the Applications have started**, because a saved geometry names a *view*, and a view has
+ * nothing to be applied to until the Application that declares it is running and has opened its
+ * windows. An Application that opens its own windows during `start()` is therefore covered too.
+ *
+ * Matched by view id, not by window id: window ids are minted per boot, so they cannot survive a
+ * reload — which is exactly why `RememberedWindow` stores `view` and not `id`.
+ *
+ * Anything unmatched is skipped in silence. A remembered window whose view no longer exists is the
+ * ordinary consequence of a part being upgraded or removed, not an error worth showing anybody.
+ */
+async function restoreGeometry(
+    kernel: Kernel,
+    manager: WindowManager,
+    persistence: WindowPersistence,
+): Promise<void> {
+    let remembered: readonly RememberedWindow[];
+    try {
+        remembered = await persistence.restore();
+    } catch (error) {
+        // Geometry is a convenience. A hive that cannot be read must not stop a page from booting.
+        kernel.services.logs.push({
+            level: 'warn', source: 'window-manager',
+            message: 'could not read saved window geometry', data: error,
+        });
+        return;
+    }
+
+    for (const saved of remembered) {
+        const record = manager.windows().find((w) => w.view === saved.view);
+        if (record === undefined) continue;
+
+        manager.place(record.id, {
+            x: saved.x, y: saved.y, width: saved.width, height: saved.height,
+        });
+        if (saved.state === 'maximized') manager.maximize(record.id);
+        if (saved.state === 'minimized') manager.minimize(record.id);
     }
 }
 

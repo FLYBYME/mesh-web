@@ -314,6 +314,25 @@ export class WindowManager {
         );
     }
 
+    /**
+     * Put a window exactly here.
+     *
+     * Everything else moves a window *relatively* — `move` takes deltas because a drag reports
+     * deltas — and restoring saved geometry is the one case with an absolute answer already in
+     * hand. Doing it as a delta from wherever the cascade happened to place the window would be
+     * arithmetic standing in for an assignment, and wrong the moment the viewport differs from the
+     * one that saved it.
+     *
+     * Still clamped to the viewport: a window restored from a larger monitor must not come back
+     * off-screen, which is the failure this whole feature is judged by.
+     */
+    place(id: string, rect: Rect): void {
+        this.#update(id, (record) => constrainToViewport(
+            clampSize(rect, record.minSize ?? DEFAULT_MIN),
+            this.viewport(),
+        ));
+    }
+
     #update(id: string, next: (record: WindowRecord) => Rect): void {
         this.#replace(id, (w) => ({ ...w, rect: next(w) }));
     }
