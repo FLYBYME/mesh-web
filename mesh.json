@@ -1,0 +1,10 @@
+{
+    "parts": [
+        {
+            "kind": "kernel",
+            "id": "mesh-web",
+            "version": "0.5.0",
+            "entry": "src/index.ts"
+        }
+    ]
+}
