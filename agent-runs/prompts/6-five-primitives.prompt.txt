@@ -1,0 +1,130 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+Add five primitives to `PRIMITIVES`, and give `Heading` the `level` it never had.
+Roadmap **A7.3**, from the audit in **A7.1a**.
+
+    TextArea      multi-line text. Today `Input` is <input type=text> and a
+                  markdown editor became a prompt-and-append loop.
+    ScrollView    a scroll region. Today: inline style overflowY on a Stack,
+                  with no scroll position and no scroll-to-bottom.
+    Grid          CSS grid. Today a calculator keypad is five Rows of four
+                  Buttons, each carrying flex: 1 1 0.
+    Divider       a rule. Today an empty Card collapsed to 1px.
+    Span          inline text and inline styling. Today a Badge, which is a
+                  <span> wearing a pill.
+
+    Heading       add `level: 1..6`. It is tag('Heading', 'h2') and there is no
+                  `level` prop anywhere, so a document has exactly one heading
+                  rank and markdown h1-h6 became inline fontSize overrides.
+
+**Two of the seven the audit named are deliberately NOT in this list.** Read the
+next section before you start, because adding them is the wrong move and it will
+look tempting.
+
+================================================================================
+WHAT IS NOT IN SCOPE, AND WHY
+================================================================================
+
+**`Draggable` / `DropZone` — no.** Dragging is the archetypal pointer-only
+action, and `spec/input.md` §3 requires *every action has a non-pointer path*.
+That is not a styling detail to add later; it is a design problem, and it is
+gated on **A8.2**, the focus graph, which is unbuilt. Worth knowing: the kanban
+board in `mesh-demos` worked around the gap with a two-phase grab-and-drop state
+machine plus directional buttons, and **that may be the correct primitive** rather
+than a workaround — a drag with a keyboard path is a selection followed by a
+target, which is exactly what it built. Do not decide that here.
+
+**`Surface` — no.** That is **A7.5**, the `dom` capability: an escape hatch that
+lets a contribution opt out of isolation, which needs its own decision about what
+declaring it means. A `Surface` bolted on as a component would be that decision
+made silently.
+
+**Do not build A7.2 theme tokens**, and do not restyle anything that already
+exists beyond what `level` requires.
+
+================================================================================
+THE CONSTRAINT THAT GOVERNS ALL FIVE
+================================================================================
+
+`spec/input.md` §3: **every action has a non-pointer path.** A7.1 is gated on
+A8.2 precisely because a primitive that can only be operated with a mouse is a
+vocabulary mistake that is expensive to reverse.
+
+These five are in scope *because* they clear that bar without the focus graph:
+
+- `Grid`, `Divider`, `Span` are not interactive at all.
+- `TextArea` is keyboard-native by construction.
+- `ScrollView` must be **keyboard-scrollable**: a scroll region that only responds
+  to a wheel is exactly the failure §3 exists to prevent. Give it `tabIndex` when
+  it actually overflows, so arrows and Page keys work and a screen reader can
+  reach it — and check what that does to the focus order before you commit to it.
+
+If any of the five turns out to need A8.2 after all, **stop and say so** rather
+than shipping something that only works with a mouse.
+
+================================================================================
+GO AND READ FIRST
+================================================================================
+
+    src/render/component.ts      PRIMITIVES, tag(), ComponentDefinition.apply
+    src/render/dom.ts            applyDefaultProp, bindIntents
+    src/description/types.ts     the description — plain data, no DOM, ever
+    src/kernel.css               the rules; tokens are var(--x, fallback)
+    spec/view-layer.md           what a component is allowed to be
+    spec/input.md §3             every action has a non-pointer path
+    mesh-demos/agent-runs/reports/5-breadth-four-small.result.md
+                                 the audit, including proposed signatures
+
+Three things the codebase already decided, which apply here:
+
+**A component knows about itself.** `Stack` handles `gap` in its own `apply`;
+`Input` handles `value` and `checked` there, because `setAttribute` cannot beat
+the DOM's dirty value flag (A7.0). `TextArea` has the **same** dirty-value
+problem and needs the same treatment — assign the property, and only when it
+differs from what is there, or you will move the caret mid-word.
+
+**The description layer never touches the DOM.** A primitive is a name plus an
+`apply`; the description stays plain data. `src/description/flatten.ts` is the
+server-side rendering path and it must keep working for everything you add.
+
+**Theme through tokens.** Every colour in `kernel.css` is `var(--token,
+fallback)`. New primitives style the same way or a site cannot restyle them.
+
+================================================================================
+WHAT GOOD LOOKS LIKE
+================================================================================
+
+- Each primitive has a test that would fail without it, and `ScrollView` has one
+  that asserts the **keyboard** path, not just that it overflows.
+- `TextArea`: a test with a *dirty* element — type into it, set the signal, assert
+  the value changed. The A7.0 fix exists because the fresh-element test passed
+  for months while every form was broken.
+- `Heading`: a test that `level: 1` emits `<h1>`. Semantics, not font size — a
+  page whose every heading is `<h2>` is wrong for a screen reader and wrong for a
+  crawler regardless of how it looks.
+- Styles for all six in `src/kernel.css`, token-driven.
+- `npm run typecheck` clean, **zero `as any`, zero `as never`, zero casts.**
+- `npm test` green — 315 unit + 34 browser plus yours.
+- Bump to **0.9.0** in `package.json` and `mesh.json`: additive, but six new names
+  in the vocabulary is not a patch.
+- Update A7.3 in `spec/roadmap.md`: tick what you built, and **leave
+  `Draggable`/`DropZone` and `Surface` listed as outstanding** with a line saying
+  why they were held back.
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/reports/6-five-primitives.md`
+
+- the signature you chose for each, and where it differs from the audit's proposal
+- what `ScrollView` needed to be keyboard-operable, and what it cost the focus order
+- whether `TextArea` really did have the same dirty-value problem as `Input`
+- anything that made you want `Surface` or A8.2 while you were in there — that is
+  evidence about the two items held back, and it is the cheapest time to notice
+- anything in the eleven existing primitives that looks wrong now that there are
+  seventeen
