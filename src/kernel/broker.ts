@@ -27,6 +27,7 @@ import type {
 } from '../contribution/capabilities.js';
 import type { ResizeEdge } from '../window/geometry.js';
 import { windowHost } from '../window/page.js';
+import type { WindowMode } from '../window/manager.js';
 import type { ErasedContext } from '../contribution/contract.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import type { AnyApiCall, Api } from '../net/api.js';
@@ -84,8 +85,8 @@ export interface WindowSink {
      */
     all(): readonly ChromeWindow[];
     focused(): string | undefined;
-    mode(): 'windowed' | 'tiled';
-    setMode(mode: 'windowed' | 'tiled'): void;
+    mode(): WindowMode;
+    setMode(mode: WindowMode): void;
     move(id: string, dx: number, dy: number): void;
     resize(id: string, edge: ResizeEdge, dx: number, dy: number): void;
 }
@@ -148,7 +149,7 @@ export function recordingWindows(): WindowSink & { readonly opened: { id: string
     const opened: { id: string; owner: string; view: string; params: Readonly<Record<string, Json>>; closed: boolean }[] = [];
     let next = 0;
     let focused: string | undefined;
-    let mode: 'windowed' | 'tiled' = 'windowed';
+    let mode: WindowMode = 'windowed';
 
     return {
         opened,

@@ -48,13 +48,13 @@ import type { ComponentRegistry } from '../render/component.js';
 import { createClient, fetchTransport, withHeaders } from '../net/client.js';
 import type { MeshClient } from '../net/client.js';
 import type { AnyApiCall, Api } from '../net/api.js';
-import { createRegistry as createSettings } from '../registry/registry.js';
+import { SettingLocked, createRegistry as createSettings } from '../registry/registry.js';
 import type { Registry } from '../registry/registry.js';
 import type { BuildPolicy, HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
 import { mountPage, PAGE_CHROME } from '../window/page.js';
 import type { Page } from '../window/page.js';
-import { windowPersistence } from '../window/persistence.js';
+import { pageWindowMode, windowPersistence } from '../window/persistence.js';
 import type { RememberedWindow, WindowPersistence } from '../window/persistence.js';
 import { windowSink } from '../window/sink.js';
 import { WindowManager } from '../window/manager.js';
@@ -186,6 +186,11 @@ export function start(composition: Composition): Started {
         },
     });
 
+    const pagePolicy = settings.resolution(pageWindowMode)();
+    if (pagePolicy.locked || pagePolicy.from !== undefined) {
+        manager.setMode(pagePolicy.value);
+    }
+
     /**
      * Window geometry across reloads.
      *
@@ -255,12 +260,25 @@ export function start(composition: Composition): Started {
     });
 
     const notifications = mountNotifications(doc, root, kernel);
-    const keys = mountKeys(doc, kernel, manager);
+    const keys = mountKeys(doc, kernel, manager, persistence);
 
     // A resize is the viewport changing under the manager, which clamps every window back inside it.
+    // In single mode there is nothing to re-measure.
     const host = composition.window ?? globalThis.window;
-    host?.addEventListener('resize', () => {
+    let lastMode = manager.mode();
+    const onResize = () => {
+        if (manager.mode() === 'single') return;
         manager.setViewport({ width: root.clientWidth, height: root.clientHeight });
+    };
+    host?.addEventListener('resize', onResize);
+
+    const stopTracking = effect(() => {
+        const currentMode = manager.mode();
+        if (lastMode === 'single' && currentMode !== 'single') {
+            // Leaving single mode: re-measure viewport to restore windowed / tiled layout
+            manager.setViewport({ width: root.clientWidth, height: root.clientHeight });
+        }
+        lastMode = currentMode;
     });
 
     return {
@@ -268,9 +286,13 @@ export function start(composition: Composition): Started {
         ready: open(kernel, composition, manager, persistence),
         dispose() {
             stopPersisting();
+            stopTracking();
             keys();
             page.dispose();
             notifications.remove();
+            if (host !== undefined && 'removeEventListener' in host && typeof host.removeEventListener === 'function') {
+                host.removeEventListener('resize', onResize);
+            }
         },
     };
 }
@@ -297,9 +319,9 @@ function construct(part: PartRef): ErasedContribution {
 function mountRoot(doc: Document): Element {
     const created = doc.createElement('div');
     created.id = 'mesh-web-root';
-    // Filling the viewport, because the window manager measures its host and a host with no height
-    // clamps every window to nothing — a blank page whose only symptom is that nothing is visible.
-    created.style.cssText = 'position:relative;width:100%;height:100vh;overflow:hidden';
+    // Filling the viewport in windowed/tiled modes; single mode is ordinary document flow.
+    // Base styles live in kernel.css; min-height: 100% ensures an unstyled page doesn't collapse.
+    created.style.cssText = 'position:relative;width:100%;min-height:100%';
     doc.body.append(created);
     return created;
 }
@@ -513,7 +535,12 @@ const defaultOpen = (kernel: Kernel): readonly OpenEntry[] =>
  * The window commands below are the kernel's own, registered under `window.*` so an Application
  * cannot claim them and a site can rebind them like anything else.
  */
-function mountKeys(doc: Document, kernel: Kernel, manager: WindowManager): () => void {
+function mountKeys(
+    doc: Document,
+    kernel: Kernel,
+    manager: WindowManager,
+    persistence?: WindowPersistence,
+): () => void {
     /**
      * Kernel commands, and the reason they are commands rather than key handlers.
      *
@@ -524,15 +551,25 @@ function mountKeys(doc: Document, kernel: Kernel, manager: WindowManager): () =>
     const focused = (): string | undefined => manager.focused();
 
     const windowCommands: Record<string, () => void> = {
-        'window.close': () => { const id = focused(); if (id !== undefined) manager.close(id); },
+        'window.close': () => {
+            if (manager.mode() === 'single') return;
+            const id = focused();
+            if (id !== undefined) manager.close(id);
+        },
         'window.maximize': () => {
+            if (manager.mode() === 'single') return;
             const id = focused();
             if (id === undefined) return;
             // One binding, both directions — the same reasoning as the title bar's single button.
             manager.get(id)?.state === 'maximized' ? manager.restore(id) : manager.maximize(id);
         },
-        'window.minimize': () => { const id = focused(); if (id !== undefined) manager.minimize(id); },
+        'window.minimize': () => {
+            if (manager.mode() === 'single') return;
+            const id = focused();
+            if (id !== undefined) manager.minimize(id);
+        },
         'window.cycle': () => {
+            if (manager.mode() === 'single') return;
             // Back to front, so cycling walks *away* from the current window rather than toggling
             // between the top two — which is what a stack ordered by focus would otherwise do.
             const open = manager.visible();
@@ -541,7 +578,19 @@ function mountKeys(doc: Document, kernel: Kernel, manager: WindowManager): () =>
             manager.focus(open[(at + 1) % open.length]!.id);
         },
         'window.mode': () => {
-            manager.setMode(manager.mode() === 'tiled' ? 'windowed' : 'tiled');
+            if (manager.mode() === 'single') return;
+            const next = manager.mode() === 'tiled' ? 'windowed' : 'tiled';
+            if (persistence !== undefined) {
+                void persistence.setMode(next).catch((error) => {
+                    if (error instanceof SettingLocked) {
+                        const id = String(Date.now());
+                        const list = kernel.services.notifications;
+                        list.set([...list(), { id, level: 'warn', source: 'window-manager', message: error.message }]);
+                    }
+                });
+            } else {
+                manager.setMode(next);
+            }
         },
     };
 

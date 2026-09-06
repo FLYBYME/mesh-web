@@ -32,6 +32,7 @@
 
 import { element } from '../description/build.js';
 import type { Node } from '../description/types.js';
+import { effect } from '../reactivity/index.js';
 import { render, type RenderOptions } from '../render/dom.js';
 import type { ComponentDefinition } from '../render/component.js';
 import { provider, type ProviderToken } from '../contribution/provider.js';
@@ -129,11 +130,33 @@ export class ChromeError extends Error {
  * Chrome never receives an element and never mounts anything.
  */
 export function mountPage(root: Element, options: PageOptions): Page {
+    const stopMode = effect(() => {
+        const mode = options.manager.mode();
+        if (root instanceof HTMLElement) {
+            root.dataset['meshWindowMode'] = mode;
+            root.dataset['windowMode'] = mode;
+            if (mode === 'single') {
+                root.style.overflow = '';
+                root.style.height = '';
+            }
+        } else {
+            root.setAttribute('data-mesh-window-mode', mode);
+            root.setAttribute('data-window-mode', mode);
+        }
+    });
+
     if (options.chrome === undefined) {
         // No chrome. The window layer is the page, which is the ordinary case for a blog and the
         // reason chrome is an Extension rather than a mode.
         const shell = mountShell(root, options);
-        return { shell, host: root, dispose: () => { shell.dispose(); } };
+        return {
+            shell,
+            host: root,
+            dispose: () => {
+                stopMode();
+                shell.dispose();
+            },
+        };
     }
 
     // Registered here rather than asked of the site: the marker is the framework's, and a site that
@@ -177,6 +200,7 @@ export function mountPage(root: Element, options: PageOptions): Page {
         shell,
         host,
         dispose() {
+            stopMode();
             watch?.disconnect();
             shell.dispose();
             chrome.dispose();

@@ -203,14 +203,18 @@ The largest single piece, and the one everything visual waits on. Nothing here e
       phone), and a layout naming one tile twice is refused when it is *written*, because a tile is
       an address. `layout` is in the manifest, not built in `start()` — the kernel needs the tile
       names before step 9. [application §6](./application.md)
-- [x] **A2.4 Mode switching with no remount.** `WindowManager` gains a mode; `rectOf()` answers from
-      the tile in tiled mode and from the record in windowed, and **a window's own rect is never
-      overwritten** — which is what lets a switch back put everything where the user had it. A tile
-      holds one view at a time, most recently focused; the others are *hidden*, never disposed.
-      Verified in a real browser, because scroll position is a rendering fact jsdom cannot have.
+- [x] **A2.4 Mode switching with no remount.** `WindowManager` gains three modes (`'windowed'`,
+      `'tiled'`, `'single'`); `rectOf()` answers from the tile in tiled mode, from the record in
+      windowed, and returns `undefined` in single mode (stopping all positioning and handing layout to
+      natural document flow). In all modes **a window's own rect is never overwritten** — which is
+      what lets a switch back put everything where the user had it. A tile holds one view at a time,
+      and single mode displays the active focused window; non-visible windows are *hidden*, never
+      disposed. Verified in a real browser, because scroll position and document scrolling are
+      rendering facts jsdom cannot have.
       **Corrected the spec while building it** ([README §4](./README.md)): a scroll offset cannot
       survive a resize as a *number*, and a shell must reposition rather than re-parent, because
-      moving a node between parents resets its scroll.
+      moving a node between parents resets its scroll. In single mode, the document scrolling element
+      scrolls without furniture or inner viewport clipping.
 - [x] **A2.5 Geometry persistence** per (site, application) in the **`device` hive** — not `user`,
       because a Deck and a desktop have different screens. Position, size, state, stacking order and
       the mode, saved debounced (a drag is hundreds of moves) and restored *awaited*, so a window

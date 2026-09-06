@@ -218,3 +218,70 @@ describe('what six windows on a real page found', () => {
         expect(rect.x + rect.width).toBeGreaterThan(0);
     });
 });
+
+describe('single window mode', () => {
+    const open = (m: WindowManager, owner = 'p1', view = 'doc') => m.open({ owner, view });
+
+    it('returns undefined for rectOf in single mode', () => {
+        const m = new WindowManager({ width: 1000, height: 800 });
+        const w = open(m);
+
+        expect(m.rectOf(w.id)).toBeDefined();
+        m.setMode('single');
+        expect(m.rectOf(w.id)).toBeUndefined();
+    });
+
+    it('shows only the active focused window and hides the rest', () => {
+        const m = new WindowManager({ width: 1000, height: 800 });
+        const a = open(m, 'p1', 'viewA');
+        const b = open(m, 'p1', 'viewB');
+        const c = open(m, 'p2', 'viewC');
+
+        m.setMode('single');
+
+        // c was opened last, so it has focus and is visible
+        expect(m.visible().map((w) => w.id)).toEqual([c.id]);
+        expect(m.hidden().map((w) => w.id)).toEqual([a.id, b.id]);
+
+        // Focusing a brings it to visible
+        m.focus(a.id);
+        expect(m.visible().map((w) => w.id)).toEqual([a.id]);
+        expect(m.hidden().map((w) => w.id).sort()).toEqual([b.id, c.id].sort());
+
+        // Minimizing a reveals the next non-minimized window (c)
+        m.minimize(a.id);
+        expect(m.visible().map((w) => w.id)).toEqual([c.id]);
+        expect(m.hidden().map((w) => w.id).sort()).toEqual([a.id, b.id].sort());
+
+        // Minimizing remaining windows
+        m.minimize(c.id);
+        expect(m.visible().map((w) => w.id)).toEqual([b.id]);
+        m.minimize(b.id);
+        expect(m.visible()).toHaveLength(0);
+        expect(m.hidden().map((w) => w.id).sort()).toEqual([a.id, b.id, c.id].sort());
+    });
+
+    it('preserves geometry losslessly across single mode switches', () => {
+        const m = new WindowManager({ width: 1000, height: 800 });
+        const w = open(m);
+        m.place(w.id, { x: 150, y: 120, width: 450, height: 350 });
+        const initial = { ...m.get(w.id)!.rect };
+
+        m.setMode('single');
+        expect(m.mode()).toBe('single');
+        expect(m.rectOf(w.id)).toBeUndefined();
+        expect(m.get(w.id)!.rect).toEqual(initial);
+
+        // move, resize, and setViewport in single mode must not alter w.rect
+        m.move(w.id, 50, 50);
+        m.resize(w.id, 'se', 40, 40);
+        m.setViewport({ width: 500, height: 400 });
+        expect(m.get(w.id)!.rect).toEqual(initial);
+
+        // Switching back to windowed mode restores the exact geometry
+        m.setMode('windowed');
+        expect(m.rectOf(w.id)).toEqual(initial);
+        expect(m.get(w.id)!.rect).toEqual(initial);
+    });
+});
+

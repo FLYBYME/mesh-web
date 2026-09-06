@@ -20,8 +20,8 @@ import {
 } from './geometry.js';
 import { tileNames, tileRects, type LayoutNode } from './layout.js';
 
-/** Windowed or tiled. The same views serve both (spec/application.md §6). */
-export type WindowMode = 'windowed' | 'tiled';
+/** Windowed, tiled, or single. The same views serve all three (spec/application.md §6). */
+export type WindowMode = 'windowed' | 'tiled' | 'single';
 
 /** Space between panes in tiled mode. */
 export const TILE_GAP = 1;
@@ -102,10 +102,14 @@ export class WindowManager {
      * The one function a shell should paint from. In windowed mode it is the record's own rect; in
      * tiled mode it is the rect of the tile its view targets, and the record's rect is left alone
      * so switching back restores it.
+     *
+     * In single mode, the manager does not position anything: the view mounts into ordinary
+     * document flow, so rectOf() has no meaningful answer and returns undefined.
      */
     rectOf(id: string): Rect | undefined {
         const record = this.get(id);
         if (record === undefined) return undefined;
+        if (this.mode() === 'single') return undefined;
         if (this.mode() === 'windowed') return record.rect;
 
         const layout = this.layout();
@@ -116,6 +120,9 @@ export class WindowManager {
     /**
      * Which windows are on screen in the current mode, back to front.
      *
+     * In single mode, exactly one view is shown — the most recently focused non-minimized window.
+     * The others are not closed and not disposed; they are simply not shown, and reported by hidden().
+     *
      * In tiled mode a tile holds **one** view at a time — several views may target one tile over an
      * Application's life, and this is where "the window manager decides which occupies it now" is
      * decided: the most recently focused. The others are not closed and not disposed; they are
@@ -123,6 +130,10 @@ export class WindowManager {
      */
     visible(): readonly WindowRecord[] {
         const stacked = this.stacked();
+        if (this.mode() === 'single') {
+            const active = stacked.filter((w) => w.state !== 'minimized').at(-1);
+            return active === undefined ? [] : [active];
+        }
         if (this.mode() === 'windowed') return stacked.filter((w) => w.state !== 'minimized');
 
         /**
@@ -257,6 +268,7 @@ export class WindowManager {
     }
 
     move(id: string, dx: number, dy: number): void {
+        if (this.mode() === 'single') return;
         this.#update(id, (record) => {
             // A maximised window is not draggable; dragging one should restore it first, which is a
             // decision for the chrome Extension rather than something to guess at here.
@@ -266,6 +278,7 @@ export class WindowManager {
     }
 
     resize(id: string, edge: ResizeEdge, dx: number, dy: number): void {
+        if (this.mode() === 'single') return;
         this.#update(id, (record) => {
             if (record.state !== 'normal') return record.rect;
             return resize(record.rect, edge, dx, dy, record.minSize);
@@ -315,9 +328,12 @@ export class WindowManager {
      *
      * Maximised windows follow it; normal ones are pulled back into reach rather than resized,
      * because a user's chosen size is theirs and a narrower screen is not a request to change it.
+     *
+     * In single mode, geometry is preserved untouched so entering and leaving single is lossless.
      */
     setViewport(size: Size): void {
         this.viewport.set(size);
+        if (this.mode() === 'single') return;
         this.windows.set(
             this.windows().map((w) =>
                 w.state === 'maximized'

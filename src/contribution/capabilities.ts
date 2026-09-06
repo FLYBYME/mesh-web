@@ -12,6 +12,7 @@
 
 import type { Signal } from '../reactivity/types.js';
 import type { Json, Node, Props, Reactive } from '../description/types.js';
+import type { WindowMode } from '../window/manager.js';
 
 // ---------------------------------------------------------------------------- state
 
@@ -135,7 +136,7 @@ export interface Chrome {
      */
     windows(): readonly ChromeWindow[];
     focused(): string | undefined;
-    mode(): 'windowed' | 'tiled';
+    mode(): WindowMode;
 
     /**
      * The node that says *the windows go here* — roadmap A6.3d.
@@ -155,7 +156,7 @@ export interface Chrome {
     /** A drag reported, not a position assigned. The kernel clamps. */
     move(id: string, dx: number, dy: number): void;
     resize(id: string, edge: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw', dx: number, dy: number): void;
-    setMode(mode: 'windowed' | 'tiled'): void;
+    setMode(mode: WindowMode): void;
 }
 
 // ---------------------------------------------------------------------------- credentials

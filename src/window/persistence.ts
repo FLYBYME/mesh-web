@@ -70,14 +70,28 @@ export const windowGeometry = (application: string): Setting<readonly Remembered
     });
 
 /** The mode this device was last left in. Also `device`: a Deck is tiled, a desktop may not be. */
-export const windowMode = (application: string): Setting<'windowed' | 'tiled'> =>
+export const windowMode = (application: string): Setting<WindowMode> =>
     setting({
         path: `window-manager/mode/${application}`,
         hive: 'device',
         fallback: 'windowed',
-        description: `Whether ${application} was last shown windowed or tiled, on this device.`,
-        parse: asOneOf(['windowed', 'tiled'] as const),
+        description: `Whether ${application} was last shown windowed, tiled, or single, on this device.`,
+        parse: asOneOf(['windowed', 'tiled', 'single'] as const),
     });
+
+/**
+ * Deployment or page-level window manager mode.
+ *
+ * A site locked to single mode pins `policy: { 'window-manager/mode': 'single' }`.
+ * Unlike per-application preferences, page-level mode governs the whole deployment.
+ */
+export const pageWindowMode: Setting<WindowMode> = setting({
+    path: 'window-manager/mode',
+    hive: 'device',
+    fallback: 'windowed',
+    description: 'The deployment or page-level window manager mode.',
+    parse: asOneOf(['windowed', 'tiled', 'single'] as const),
+});
 
 export interface PersistenceOptions {
     readonly manager: WindowManager;
@@ -124,6 +138,9 @@ export function windowPersistence(options: PersistenceOptions): WindowPersistenc
     const { manager, registry, application } = options;
     const geometry = windowGeometry(application);
     const mode = windowMode(application);
+    const pageMode = pageWindowMode;
+    const pageResolution = registry.resolution(pageMode);
+    const modeResolution = registry.resolution(mode);
     const onError = options.onError ?? (() => {});
     const debounce = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
 
@@ -171,7 +188,11 @@ export function windowPersistence(options: PersistenceOptions): WindowPersistenc
 
     return {
         modePolicy: computed(() => {
-            const resolved = registry.resolution(mode)();
+            const pageResolved = pageResolution();
+            if (pageResolved.locked) {
+                return { locked: true, ...(pageResolved.reason === undefined ? {} : { reason: pageResolved.reason }) };
+            }
+            const resolved = modeResolution();
             return resolved.locked
                 ? { locked: true, ...(resolved.reason === undefined ? {} : { reason: resolved.reason }) }
                 : { locked: false };
@@ -179,8 +200,14 @@ export function windowPersistence(options: PersistenceOptions): WindowPersistenc
 
         async restore() {
             await registry.ready(geometry);
+            await registry.ready(pageMode);
             await registry.ready(mode);
-            manager.setMode(registry.read(mode)());
+            const pageResolved = registry.resolution(pageMode)();
+            if (pageResolved.locked || pageResolved.from !== undefined) {
+                manager.setMode(registry.read(pageMode)());
+            } else {
+                manager.setMode(registry.read(mode)());
+            }
             return registry.read(geometry)();
         },
 
@@ -192,6 +219,10 @@ export function windowPersistence(options: PersistenceOptions): WindowPersistenc
          * say it.
          */
         async setMode(next) {
+            const pagePolicy = registry.resolution(pageMode)();
+            if (pagePolicy.locked) {
+                throw new SettingLocked(pageMode.path, pagePolicy.from ?? 'system', pagePolicy.reason);
+            }
             const policy = registry.resolution(mode)();
             if (policy.locked) {
                 throw new SettingLocked(mode.path, policy.from ?? 'system', policy.reason);
