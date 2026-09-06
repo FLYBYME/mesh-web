@@ -50,7 +50,7 @@ import type { MeshClient } from '../net/client.js';
 import type { AnyApiCall, Api } from '../net/api.js';
 import { createRegistry as createSettings } from '../registry/registry.js';
 import type { Registry } from '../registry/registry.js';
-import type { BuildPolicy } from '../registry/hives.js';
+import type { BuildPolicy, HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
 import { mountPage, PAGE_CHROME } from '../window/page.js';
 import type { Page } from '../window/page.js';
@@ -128,6 +128,7 @@ export interface Composition {
     readonly open?: readonly { readonly application: string; readonly views?: readonly string[] }[];
     /** Injected by a test that would rather not touch `window`. */
     readonly window?: { addEventListener(type: 'resize', fn: () => void): void };
+    readonly hives?: HiveBindings;
 }
 
 export interface Started {
@@ -158,7 +159,14 @@ export function start(composition: Composition): Started {
         height: root.clientHeight,
     });
 
-    const services = createServices(undefined, { apiOrigin: api });
+    const hives = composition.hives ?? {
+        system: { provider: memoryProvider('system'), writable: false },
+        user: { provider: memoryProvider('user'), writable: true },
+        device: { provider: localProvider(), writable: true },
+        session: { provider: memoryProvider('session'), writable: true },
+    };
+
+    const services = createServices(undefined, { apiOrigin: api, hives });
     const kernel = new Kernel({ services });
 
     /**
@@ -171,12 +179,7 @@ export function start(composition: Composition): Started {
     const settings = createSettings({
         namespace: composition.application,
         ...(composition.policy === undefined ? {} : { policy: composition.policy }),
-        hives: {
-            system: { provider: memoryProvider('system'), writable: false },
-            user: { provider: memoryProvider('user'), writable: true },
-            device: { provider: localProvider(), writable: true },
-            session: { provider: memoryProvider('session'), writable: true },
-        },
+        hives,
         onError: (error, { path }) => {
             kernel.services.logs.push({ level: 'warn', source: 'registry', message: path, data: error });
         },

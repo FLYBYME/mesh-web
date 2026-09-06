@@ -252,12 +252,17 @@ export interface Http {
     post<T>(url: string, body?: unknown, init?: Omit<HttpRequest, 'method' | 'body'>): Promise<HttpResponse<T>>;
 }
 
+// ---------------------------------------------------------------------------- storage
+
+export type { Storage, BoundStore } from '../storage/index.js';
+import type { Storage } from '../storage/index.js';
+
 // ---------------------------------------------------------------------------- the map
 
 /**
  * Every capability, by name.
  *
- * `mesh`, `events`, `keys`, `menus`, `models` and `storage` are specified and not yet built
+ * `mesh`, `events`, `keys`, `menus` and `models` are specified and not yet built
  * (spec/roadmap.md A3). They are absent here rather than present-and-throwing: a name that resolves
  * to a broken object is worse than one that does not resolve, because the compile error is the
  * point.
@@ -271,6 +276,7 @@ export interface CapabilityMap {
     readonly credentials: Credentials;
     readonly chrome: Chrome;
     readonly http: Http;
+    readonly storage: Storage;
 }
 
 /**

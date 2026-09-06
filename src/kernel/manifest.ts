@@ -10,7 +10,7 @@
  */
 
 import type {
-    CommandDecl, Declarations, KeyDecl, MenuDecl, SettingDecl, ViewDecl,
+    CommandDecl, Declarations, KeyDecl, MenuDecl, SettingDecl, StoreDecl, ViewDecl,
 } from '../contribution/contract.js';
 import type { AnyApiCall, Api } from '../net/api.js';
 import type { LayoutNode } from '../window/layout.js';
@@ -22,7 +22,7 @@ export interface Contributed<T> {
 }
 
 export interface Conflict {
-    readonly kind: 'command' | 'binding' | 'setting' | 'view';
+    readonly kind: 'command' | 'binding' | 'setting' | 'view' | 'store';
     readonly key: string;
     readonly claimants: readonly string[];
     readonly message: string;
@@ -50,6 +50,7 @@ export interface Manifest {
      */
     readonly layouts: ReadonlyMap<string, LayoutNode>;
     readonly settings: ReadonlyMap<string, Contributed<SettingDecl>>;
+    readonly stores: ReadonlyMap<string, Contributed<StoreDecl>>;
     /** Keyed `<contributor>/<view id>`; view ids are scoped, so two Applications may both have `main`. */
     readonly views: ReadonlyMap<string, Contributed<ViewDecl>>;
     readonly conflicts: readonly Conflict[];
@@ -73,6 +74,7 @@ export function mergeManifests(
     const apis: Contributed<Api<Record<string, AnyApiCall>>>[] = [];
     const layouts = new Map<string, LayoutNode>();
     const settings = new Map<string, Contributed<SettingDecl>>();
+    const stores = new Map<string, Contributed<StoreDecl>>();
     const views = new Map<string, Contributed<ViewDecl>>();
     const conflicts: Conflict[] = [];
 
@@ -152,6 +154,11 @@ export function mergeManifests(
                 `Setting "${key}" is declared by both ${first} and ${second}.`);
         }
 
+        for (const decl of declarations.stores ?? []) {
+            claim(stores, `${id}/${decl.name}`, id, decl, 'store', (_key, first) =>
+                `Store "${decl.name}" is declared twice by ${first}.`);
+        }
+
         for (const decl of declarations.views ?? []) {
             claim(views, `${id}/${decl.id}`, id, decl, 'view', (key, first, second) =>
                 `View "${key}" is declared twice, by ${first} and ${second}.`);
@@ -184,7 +191,7 @@ export function mergeManifests(
         }
     }
 
-    return { commands, bindings, menus, apis, layouts, settings, views, conflicts };
+    return { commands, bindings, menus, apis, layouts, settings, stores, views, conflicts };
 }
 
 /**

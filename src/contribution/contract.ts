@@ -65,6 +65,12 @@ export interface SettingDecl {
     readonly description?: string;
 }
 
+export interface StoreDecl {
+    readonly name: string;
+    readonly hive: 'system' | 'user' | 'device' | 'session';
+    readonly description?: string;
+}
+
 /**
  * What a view receives.
  *
@@ -141,6 +147,7 @@ export interface Declarations {
     readonly keys?: readonly KeyDecl[];
     readonly menus?: readonly MenuDecl[];
     readonly settings?: readonly SettingDecl[];
+    readonly stores?: readonly StoreDecl[];
     /**
      * `never` for params: a view with concrete params stays assignable here through method
      * bivariance, which is the same reason `EachNode`'s callbacks are methods rather than

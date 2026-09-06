@@ -22,7 +22,7 @@ import type { ReactiveScope, Signal } from '../reactivity/types.js';
 import type { Json } from '../description/types.js';
 import type {
     CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Credentials, Http,
-    HttpRequest, HttpResponse, Log, NotificationHandle, Notifications, State, WindowHandle, Windows,
+    HttpRequest, HttpResponse, Log, NotificationHandle, Notifications, State, Storage, WindowHandle, Windows,
 } from '../contribution/capabilities.js';
 import type { ResizeEdge } from '../window/geometry.js';
 import { windowHost } from '../window/page.js';
@@ -30,6 +30,9 @@ import type { ErasedContext } from '../contribution/contract.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import type { AnyApiCall, Api } from '../net/api.js';
 import { createClient, fetchTransport, withHeaders, type MeshClient } from '../net/client.js';
+import type { HiveBindings } from '../registry/hives.js';
+import { localProvider, memoryProvider } from '../registry/providers.js';
+import { createStorage } from '../storage/index.js';
 
 export interface LogRecord {
     readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -119,6 +122,7 @@ export interface KernelServices {
      * construction would need every Application to be restarted by a sign-in.
      */
     readonly credentials: CredentialHolder;
+    readonly hives: HiveBindings;
 }
 
 /**
@@ -197,6 +201,16 @@ export interface ServiceOptions {
      * behind the same proxy (spec/hosting.md §1).
      */
     readonly apiOrigin?: string;
+    readonly hives?: HiveBindings;
+}
+
+export function defaultHives(): HiveBindings {
+    return {
+        system: { provider: memoryProvider('system'), writable: false },
+        user: { provider: memoryProvider('user'), writable: true },
+        device: { provider: localProvider(), writable: true },
+        session: { provider: memoryProvider('session'), writable: true },
+    };
 }
 
 export function createServices(
@@ -226,6 +240,7 @@ export function createServices(
                 () => credentials.headers?.() ?? {},
             ),
         }) as MeshClient<unknown>,
+        hives: options.hives ?? defaultHives(),
     };
 }
 
@@ -335,6 +350,9 @@ export function createContext(
                 break;
             case 'http':
                 capabilities.http = makeHttp(id, services);
+                break;
+            case 'storage':
+                capabilities.storage = makeStorage(declaredBy, id, services, (fn) => cleanups.push(fn));
                 break;
         }
     }
@@ -597,4 +615,26 @@ function makeCredentials(owner: string, services: KernelServices): Credentials {
             held.headers = undefined;
         },
     };
+}
+
+/**
+ * Scoped to the contributor (declaredBy) so data survives reloads, with logs attributed to the
+ * running instance (id), and disposal managed by the kernel.
+ */
+function makeStorage(
+    namespace: string,
+    source: string,
+    services: KernelServices,
+    onDispose: (cleanup: () => void) => void,
+): Storage {
+    return createStorage({
+        namespace,
+        hives: services.hives,
+        onLogWarn: (message, data) => {
+            services.logs.push(data === undefined
+                ? { level: 'warn', source, message }
+                : { level: 'warn', source, message, data });
+        },
+        onDispose,
+    });
 }

@@ -308,8 +308,9 @@ sound; each item below is the interface *and* the implementation behind it.
       What is **not** built: **progress** and **actions** — a notice with a button on it, which is
       how "deploy failed · retry" is written and the reason a console needs this before it can be
       ported. **S** (was **M**)
-- [ ] **A3.9 ★ `storage` is absent, so a part that persists reaches around the capability layer.**
-      `CapabilityMap` has no `storage` — deliberately, since *"a name that resolves to a broken
+- [x] **A3.9 ★ `storage` capability.** *(done 2026-09-06)*
+      Scoped per contributor, broker-built from `needs('storage')`, bound to hives, validated against store schemas, with isolated keyspaces and signal reads.
+      `CapabilityMap` had no `storage` — deliberately, since *"a name that resolves to a broken
       object is worse than one that does not resolve"* — but the consequence had never been tested,
       because nothing had persisted anything. The theme Extension had to: it imported
       `localProvider()` from `@flybyme/mesh-web/registry/providers.js` and called
@@ -324,7 +325,7 @@ sound; each item below is the interface *and* the implementation behind it.
       convenience, it is a hole in the capability boundary. **M** · found by mesh-demos dispatch 2
 - [ ] **A3.7 `models`** — typed collections over a site's CRUD contracts, reactive. **L**
 - [ ] **A3.8 `windows`** — see A2.6.
-- [ ] **A3.9 `storage`** — see A4.
+- [x] **A3.9 `storage`** — *(done 2026-09-06)* see A3.9 above and A4.
 - [ ] **A3.10 `log`** — scoped, level-filtered, and shippable. **S**
 - [x] **A3.11 ★ Rename `net` to `mesh`.** *(done 2026-09-04)* `net` read as *the network*, which is
       exactly what it is not — one API, declared in the manifest, typed from that site's exposure
