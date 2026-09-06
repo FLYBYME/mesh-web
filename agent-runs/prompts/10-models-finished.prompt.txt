@@ -1,0 +1,129 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+**Finish the `models` capability (A3.7), and fix the variance problem it found.**
+
+Dispatch 8 built it — `src/models/{types,query,models}.ts`, 1,482 lines, zero
+casts — and died before committing. Its work is preserved on the branch
+**`dispatch/8`**, commit `936608e`. **Start by reading that diff**; do not
+rewrite from scratch. The production code compiles. The tests do not, and the
+reason is the interesting part.
+
+    git diff master...dispatch/8
+
+================================================================================
+WHAT IS WRONG, AND IT IS NOT THE MODELS CODE
+================================================================================
+
+15 errors remain, all in tests, and 8 of them are one finding:
+
+    test/models.test.ts: error TS2416: Property 'start' in type 'App' is not
+    assignable to the same property in base type 'Application<...>'
+
+**`Models<A>` is invariant, and this repository's typing quietly depends on
+bivariance.** `src/contribution/contract.ts` says so in its own comment:
+
+> Concrete contributions stay assignable through **method bivariance** —
+> `activate` and `start` are methods, not properties. This was verified rather
+> than assumed.
+
+That is how `mesh` works today. `Application.start` declares
+`Context<TNeeds, TConsumes>` with **no API parameter**, so every real app widens
+it by annotating `start(cx: Context<typeof NEEDS, readonly [], typeof someApi>)`
+— and method bivariance permits the narrowing. `MeshClient<A>` survives it
+because `call` is a **method**. `Models<A>` does not, because `cx.models('part')`
+is a **bare call signature**, and `strictFunctionTypes` exempts methods, not call
+signatures.
+
+================================================================================
+THE FIX — TAKE THE SOUND ONE
+================================================================================
+
+Two ways out. **Build the second.**
+
+**(a) Make `models` method-based** — `cx.models.collection('part')` instead of
+`cx.models('part')`. Compiles immediately, no framework change. Rejected: it
+leans on the same unsound bivariance everything else leans on, so the answer to
+*why is this typed* stays *because TypeScript lets methods be unsound*.
+
+**(b) Give `Application` and `Extension` a type parameter for the API**, so
+`start` carries `TApi` properly instead of every app hand-widening its own
+signature. **Additive, with a default**, so every existing contribution keeps
+compiling untouched — verify that, it is the acceptance criterion below.
+
+(b) is worth the extra work because it makes `cx.mesh.call` *genuinely* checked
+rather than checked-by-convention, and this repository exists because its owner
+nearly rewrote MoleculerJS for type safety. A cast or a knowing unsoundness here
+is a bug, not a style nit.
+
+**If (b) turns out to be impossible** — not merely awkward — stop, implement (a),
+and make the report an argument for why. Do not silently fall back.
+
+================================================================================
+THE REST OF THE ERRORS
+================================================================================
+
+Small, and they are the dispatch's own test code, not findings:
+
+- `test/browser/models.browser.test.ts`: 6 × `'class' does not exist in type
+  ElementOptions`. Props are exact per component (spec/type-safety.md §4). Use
+  what the component actually declares.
+- `test/models.test.ts`: 1 × `'ok' does not exist in type NetResponse`. Read
+  `src/net/client.ts` for the real shape.
+
+Already fixed on the branch, do not redo: the missing `ReadonlySignal` /
+`CollectionStatus` import in `src/models/models.ts` that accounted for all 15
+`src/` errors.
+
+================================================================================
+WHAT NOT TO DO
+================================================================================
+
+**Do not rewrite `src/models/`.** It is good: `CollectionQuery` with first-class
+loading/error/empty/status, mutations typed from the declared API, disposal bound
+to scope, and the `ModelsContext` conditional mirroring `MeshContext` exactly.
+Fix the variance, finish the tests.
+
+**Do not build the events/SSE bridge.** That is A3.2, a separate dispatch.
+
+**Do not use `as any`, `as never`, or any cast.**
+
+**Never run a command in the background** — foreground only, and commit as you
+go. Two dispatches have died mid-turn with uncommitted work.
+
+================================================================================
+WHAT GOOD LOOKS LIKE
+================================================================================
+
+- `npm run typecheck` clean and `npm test` green, with the models tests included.
+- **Every existing contribution still compiles unchanged.** The type parameter is
+  additive or it is wrong. Verify against `mesh-core` and `mesh-demos` if you can
+  reach them read-only; at minimum, no existing test file may need an edit to
+  keep compiling.
+- A type-level test that an unknown collection name does not compile.
+- The two existing consoles' pattern answered concretely — go read
+  `~/code/mesh-core/src/catalog/` and `~/code/mesh-demos/src/notes/` (read-only,
+  different repositories) and say in the report **how many lines each would
+  delete** by adopting this. If the answer is "few", say so; that is the honest
+  test of whether the capability earns its place.
+- Tick A3.7 in `spec/roadmap.md`; update `spec/network.md` §5, which currently
+  marks all three surfaces **Proposed** and can now describe one as built.
+- Bump the kernel minor.
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/reports/10-models-finished.md`
+
+- which fix you took and why; if (b), exactly what the new type parameter is and
+  what defaulted
+- **whether the bivariance the repository relies on is now unnecessary anywhere
+  else** — you are the first person to look at it deliberately, and that list is
+  worth more than the models capability
+- the console line counts asked for above
+- what A3.2 (events) needs from this that you deliberately did not build
+- anything for the reader audit: name the reader, or do not add the field
