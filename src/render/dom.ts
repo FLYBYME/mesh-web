@@ -122,7 +122,7 @@ function buildElement(node: ElementNode, options: RenderOptions, scope: Reactive
         );
     }
 
-    const el = definition.create();
+    const el = definition.create(node.props);
 
     for (const [name, value] of Object.entries(node.props)) {
         if (value === undefined) continue;
@@ -354,7 +354,7 @@ function bindIntents(
     if (intents.activate) {
         el.addEventListener('click', (e) => fire('activate', e));
         el.addEventListener('keydown', (e) => {
-            const key = (e as KeyboardEvent).key;
+            const key = 'key' in e && typeof e.key === 'string' ? e.key : '';
             if (key === 'Enter') {
                 fire('activate', e);
             } else if (key === ' ') {
@@ -382,7 +382,7 @@ function bindIntents(
 
     if (intents.dismiss) {
         el.addEventListener('keydown', (e) => {
-            if ((e as KeyboardEvent).key === 'Escape') fire('dismiss', e);
+            if ('key' in e && e.key === 'Escape') fire('dismiss', e);
         });
     }
 
@@ -392,6 +392,16 @@ function bindIntents(
         // "it dropped my password" bug, and invisible in any test that dispatches events by hand.
         el.addEventListener('input', (e) => fire('change', e));
     }
+}
+
+interface ControlElement {
+    value: string;
+    type?: string;
+    checked?: boolean;
+}
+
+function isControlElement(el: object): el is ControlElement {
+    return 'value' in el && typeof el.value === 'string';
 }
 
 /**
@@ -409,15 +419,14 @@ function bindIntents(
  * survives both, and it is checking for exactly what it reads.
  */
 function valueOf(el: Element): IntentValue {
-    const control = el as Partial<HTMLInputElement>;
-    if (typeof control.value !== 'string') return undefined;
+    if (!isControlElement(el)) return undefined;
 
-    if (control.type === 'checkbox' || control.type === 'radio') return control.checked === true;
-    if (control.type === 'number' || control.type === 'range') {
+    if (el.type === 'checkbox' || el.type === 'radio') return el.checked === true;
+    if (el.type === 'number' || el.type === 'range') {
         // An empty number field is not zero. `''` parses to NaN, which would arrive as a number the
         // user never typed, so it stays `undefined` and the reader decides what an empty field means.
-        return control.value === '' ? undefined : Number(control.value);
+        return el.value === '' ? undefined : Number(el.value);
     }
 
-    return control.value;
+    return el.value;
 }

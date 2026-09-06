@@ -9,13 +9,14 @@
  * what lets a design system ship separately and a site restyle without touching an Application.
  */
 
-import type { Json } from '../description/types.js';
+import type { Json, Props } from '../description/types.js';
+import { read } from '../description/types.js';
 
 export interface ComponentDefinition {
     readonly name: string;
 
     /** The host element. Called once per node instance. */
-    create(): Element;
+    create(props?: Props): Element;
 
     /**
      * Apply one prop. Called at construction, and again whenever a reactive prop changes.
@@ -71,6 +72,109 @@ export function createRegistry(definitions: readonly ComponentDefinition[] = [])
     };
 }
 
+// ---------------------------------------------------------------------------- element type guards (zero casts)
+
+interface StyleElement {
+    style: CSSStyleDeclaration;
+}
+
+function hasStyle(el: object): el is StyleElement {
+    return 'style' in el && typeof el.style === 'object' && el.style !== null;
+}
+
+interface ValueElement {
+    value: string;
+}
+
+function hasValue(el: object): el is ValueElement {
+    return 'value' in el && typeof el.value === 'string';
+}
+
+interface CheckedElement {
+    checked: boolean;
+}
+
+function hasChecked(el: object): el is CheckedElement {
+    return 'checked' in el && typeof el.checked === 'boolean';
+}
+
+interface TypedElement {
+    type: string;
+}
+
+function hasType(el: object): el is TypedElement {
+    return 'type' in el && typeof el.type === 'string';
+}
+
+interface ScrollableElement {
+    scrollHeight: number;
+    clientHeight: number;
+    scrollWidth: number;
+    clientWidth: number;
+    scrollTop: number;
+    scrollLeft: number;
+    tabIndex: number;
+    hasAttribute(name: string): boolean;
+    getAttribute(name: string): string | null;
+    setAttribute(name: string, value: string): void;
+    removeAttribute(name: string): void;
+}
+
+function isScrollableElement(el: object): el is ScrollableElement {
+    return 'scrollHeight' in el && typeof el.scrollHeight === 'number' &&
+           'clientHeight' in el && typeof el.clientHeight === 'number' &&
+           'scrollWidth' in el && typeof el.scrollWidth === 'number' &&
+           'clientWidth' in el && typeof el.clientWidth === 'number' &&
+           'scrollTop' in el && typeof el.scrollTop === 'number' &&
+           'scrollLeft' in el && typeof el.scrollLeft === 'number' &&
+           'tabIndex' in el && typeof el.tabIndex === 'number' &&
+           'hasAttribute' in el && typeof el.hasAttribute === 'function' &&
+           'getAttribute' in el && typeof el.getAttribute === 'function' &&
+           'setAttribute' in el && typeof el.setAttribute === 'function' &&
+           'removeAttribute' in el && typeof el.removeAttribute === 'function';
+}
+
+function updateScrollability(el: Element): void {
+    if (!isScrollableElement(el)) return;
+    const overflows = el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth;
+    if (overflows) {
+        if (!el.hasAttribute('tabindex')) {
+            el.tabIndex = 0;
+            el.setAttribute('data-mesh-scroll-tabindex', 'auto');
+        }
+        if (!el.hasAttribute('role')) {
+            el.setAttribute('role', 'region');
+        }
+        if (!el.hasAttribute('aria-label') && !el.hasAttribute('aria-labelledby')) {
+            el.setAttribute('aria-label', 'Scrollable content');
+        }
+    } else {
+        if (el.getAttribute('data-mesh-scroll-tabindex') === 'auto') {
+            el.removeAttribute('tabindex');
+            el.removeAttribute('data-mesh-scroll-tabindex');
+            if (el.getAttribute('role') === 'region') {
+                el.removeAttribute('role');
+            }
+            if (el.getAttribute('aria-label') === 'Scrollable content') {
+                el.removeAttribute('aria-label');
+            }
+        }
+    }
+}
+
+function applyScrollPosition(el: Element, value: Json): void {
+    if (!isScrollableElement(el)) return;
+    if (value === 'bottom' || value === 'end') {
+        el.scrollTop = el.scrollHeight;
+        el.scrollLeft = el.scrollWidth;
+    } else if (value === 'top' || value === 'start') {
+        el.scrollTop = 0;
+        el.scrollLeft = 0;
+    } else if (typeof value === 'number') {
+        el.scrollTop = value;
+    }
+}
+
 // ---------------------------------------------------------------------------- default prop handling
 
 /**
@@ -113,17 +217,19 @@ function tag(name: string, tagName: string, extra?: Partial<ComponentDefinition>
 }
 
 /**
- * A first cut, not the audit.
+ * The primitive component vocabulary (spec/roadmap.md A7.3).
  *
- * spec/roadmap.md A7.1 is the real vocabulary decision, and it is gated on the focus graph — every
- * primitive has to satisfy "every action has a non-pointer path" (spec/input.md section 3). These
- * exist so the renderer has something to render and are expected to change.
+ * Every primitive satisfies "every action has a non-pointer path" (spec/input.md §3).
+ * Primitives understand their own DOM properties and semantics (such as dirty value flags,
+ * keyboard accessibility, and semantic heading tags) while preserving fine-grained reactivity.
  */
 export const PRIMITIVES: readonly ComponentDefinition[] = [
     tag('Stack', 'div', {
         apply(el, name, value) {
             if (name === 'gap') {
-                (el as HTMLElement).style.gap = typeof value === 'number' ? `${value}px` : String(value);
+                if (hasStyle(el)) {
+                    el.style.gap = typeof value === 'number' ? `${value}px` : String(value);
+                }
                 return true;
             }
             return false;
@@ -131,39 +237,50 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
     }),
     tag('Row', 'div'),
     tag('Text', 'span'),
-    tag('Heading', 'h2'),
+    {
+        name: 'Heading',
+        create(props) {
+            const raw = props?.level !== undefined ? read(props.level) : undefined;
+            const lvl = typeof raw === 'number' ? raw : (typeof raw === 'string' ? parseInt(raw, 10) : 2);
+            const tag = Number.isInteger(lvl) && lvl >= 1 && lvl <= 6 ? `h${lvl}` : 'h2';
+            return document.createElement(tag);
+        },
+        apply(_el, name) {
+            if (name === 'level') return true;
+            return false;
+        },
+    },
     tag('Button', 'button'),
     tag('Input', 'input', {
         spaceIsTextInput(el) {
             // Checkbox and radio inputs are toggled by Space; for text/search/password/etc., Space is text entry.
-            if (!('type' in el)) return true;
-            const type = (el as HTMLInputElement).type;
+            if (!hasType(el)) return true;
+            const type = el.type;
             return type !== 'checkbox' && type !== 'radio' && type !== 'button' && type !== 'submit' && type !== 'reset';
         },
         apply(el, name, value) {
-            if (!('value' in el) || !('checked' in el)) return false;
-            const input = el as HTMLInputElement;
-
             if (name === 'value') {
+                if (!hasValue(el)) return false;
                 const next = value === null ? '' : String(value);
                 // Assigning input.value moves the caret/cursor to the end of the text box. If the
                 // signal write was triggered by an `input` event while the user is typing mid-word,
                 // re-assigning .value on every keystroke throws the caret to the end of the word.
                 // Checking input.value !== next is therefore a correctness requirement for cursor
                 // preservation, not a performance optimization.
-                if (input.value !== next) {
-                    input.value = next;
+                if (el.value !== next) {
+                    el.value = next;
                 }
                 return true;
             }
 
             if (name === 'checked') {
+                if (!hasChecked(el)) return false;
                 const next = Boolean(value);
                 // Like value, HTMLInputElement.checked has a dirty checked flag in the DOM. Once
                 // toggled by the user, setAttribute('checked', ...) only updates defaultChecked,
                 // leaving the live .checked unchanged. Assigning the DOM property directly fixes this.
-                if (input.checked !== next) {
-                    input.checked = next;
+                if (el.checked !== next) {
+                    el.checked = next;
                 }
                 return true;
             }
@@ -174,6 +291,245 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
             // declared in the primitive vocabulary (which is deferred to the A7.1 audit).
             // They are deliberately omitted rather than added speculatively.
 
+            return false;
+        },
+    }),
+    tag('TextArea', 'textarea', {
+        spaceIsTextInput: true,
+        apply(el, name, value) {
+            if (name === 'value') {
+                if (!hasValue(el)) return false;
+                const next = value === null ? '' : String(value);
+                // HTMLTextAreaElement has the same dirty value flag as HTMLInputElement (roadmap A7.0).
+                // Once edited by the user, setAttribute('value', ...) has no effect on visible text.
+                // Direct property assignment is required, and checking el.value !== next prevents
+                // caret jumping mid-word on reactive updates while typing.
+                if (el.value !== next) {
+                    el.value = next;
+                }
+                return true;
+            }
+            return false;
+        },
+    }),
+    tag('ScrollView', 'div', {
+        create() {
+            const el = document.createElement('div');
+            el.setAttribute('data-mesh-scrollview', '');
+            if (hasStyle(el)) {
+                el.style.overflowY = 'auto';
+                el.style.overflowX = 'hidden';
+                el.style.boxSizing = 'border-box';
+            }
+            if (typeof MutationObserver === 'function') {
+                const observer = new MutationObserver(() => {
+                    updateScrollability(el);
+                    const autoScroll = el.getAttribute('data-mesh-autoscroll');
+                    if (autoScroll !== null) {
+                        applyScrollPosition(el, autoScroll);
+                    }
+                });
+                observer.observe(el, { childList: true, subtree: true, characterData: true });
+            }
+            if (typeof ResizeObserver === 'function') {
+                const ro = new ResizeObserver(() => {
+                    updateScrollability(el);
+                });
+                ro.observe(el);
+            }
+            el.addEventListener('pointerenter', () => updateScrollability(el));
+            el.addEventListener('focus', () => updateScrollability(el));
+            el.addEventListener('scroll', () => updateScrollability(el));
+            queueMicrotask(() => updateScrollability(el));
+            return el;
+        },
+        apply(el, name, value) {
+            if (name === 'orientation') {
+                if (hasStyle(el)) {
+                    const val = String(value);
+                    if (val === 'horizontal') {
+                        el.style.overflowX = 'auto';
+                        el.style.overflowY = 'hidden';
+                    } else if (val === 'both') {
+                        el.style.overflowX = 'auto';
+                        el.style.overflowY = 'auto';
+                    } else {
+                        el.style.overflowX = 'hidden';
+                        el.style.overflowY = 'auto';
+                    }
+                }
+                queueMicrotask(() => updateScrollability(el));
+                return true;
+            }
+            if (name === 'maxHeight') {
+                if (hasStyle(el)) {
+                    el.style.maxHeight = typeof value === 'number' ? `${value}px` : String(value);
+                }
+                queueMicrotask(() => updateScrollability(el));
+                return true;
+            }
+            if (name === 'maxWidth') {
+                if (hasStyle(el)) {
+                    el.style.maxWidth = typeof value === 'number' ? `${value}px` : String(value);
+                }
+                queueMicrotask(() => updateScrollability(el));
+                return true;
+            }
+            if (name === 'height') {
+                if (hasStyle(el)) {
+                    el.style.height = typeof value === 'number' ? `${value}px` : String(value);
+                }
+                queueMicrotask(() => updateScrollability(el));
+                return true;
+            }
+            if (name === 'width') {
+                if (hasStyle(el)) {
+                    el.style.width = typeof value === 'number' ? `${value}px` : String(value);
+                }
+                queueMicrotask(() => updateScrollability(el));
+                return true;
+            }
+            if (name === 'autoScroll') {
+                if (value === null || value === false) {
+                    el.removeAttribute('data-mesh-autoscroll');
+                } else {
+                    el.setAttribute('data-mesh-autoscroll', String(value));
+                    queueMicrotask(() => applyScrollPosition(el, value));
+                }
+                return true;
+            }
+            if (name === 'scrollTo') {
+                queueMicrotask(() => applyScrollPosition(el, value));
+                return true;
+            }
+            return false;
+        },
+    }),
+    tag('Grid', 'div', {
+        create() {
+            const el = document.createElement('div');
+            el.setAttribute('data-mesh-grid', '');
+            if (hasStyle(el)) {
+                el.style.display = 'grid';
+                el.style.boxSizing = 'border-box';
+            }
+            return el;
+        },
+        apply(el, name, value) {
+            if (!hasStyle(el)) return false;
+            if (name === 'columns') {
+                el.style.gridTemplateColumns = typeof value === 'number'
+                    ? `repeat(${value}, minmax(0, 1fr))`
+                    : String(value);
+                return true;
+            }
+            if (name === 'rows') {
+                el.style.gridTemplateRows = typeof value === 'number'
+                    ? `repeat(${value}, minmax(0, 1fr))`
+                    : String(value);
+                return true;
+            }
+            if (name === 'gap') {
+                el.style.gap = typeof value === 'number' ? `${value}px` : String(value);
+                return true;
+            }
+            if (name === 'columnGap') {
+                el.style.columnGap = typeof value === 'number' ? `${value}px` : String(value);
+                return true;
+            }
+            if (name === 'rowGap') {
+                el.style.rowGap = typeof value === 'number' ? `${value}px` : String(value);
+                return true;
+            }
+            if (name === 'alignItems') {
+                el.style.alignItems = String(value);
+                return true;
+            }
+            if (name === 'justifyItems') {
+                el.style.justifyItems = String(value);
+                return true;
+            }
+            if (name === 'alignContent') {
+                el.style.alignContent = String(value);
+                return true;
+            }
+            if (name === 'justifyContent') {
+                el.style.justifyContent = String(value);
+                return true;
+            }
+            if (name === 'autoFlow') {
+                el.style.gridAutoFlow = String(value);
+                return true;
+            }
+            if (name === 'areas') {
+                el.style.gridTemplateAreas = String(value);
+                return true;
+            }
+            return false;
+        },
+    }),
+    tag('Divider', 'hr', {
+        apply(el, name, value) {
+            if (name === 'orientation') {
+                const isVertical = String(value) === 'vertical';
+                if (isVertical) {
+                    el.setAttribute('data-orientation', 'vertical');
+                    if (hasStyle(el)) {
+                        el.style.borderTop = '0';
+                        el.style.borderLeft = '1px solid var(--edge, #30363d)';
+                        el.style.height = '100%';
+                        el.style.width = '0';
+                        el.style.display = 'inline-block';
+                    }
+                } else {
+                    el.setAttribute('data-orientation', 'horizontal');
+                    if (hasStyle(el)) {
+                        el.style.borderTop = '1px solid var(--edge, #30363d)';
+                        el.style.borderLeft = '0';
+                        el.style.height = '0';
+                        el.style.width = '100%';
+                        el.style.display = 'block';
+                    }
+                }
+                return true;
+            }
+            return false;
+        },
+    }),
+    tag('Span', 'span', {
+        apply(el, name, value) {
+            if (name === 'bold') {
+                if (hasStyle(el)) {
+                    el.style.fontWeight = value ? '600' : 'normal';
+                }
+                return true;
+            }
+            if (name === 'italic') {
+                if (hasStyle(el)) {
+                    el.style.fontStyle = value ? 'italic' : 'normal';
+                }
+                return true;
+            }
+            if (name === 'code') {
+                if (value) {
+                    el.setAttribute('data-code', '');
+                } else {
+                    el.removeAttribute('data-code');
+                }
+                return true;
+            }
+            if (name === 'color') {
+                if (hasStyle(el)) {
+                    el.style.color = String(value);
+                }
+                return true;
+            }
+            if (name === 'size') {
+                if (hasStyle(el)) {
+                    el.style.fontSize = typeof value === 'number' ? `${value}px` : String(value);
+                }
+                return true;
+            }
             return false;
         },
     }),
