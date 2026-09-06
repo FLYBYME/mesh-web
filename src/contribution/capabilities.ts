@@ -289,7 +289,7 @@ export interface Dom {
 /**
  * Every capability, by name.
  *
- * `mesh`, `events`, `keys`, `menus` and `models` are specified and not yet built
+ * `events`, `keys` and `menus` are specified and not yet built
  * (spec/roadmap.md A3). They are absent here rather than present-and-throwing: a name that resolves
  * to a broken object is worse than one that does not resolve, because the compile error is the
  * point.
@@ -308,17 +308,18 @@ export interface CapabilityMap {
 }
 
 /**
- * `mesh` is a capability name, and deliberately not a member of the map above.
+ * `mesh` and `models` are capability names, and deliberately not members of the map above.
  *
- * Every other capability has one type for everybody. `mesh` does not: it is typed by the API the
- * contribution declared in its manifest, so `cx.mesh.call` accepts that API's actions and no others
- * (spec/network.md section 4). A single entry here would have to be `MeshClient<unknown>`, which is
- * the untyped version of exactly the thing being built.
+ * Every other capability has one type for everybody. `mesh` and `models` do not: they are typed
+ * by the API the contribution declared in its manifest, so `cx.mesh.call` accepts that API's
+ * actions and no others, and `cx.models` accepts that API's collections and no others
+ * (spec/network.md sections 4 and 5). A single entry here would have to be `MeshClient<unknown>`
+ * or `Models<unknown>`, which is the untyped version of exactly the thing being built.
  *
  * The cost is this comment and one `Exclude` in `CapabilityContext`. The alternative costs the
- * type parameter that makes `cx.mesh.call('resolver.query', { name })` check at all.
+ * type parameters that make `cx.mesh.call('resolver.query', { name })` and `cx.models('part')` check at all.
  */
-export type CapabilityName = keyof CapabilityMap | 'mesh';
+export type CapabilityName = keyof CapabilityMap | 'mesh' | 'models';
 
 /** Declares what a contribution needs. See spec/extension.md section 2 for why not `as const`. */
 export function needs<const T extends readonly CapabilityName[]>(...names: T): T {
@@ -334,5 +335,5 @@ export interface ContributionBase {
 }
 
 export type CapabilityContext<TNeeds extends readonly CapabilityName[]> = ContributionBase & {
-    readonly [K in Exclude<TNeeds[number], 'mesh'>]: CapabilityMap[K];
+    readonly [K in Exclude<TNeeds[number], 'mesh' | 'models'>]: CapabilityMap[K];
 };

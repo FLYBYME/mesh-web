@@ -35,6 +35,7 @@ import { createClient, fetchTransport, withHeaders, type MeshClient } from '../n
 import type { HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
 import { createStorage } from '../storage/index.js';
+import { createModels, type Models } from '../models/index.js';
 
 export interface LogRecord {
     readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -314,11 +315,12 @@ export function createContext(
     // the ten extra lines that spec/type-safety.md section 1 says to write.
     const capabilities: { -readonly [K in keyof CapabilityMap]?: CapabilityMap[K] } = {};
     let mesh: MeshClient<unknown> | undefined;
+    let models: Models<unknown> | undefined;
 
     for (const name of declaredNeeds) {
         switch (name) {
-            // `mesh` is not in CapabilityMap: it is typed per contribution by the API declared in
-            // the manifest, so it is built here and merged separately (see capabilities.ts).
+            // `mesh` and `models` are not in CapabilityMap: they are typed per contribution by the
+            // API declared in the manifest, so they are built here and merged separately (see capabilities.ts).
             case 'mesh':
                 if (declaredApi === undefined) {
                     throw new Error(
@@ -328,6 +330,19 @@ export function createContext(
                     );
                 }
                 mesh = services.meshClient(declaredApi, id);
+                break;
+            case 'models':
+                if (declaredApi === undefined) {
+                    throw new Error(
+                        `${id} declared needs('models') without declaring an api. ` +
+                        `Models without an API can query nothing, so this is a manifest mistake ` +
+                        `rather than a run-time condition worth tolerating.`,
+                    );
+                }
+                models = createModels(
+                    services.meshClient(declaredApi, id),
+                    (fn) => cleanups.push(fn),
+                );
                 break;
             case 'state':
                 capabilities.state = makeState(scope);
@@ -362,7 +377,12 @@ export function createContext(
         }
     }
 
-    const context: ErasedContext = { ...base, ...capabilities, ...(mesh === undefined ? {} : { mesh }) };
+    const context: ErasedContext = {
+        ...base,
+        ...capabilities,
+        ...(mesh === undefined ? {} : { mesh }),
+        ...(models === undefined ? {} : { models }),
+    };
 
     return {
         context,
