@@ -308,6 +308,20 @@ sound; each item below is the interface *and* the implementation behind it.
       What is **not** built: **progress** and **actions** — a notice with a button on it, which is
       how "deploy failed · retry" is written and the reason a console needs this before it can be
       ported. **S** (was **M**)
+- [ ] **A3.9 ★ `storage` is absent, so a part that persists reaches around the capability layer.**
+      `CapabilityMap` has no `storage` — deliberately, since *"a name that resolves to a broken
+      object is worse than one that does not resolve"* — but the consequence had never been tested,
+      because nothing had persisted anything. The theme Extension had to: it imported
+      `localProvider()` from `@flybyme/mesh-web/registry/providers.js` and called
+      `StorageProvider.read/write` directly.
+
+      That is a part reaching past the broker into the kernel's own machinery. Nothing namespaces it,
+      nothing scopes it to the contributor, and nothing can revoke it — which is the whole of what a
+      capability is for. The compile error worked exactly as designed and the author routed around it
+      into something worse than `localStorage`, because it looks legitimate.
+
+      **A part cannot store anything correctly today.** Until `storage` exists, that is not a gap in
+      convenience, it is a hole in the capability boundary. **M** · found by mesh-demos dispatch 2
 - [ ] **A3.7 `models`** — typed collections over a site's CRUD contracts, reactive. **L**
 - [ ] **A3.8 `windows`** — see A2.6.
 - [ ] **A3.9 `storage`** — see A4.
