@@ -254,6 +254,7 @@ describe('what broken chrome cannot do', () => {
         // The paint is an effect over the manager's signals, so a test that changes the manager and
         // looks at the DOM in the same tick is looking before the frame. That is the shell working
         // as designed — nothing repaints per mutation — not a race.
+        created.manager.setLayout({ tile: 'main' });
         created.manager.setMode('tiled');
         flushSync();
         // Neither view targets a tile, so tiled mode shows nothing — and it is the shell that hides
