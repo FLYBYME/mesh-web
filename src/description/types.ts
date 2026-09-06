@@ -179,7 +179,41 @@ export interface SurfaceNode {
     readonly key?: string | number;
 }
 
-export type Node = ElementNode | TextNode | WhenNode | EachNode<unknown> | EmptyNode | SurfaceNode | readonly Node[];
+/**
+ * Exact props for Dialog (spec/type-safety.md §4: no index signature).
+ */
+export interface DialogProps {
+    readonly open?: Reactive<boolean>;
+    readonly ariaLabel?: Reactive<string>;
+    readonly title?: Reactive<string>;
+    readonly class?: Reactive<string>;
+}
+
+/**
+ * A modal dialog surface with focus containment and top-layer semantics.
+ *
+ * A part declares that its dialog is open; it never invokes showModal() or close() (spec/view-layer.md).
+ * When open is false, the dialog's contents are not in the tree, matching WhenNode.
+ */
+export interface DialogNode {
+    readonly kind: 'dialog';
+    readonly open: Reactive<boolean>;
+    readonly props?: DialogProps;
+    readonly intents?: Intents;
+    readonly key?: string | number;
+    readonly children: readonly Node[];
+}
+
+export type Node =
+    | ElementNode
+    | TextNode
+    | WhenNode
+    | EachNode<unknown>
+    | EmptyNode
+    | SurfaceNode
+    | DialogNode
+    | readonly Node[];
+
 
 // ---------------------------------------------------------------------------- props
 

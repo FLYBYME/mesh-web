@@ -125,11 +125,11 @@ In standard web development, these APIs exist as ambient globals on `window` and
 | :--- | :--- | :--- | :--- |
 | **Import Maps** | `<script type="importmap">` | Single-kernel module graph resolution ([hosting §1](./hosting.md))| `[x]` |
 | **Custom Elements** | `customElements.define` | Optional host integration layer | `[ ]` |
-| **Dialog Element** | `<dialog>` | Native modal and popover surfaces | `[ ]` |
+| **Dialog Element** | `<dialog>` | Native modal and popover surfaces | `[x]` |
 | **ResizeObserver** | `ResizeObserver` | WindowManager viewport tracking and responsive tiles | `[x]` |
 | **IntersectionObserver**| `IntersectionObserver` | Virtual list scrolling and lazy view hydration | `[ ]` |
 
 - [x] **Browser-Native Import Maps** — Ensure single kernel singleton across all extensions and applications.
 - [x] **Resize Observer** — Reactive viewport and tile pane dimension updates.
-- [ ] **Native Dialog & Popover** — Accessible modal overlays without z-index conflicts.
+- [x] **Native Dialog & Popover** — Accessible modal overlays without z-index conflicts.
 - [ ] **Intersection Observer** — Keyed list virtual scrolling (`each`) for massive collections.

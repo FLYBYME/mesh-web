@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { signal } from '../src/reactivity/index.js';
 import {
-    command, createHandlerTable, each, element, empty, findAll,
+    command, createHandlerTable, dialog, each, element, empty, findAll,
     flatten, text, textOf, when,
 } from '../src/description/index.js';
 
@@ -192,3 +192,64 @@ describe('a whole view renders without a browser', () => {
         expect(findAll(flatten(sidebar()), 'Row')).toHaveLength(3);
     });
 });
+
+describe('a dialog description flattens with no DOM, open and closed', () => {
+    it('when closed, dialog content is not in the tree', () => {
+        const isOpen = signal(false);
+        const modal = () =>
+            dialog({
+                open: () => isOpen(),
+                children: [
+                    element('Heading', { children: [text('Modal Title')] }),
+                    element('Text', { children: [text('Modal Body')] }),
+                ],
+            });
+
+        const treeClosed = flatten(modal());
+        expect(treeClosed).toHaveLength(1);
+        expect(treeClosed[0]).toMatchObject({
+            kind: 'element',
+            component: 'Dialog',
+            props: { open: false },
+            children: [],
+        });
+        // Content is not in the tree when closed
+        expect(textOf(treeClosed)).toBe('');
+
+        // Resolves to pure serializable JSON
+        expect(JSON.parse(JSON.stringify(treeClosed))).toEqual(treeClosed);
+
+        // When open, content is in the tree
+        isOpen.set(true);
+        const treeOpen = flatten(modal());
+        expect(treeOpen).toHaveLength(1);
+        expect(treeOpen[0]).toMatchObject({
+            kind: 'element',
+            component: 'Dialog',
+            props: { open: true },
+        });
+        expect(textOf(treeOpen)).toBe('Modal TitleModal Body');
+        expect(findAll(treeOpen, 'Heading')).toHaveLength(1);
+    });
+
+    it('flattens element Dialog component consistently with dialog builder', () => {
+        const isOpen = signal(false);
+        const modal = () =>
+            element('Dialog', {
+                props: { open: () => isOpen() },
+                children: [element('Text', { children: [text('Inside')] })],
+            });
+
+        expect(textOf(flatten(modal()))).toBe('');
+        expect(flatten(modal())[0]).toMatchObject({
+            kind: 'element',
+            component: 'Dialog',
+            props: { open: false },
+            children: [],
+        });
+
+        isOpen.set(true);
+        expect(textOf(flatten(modal()))).toBe('Inside');
+    });
+});
+

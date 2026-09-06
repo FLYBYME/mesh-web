@@ -283,6 +283,19 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
     tag('Row', 'div'),
     tag('Text', 'span'),
     {
+        name: 'Dialog',
+        spaceIsTextInput: false,
+        create() {
+            const el = document.createElement('dialog');
+            el.setAttribute('data-mesh-dialog', '');
+            return el;
+        },
+        apply(_el, name) {
+            if (name === 'open') return true;
+            return false;
+        },
+    },
+    {
         name: 'Heading',
         create(props) {
             const raw = props?.level !== undefined ? read(props.level) : undefined;

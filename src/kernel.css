@@ -414,6 +414,32 @@ span[data-code] {
     outline-offset: 2px;
 }
 
+/* ---------------------------------------------------------------------------- dialog (roadmap A7.6) */
+
+dialog {
+    box-sizing: border-box;
+    background: var(--surface, #161b22);
+    color: var(--ink, #e6edf3);
+    border: 1px solid var(--edge, #30363d);
+    border-radius: 6px;
+    padding: 16px;
+    box-shadow: 0 8px 32px var(--shadow, rgba(0, 0, 0, 0.35));
+    max-width: min(90vw, 560px);
+    max-height: min(90vh, 600px);
+    margin: auto;
+}
+
+dialog:focus-visible {
+    outline: 2px solid var(--accent, #58a6ff);
+    outline-offset: -1px;
+}
+
+dialog::backdrop {
+    background: var(--backdrop, rgba(0, 0, 0, 0.6));
+    backdrop-filter: blur(2px);
+}
+
+
 
 /*
  * A hidden window must actually be hidden.

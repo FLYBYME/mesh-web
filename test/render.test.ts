@@ -19,7 +19,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { effect, flushSync, signal } from '../src/reactivity/index.js';
 import { applyDefaultProp } from '../src/render/component.js';
-import { command, each, element, empty, text, when, createHandlerTable } from '../src/description/index.js';
+import { command, createHandlerTable, dialog, each, element, empty, text, when } from '../src/description/index.js';
 import type { Action, IntentValue } from '../src/description/index.js';
 import { createRegistry, PRIMITIVES, render, type Dispatcher } from '../src/render/index.js';
 import { mountView } from '../src/window/host.js';
@@ -754,3 +754,170 @@ describe('a style object reaches the browser as CSS', () => {
         expect(el.getAttribute('style')).toContain('--ink:#fff');
     });
 });
+
+describe('dialog and focus trap', () => {
+    it('opens and closes from declared state, and content is not in the tree when closed', () => {
+        const { host, components, dispatch } = setup();
+        const isOpen = signal(false);
+
+        const mounted = render(
+            dialog({
+                open: () => isOpen(),
+                children: [
+                    element('Button', { children: [text('Inside Modal')] }),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const dialogEl = host.querySelector('dialog');
+        expect(dialogEl).not.toBeNull();
+        expect(dialogEl?.open).toBe(false);
+        // Closed is not "rendered with display:none" — content is not in the tree
+        expect(host.querySelector('button')).toBeNull();
+
+        isOpen.set(true);
+        tick();
+
+        expect(dialogEl?.open).toBe(true);
+        const buttonEl = host.querySelector('button');
+        expect(buttonEl).not.toBeNull();
+        expect(buttonEl?.textContent).toBe('Inside Modal');
+
+        isOpen.set(false);
+        tick();
+
+        expect(dialogEl?.open).toBe(false);
+        expect(host.querySelector('button')).toBeNull();
+
+        mounted.dispose();
+        expect(host.querySelector('dialog')).toBeNull();
+    });
+
+    it('focus enters on open and returns to the opener on close', () => {
+        const { host, components, dispatch } = setup();
+        const opener = document.createElement('button');
+        opener.textContent = 'Open Dialog';
+        document.body.appendChild(opener);
+        opener.focus();
+        expect(document.activeElement).toBe(opener);
+
+        const isOpen = signal(false);
+
+        render(
+            dialog({
+                open: () => isOpen(),
+                children: [
+                    element('Button', { children: [text('Dialog Action')] }),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        isOpen.set(true);
+        tick();
+
+        const dialogButton = host.querySelector('button');
+        expect(dialogButton).not.toBeNull();
+        // Focus entered into the dialog
+        expect(document.activeElement).toBe(dialogButton);
+
+        isOpen.set(false);
+        tick();
+
+        // Focus restored to the opener
+        expect(document.activeElement).toBe(opener);
+        opener.remove();
+    });
+
+    it('Escape fires dismiss intent, preventing default close until declared state changes', () => {
+        const { host, components } = setup();
+        const isOpen = signal(true);
+        const handlers = createHandlerTable('view-1');
+        let dismissed = false;
+        const dismissAction = handlers.on(() => {
+            dismissed = true;
+            isOpen.set(false);
+        });
+
+        const dispatch: Dispatcher = {
+            dispatch: (action, value) => {
+                if (action.kind === 'handler') {
+                    handlers.invoke(action.id, value);
+                }
+            },
+        };
+
+        render(
+            dialog({
+                open: () => isOpen(),
+                intents: { dismiss: { action: dismissAction } },
+                children: [
+                    element('Button', { children: [text('Dialog Action')] }),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        tick();
+        const dialogEl = host.querySelector('dialog')!;
+        expect(dialogEl.open).toBe(true);
+
+        // Dispatch Escape keydown
+        const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true });
+        dialogEl.dispatchEvent(escapeEvent);
+        tick();
+
+        expect(dismissed).toBe(true);
+        expect(isOpen()).toBe(false);
+        expect(dialogEl.open).toBe(false);
+    });
+
+    it('if the opener ignores the dismissal, declared state remains true and dialog stays open', () => {
+        const { host, components } = setup();
+        const isOpen = signal(true);
+        const handlers = createHandlerTable('view-1');
+        let dismissFired = false;
+        // The opener ignores dismissal and does NOT set isOpen to false
+        const dismissAction = handlers.on(() => {
+            dismissFired = true;
+        });
+
+        const dispatch: Dispatcher = {
+            dispatch: (action, value) => {
+                if (action.kind === 'handler') {
+                    handlers.invoke(action.id, value);
+                }
+            },
+        };
+
+        render(
+            dialog({
+                open: () => isOpen(),
+                intents: { dismiss: { action: dismissAction } },
+                children: [
+                    element('Button', { children: [text('Dialog Action')] }),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        tick();
+        const dialogEl = host.querySelector('dialog')!;
+        expect(dialogEl.open).toBe(true);
+
+        const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true });
+        dialogEl.dispatchEvent(escapeEvent);
+        tick();
+
+        expect(dismissFired).toBe(true);
+        expect(isOpen()).toBe(true);
+        // Default was prevented and state remained true, so dialog stays open!
+        expect(dialogEl.open).toBe(true);
+    });
+});
+
