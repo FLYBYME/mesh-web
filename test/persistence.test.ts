@@ -9,8 +9,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-    WindowManager, createSettingsRegistry, memoryProvider, windowGeometry, windowMode,
-    windowPersistence,
+    SettingLocked, WindowManager, createSettingsRegistry, memoryProvider, pageWindowMode, windowGeometry,
+    windowMode, windowPersistence,
     type HiveBindings, type Registry, type StorageProvider,
 } from '../src/index.js';
 
@@ -256,3 +256,58 @@ describe('a window maximized before a reload can still be turned back', () => {
         expect(second.get(again.id)!.state).toBe('normal');
     });
 });
+
+describe('page-level window mode policy', () => {
+    it('declares pageWindowMode with fallback windowed in device hive', () => {
+        expect(pageWindowMode).toMatchObject({
+            path: 'window-manager/mode',
+            hive: 'device',
+            fallback: 'windowed',
+        });
+    });
+
+    it('locks mode and restores single when pageWindowMode is pinned by policy', async () => {
+        const device = memoryProvider('device');
+        const registry = createSettingsRegistry({
+            hives: hives(device),
+            namespace: 'blog',
+            policy: { 'window-manager/mode': 'single' },
+        });
+
+        const manager = new WindowManager({ width: 1000, height: 600 });
+        const persistence = windowPersistence({
+            manager,
+            registry,
+            application: 'blog',
+        });
+
+        expect(persistence.modePolicy().locked).toBe(true);
+
+        await persistence.restore();
+        expect(manager.mode()).toBe('single');
+
+        await expect(persistence.setMode('windowed')).rejects.toThrow(SettingLocked);
+    });
+
+    it('prefers page-level window mode over per-application setting', async () => {
+        const device = memoryProvider('device');
+        await device.write('blog', 'window-manager/mode', 'single');
+        await device.write('blog', 'window-manager/mode/blog', 'tiled');
+
+        const registry = createSettingsRegistry({
+            hives: hives(device),
+            namespace: 'blog',
+        });
+
+        const manager = new WindowManager({ width: 1000, height: 600 });
+        const persistence = windowPersistence({
+            manager,
+            registry,
+            application: 'blog',
+        });
+
+        await persistence.restore();
+        expect(manager.mode()).toBe('single');
+    });
+});
+
