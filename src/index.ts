@@ -22,6 +22,7 @@ export * from './input/index.js';
 export * from './registry/index.js';
 export * from './storage/index.js';
 export * from './auth/index.js';
+export * from './models/index.js';
 export * from './instance.js';
 export * from './testing/index.js';
 

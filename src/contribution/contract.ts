@@ -13,6 +13,7 @@ import type { LayoutNode } from '../window/layout.js';
 import type { MeshClient } from '../net/client.js';
 import type { Consumer, ProviderToken, ProviderTokens } from './provider.js';
 import type { Json } from '../description/types.js';
+import type { Models } from '../models/types.js';
 
 /**
  * Capabilities, resolved providers, and the declared API. One type parameter per declaration, each
@@ -28,11 +29,15 @@ export type Context<
     TNeeds extends readonly CapabilityName[],
     TConsumes extends ProviderTokens = readonly [],
     TApi = Api<Record<string, never>>,
-> = CapabilityContext<TNeeds> & Consumer<TConsumes> & MeshContext<TNeeds, TApi>;
+> = CapabilityContext<TNeeds> & Consumer<TConsumes> & MeshContext<TNeeds, TApi> & ModelsContext<TNeeds, TApi>;
 
 /** `mesh` appears on the context only if it was asked for. */
 type MeshContext<TNeeds extends readonly CapabilityName[], TApi> =
     'mesh' extends TNeeds[number] ? { readonly mesh: MeshClient<TApi> } : unknown;
+
+/** `models` appears on the context only if it was asked for. */
+type ModelsContext<TNeeds extends readonly CapabilityName[], TApi> =
+    'models' extends TNeeds[number] ? { readonly models: Models<TApi> } : unknown;
 
 /** The API a contribution exposes, derived from its `provides` token. */
 export type ApiOf<TProvides> = TProvides extends ProviderToken<infer TApi> ? TApi : void;
@@ -168,11 +173,12 @@ export interface Extension<
     TNeeds extends readonly CapabilityName[],
     TConsumes extends ProviderTokens = readonly [],
     TProvides extends ProviderToken<unknown> | undefined = undefined,
+    TApi = Api<Record<string, never>>,
 > extends Declarations {
     readonly needs: TNeeds;
     readonly consumes?: TConsumes;
     readonly provides?: TProvides;
-    activate(cx: Context<TNeeds, TConsumes>): ApiOf<TProvides>;
+    activate(cx: Context<TNeeds, TConsumes, TApi>): ApiOf<TProvides>;
 }
 
 /**
@@ -185,12 +191,13 @@ export interface Application<
     TNeeds extends readonly CapabilityName[],
     TConsumes extends ProviderTokens = readonly [],
     TProvides extends ProviderToken<unknown> | undefined = undefined,
+    TApi = Api<Record<string, never>>,
 > extends Declarations {
     readonly needs: TNeeds;
     readonly consumes?: TConsumes;
     readonly provides?: TProvides;
     readonly singleton?: boolean;
-    start(cx: Context<TNeeds, TConsumes>): Promise<ApiOf<TProvides>>;
+    start(cx: Context<TNeeds, TConsumes, TApi>): Promise<ApiOf<TProvides>>;
     stop?(): Promise<void>;
 }
 
