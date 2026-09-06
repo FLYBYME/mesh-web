@@ -1,0 +1,126 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits and the PR go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+A part repository has no way to test its part in a browser. Give it one.
+
+`mesh-auth` and `surfdns-console` are real part repositories. Both can be built
+and served. Neither can assert that its Extension activates, that its
+Application starts, or that what it renders is what its author meant. Today the
+only way to find out is to open a page and look.
+
+================================================================================
+WHY IT BELONGS HERE AND NOT IN mesh-serve
+================================================================================
+
+This repository is the browser framework. `mesh-serve` is the server half.
+
+A part repository already depends on `@flybyme/mesh-web` and **must never depend
+on the server** — a UI repository installing a web server to run its tests is
+the same mistake as one installing a web server to get its types. So the testing
+surface ships from here, versions with the kernel it tests against, and a part
+repository adds no new dependency to use it.
+
+================================================================================
+WHAT ALREADY EXISTS — READ IT BEFORE DESIGNING
+================================================================================
+
+`vitest.browser.config.ts` in this repository. It runs Playwright against a real
+Chrome, serves `src/` through Vite, and aliases `@flybyme/mesh-web` to it — so
+tests drive the framework through its public entry, the same surface an outside
+author gets. `npm run test:browser` — 24 tests, green.
+
+`test/browser/*.browser.test.ts` are the examples. Note why they use a real
+browser rather than jsdom: input arrives through CDP rather than
+`element.dispatchEvent`, and half those tests are *about* event handling, so a
+test that synthesises its own events proves nothing.
+
+`src/kernel/start.ts` is what a part is loaded by. `start({ application, api,
+parts, open })` builds the page, boots the parts and returns
+`{ kernel, manager, page, settings, components, ready, dispose }`. A part test
+should go through it, because that is how a real site boots one — two boot
+paths that drift is how this repository's old harness became a fixture
+pretending to be a deployment.
+
+================================================================================
+THE ONE CONSTRAINT THAT MATTERS
+================================================================================
+
+**A part must resolve the framework to exactly one copy.**
+
+A part is built with `@flybyme/mesh-web` as an esbuild `external`, and a page's
+import map resolves it to one mounted kernel. Two copies under two URLs are two
+module graphs and two of every singleton the capability model depends on —
+`needs()` / `provides()` assume one kernel.
+
+So the test setup must not quietly give a part its own copy. If it does, every
+test passes and the thing it is testing is not what ships. A test that asserts
+this property directly is worth more than several that assume it.
+
+================================================================================
+WHAT MUST NOT HAPPEN TO package.json
+================================================================================
+
+**`vitest`, `@vitest/browser` and `playwright` stay in `devDependencies`.**
+
+A previous attempt at this task proposed moving them to `dependencies` so a part
+repository would get them transitively. Do not. This package is a *browser
+framework*: everything that depends on it is a part or a site, and putting a
+browser automation tool in `dependencies` means every one of them downloads
+Chromium to install a UI library. A test tool is not a runtime dependency of the
+thing it tests.
+
+If a part repository needs them, it installs them itself — one line in its own
+`devDependencies`, which is where a test tool belongs and where its author can
+see it. `peerDependencies` is acceptable if you want the version pinned; a hard
+`dependency` is not.
+
+================================================================================
+WHAT DONE LOOKS LIKE
+================================================================================
+
+A part repository can write:
+
+    import { it, expect } from 'vitest';
+    import AuthExtension from '../src/index.js';
+
+    it('activates and provides a session', async () => {
+        const site = await mountPart({ parts: [{ id: 'auth', contribution: AuthExtension }] });
+        expect(site.kernel.provided(AUTH)).toBeDefined();
+        site.dispose();
+    });
+
+The exact shape is yours. What it has to give a part author:
+
+  - a **real browser**, for the reason above
+  - a page built by `start()`, not a hand-rolled one
+  - a way to assert on what rendered, and on kernel state
+  - cleanup, so one test's windows are not the next test's
+
+Two pieces, probably: something exported from this package that a part's test
+imports, and a vitest config a part repository can extend without copying
+thirty lines it does not understand.
+
+**Prove it against a real part.** `~/code/mesh-auth` is checked out beside this
+worktree and depends on `@flybyme/mesh-web`. A design that works against a
+fixture in this repository and not against mesh-auth has not been tested — the
+difference is that mesh-auth resolves the framework through `node_modules`
+rather than through a Vite alias, which is exactly where this is most likely to
+go wrong. Do not commit anything to mesh-auth; use it to check, and say what you
+found.
+
+================================================================================
+HOW TO WORK
+================================================================================
+
+Investigate first, then say — before writing code — what you found, what you
+will add, and anything in this prompt you think is wrong. It was written by
+someone who has used this framework as a consumer rather than built it, so if
+the design cuts against the grain here, say so.
+
+`npm test` (286 tests) and `npm run test:browser` (24 tests) must both stay
+green. Playwright and Chrome are already installed and working.
+
+Do not add a Co-Authored-By trailer or any Claude/agent attribution to commits.
