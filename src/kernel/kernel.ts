@@ -140,6 +140,33 @@ export class Kernel {
             loaded.map(({ id, contribution }) => ({ id, declarations: contribution })),
         );
 
+        /**
+         * **"Conflicts surfaced here" was not true until this existed.**
+         *
+         * `mergeManifests` detects two contributions claiming one command id, one key binding, one
+         * setting path, one view or one store; it records who claimed each and why the loser lost.
+         * Six tests assert that detection works. **Nothing in a running page ever read
+         * `manifest.conflicts`**, so the loser was dropped in silence and the author of the part
+         * that lost had no way to find out — on a page they may not have composed.
+         *
+         * A green suite over an inert mechanism is worse than no mechanism, because it looks
+         * covered. This is the reader that makes the comment above true, and the audit entry in
+         * mesh-serve's `spec/unread.md` closeable.
+         *
+         * A warning rather than a throw: a collision is one part losing an id, not a broken page,
+         * and refusing to boot a site because two of its eight parts both wanted `ctrl+k` would
+         * take down a working desktop over a keyboard shortcut. The site owner needs to *know*,
+         * which is different from being stopped.
+         */
+        for (const conflict of this.#manifest.conflicts) {
+            this.services.logs.push({
+                level: 'warn',
+                source: 'kernel',
+                message: conflict.message,
+                data: { kind: conflict.kind, key: conflict.key, claimants: conflict.claimants },
+            });
+        }
+
         for (const [id, entry] of this.#manifest.commands) {
             this.services.declaredCommands.set(id, entry.by);
         }

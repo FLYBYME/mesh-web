@@ -173,6 +173,22 @@ describe('manifests merge before anything runs', () => {
         const conflict = kernel.manifest.conflicts.find((c) => c.kind === 'binding');
         expect(conflict?.key).toBe('alt+n');
         expect(conflict?.claimants).toEqual(['blog', 'other']);
+
+        /**
+         * **And somebody is told**, which was the missing half.
+         *
+         * `boot`'s own comment said *"conflicts surfaced here"* while nothing read
+         * `manifest.conflicts` in production — six tests including the three lines above asserted
+         * the detection and none asserted that a running page ever learned of it. So the losing
+         * part's id was dropped in silence, on a page its author may not have composed.
+         *
+         * A green suite over an inert mechanism is worse than no mechanism, because it looks
+         * covered. This assertion is what makes the difference visible.
+         */
+        const warned = kernel.services.logs
+            .filter((entry) => entry.level === 'warn' && entry.source === 'kernel');
+
+        expect(warned.some((entry) => entry.message === conflict?.message)).toBe(true);
     });
 
     it('catches a binding pointing at a command nothing declares', () => {
