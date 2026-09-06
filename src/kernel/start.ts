@@ -59,6 +59,7 @@ import type { RememberedWindow, WindowPersistence } from '../window/persistence.
 import { windowSink } from '../window/sink.js';
 import { WindowManager } from '../window/manager.js';
 import type { Action } from '../description/types.js';
+import { bindingTable } from '../input/keys.js';
 import { createServices } from './broker.js';
 import { Kernel } from './kernel.js';
 
@@ -254,6 +255,7 @@ export function start(composition: Composition): Started {
     });
 
     const notifications = mountNotifications(doc, root, kernel);
+    const keys = mountKeys(doc, kernel, manager);
 
     // A resize is the viewport changing under the manager, which clamps every window back inside it.
     const host = composition.window ?? globalThis.window;
@@ -266,6 +268,7 @@ export function start(composition: Composition): Started {
         ready: open(kernel, composition, manager, persistence),
         dispose() {
             stopPersisting();
+            keys();
             page.dispose();
             notifications.remove();
         },
@@ -463,3 +466,104 @@ type OpenEntry = NonNullable<Composition['open']>[number];
 
 const defaultOpen = (kernel: Kernel): readonly OpenEntry[] =>
     kernel.applications.map((application) => ({ application }));
+
+// ---------------------------------------------------------------------------- keyboard
+
+/**
+ * Declared key bindings, actually bound.
+ *
+ * **`bindingTable` existed, `manifest.bindings` was collected, and nothing listened.** So every
+ * `keys` declaration in every Application was inert: the clock declared `ctrl+t` to toggle its
+ * format, the manifest recorded it, collisions between two Applications claiming one chord were
+ * detected and reported — and pressing the key did nothing, because no `keydown` handler was ever
+ * installed. Three mechanisms, none of them reachable, and a green suite over all of it.
+ *
+ * It also left `spec/input.md` §3 — *every action has a non-pointer path* — false at the window
+ * layer: a window could be closed and maximized only with a pointer. The rule that gated the whole
+ * primitive vocabulary was not being kept by the thing the vocabulary renders into.
+ *
+ * The window commands below are the kernel's own, registered under `window.*` so an Application
+ * cannot claim them and a site can rebind them like anything else.
+ */
+function mountKeys(doc: Document, kernel: Kernel, manager: WindowManager): () => void {
+    /**
+     * Kernel commands, and the reason they are commands rather than key handlers.
+     *
+     * A command is nameable, so it can appear in a menu, be bound to a different chord by a site,
+     * or be invoked by a part. A key handler is only a key. Everything the framework asks of an
+     * Application — *declare it, do not register it* — applies to the framework too.
+     */
+    const focused = (): string | undefined => manager.focused();
+
+    const windowCommands: Record<string, () => void> = {
+        'window.close': () => { const id = focused(); if (id !== undefined) manager.close(id); },
+        'window.maximize': () => {
+            const id = focused();
+            if (id === undefined) return;
+            // One binding, both directions — the same reasoning as the title bar's single button.
+            manager.get(id)?.state === 'maximized' ? manager.restore(id) : manager.maximize(id);
+        },
+        'window.minimize': () => { const id = focused(); if (id !== undefined) manager.minimize(id); },
+        'window.cycle': () => {
+            // Back to front, so cycling walks *away* from the current window rather than toggling
+            // between the top two — which is what a stack ordered by focus would otherwise do.
+            const open = manager.visible();
+            if (open.length < 2) return;
+            const at = open.findIndex((w) => w.id === focused());
+            manager.focus(open[(at + 1) % open.length]!.id);
+        },
+        'window.mode': () => {
+            manager.setMode(manager.mode() === 'tiled' ? 'windowed' : 'tiled');
+        },
+    };
+
+    /**
+     * Defaults, chosen against `BROWSER_TAB_RESERVED`.
+     *
+     * `ctrl+w` closes a browser tab and `ctrl+n` opens a window, so neither can mean anything here —
+     * a binding that fires the command *and* the browser's own action is worse than no binding.
+     * `alt` is the escape hatch a page actually owns.
+     */
+    const defaults: readonly { binding: string; command: string }[] = [
+        { binding: 'alt+w', command: 'window.close' },
+        { binding: 'alt+m', command: 'window.maximize' },
+        { binding: 'alt+n', command: 'window.minimize' },
+        { binding: 'alt+`', command: 'window.cycle' },
+        { binding: 'alt+t', command: 'window.mode' },
+    ];
+
+    const onKey = (event: KeyboardEvent): void => {
+        // A binding must never eat what somebody is typing. The window layer has no business
+        // knowing about text fields, but it has less business stealing a keystroke from one.
+        const target = event.target;
+        if (target instanceof HTMLElement
+            && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) {
+            // Except a chord with a modifier, which is not text by definition.
+            if (!event.ctrlKey && !event.metaKey && !event.altKey) return;
+        }
+
+        const declared = [...kernel.manifest.bindings].map(([binding, entry]) => ({
+            binding, command: entry.decl.command,
+        }));
+        const table = bindingTable([...defaults, ...declared]);
+
+        const command = table.resolve(event);
+        if (command === undefined) return;
+
+        const builtin = windowCommands[command];
+        if (builtin !== undefined) {
+            event.preventDefault();
+            builtin();
+            return;
+        }
+
+        const declaredCommand = kernel.services.commands.get(command);
+        if (declaredCommand === undefined) return;
+
+        event.preventDefault();
+        void declaredCommand.run();
+    };
+
+    doc.addEventListener('keydown', onKey);
+    return () => { doc.removeEventListener('keydown', onKey); };
+}

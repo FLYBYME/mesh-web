@@ -372,3 +372,94 @@ describe('what it returns', () => {
         started.dispose();
     });
 });
+
+/**
+ * Declared key bindings, actually bound.
+ *
+ * `bindingTable` existed, `manifest.bindings` was collected, collisions between two Applications
+ * claiming one chord were detected and reported — and **nothing ever listened for a keypress**.
+ * Every `keys` declaration in every Application was inert, and the window layer had no keyboard path
+ * to close or maximize at all, which made `spec/input.md` §3 false in the one place it most matters.
+ */
+describe('the keyboard', () => {
+    const press = (binding: { key: string; alt?: boolean; ctrl?: boolean }): void => {
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+            key: binding.key, altKey: binding.alt ?? false, ctrlKey: binding.ctrl ?? false,
+            bubbles: true, cancelable: true,
+        }));
+    };
+
+    it('runs a command an Application declared', async () => {
+        clean();
+        let ran = 0;
+
+        const KEYED = needs('state', 'log', 'commands');
+        class Keyed implements Application<typeof KEYED, readonly []> {
+            readonly needs = KEYED;
+            readonly commands = [{ id: 'keyed.go', title: 'Go' }];
+            readonly keys = [{ command: 'keyed.go', keys: 'ctrl+g' }];
+            readonly views = [] as unknown as readonly ViewDecl<never, never>[];
+            async start(cx: Context<typeof KEYED, readonly []>): Promise<void> {
+                cx.commands.implement('keyed.go', () => { ran += 1; });
+            }
+        }
+
+        const started = start({ application: 'test', parts: [{ id: 'keyed', contribution: Keyed }] });
+        await started.ready;
+
+        press({ key: 'g', ctrl: true });
+        expect(ran).toBe(1);
+        started.dispose();
+    });
+
+    it('gives a window a non-pointer path to maximize and back', async () => {
+        // spec/input.md §3. The title bar button was the only way, which made every window in the
+        // framework unreachable without a mouse — while that same rule gated the primitive audit.
+        clean();
+        const started = start({
+            application: 'test', parts: [{ id: 'widget', contribution: Widget }],
+            open: [{ application: 'widget', views: ['main'] }],
+        });
+        await started.ready;
+
+        const id = started.manager.windows()[0]!.id;
+        started.manager.focus(id);
+
+        press({ key: 'm', alt: true });
+        expect(started.manager.get(id)?.state).toBe('maximized');
+
+        press({ key: 'm', alt: true });
+        expect(started.manager.get(id)?.state).toBe('normal');
+        started.dispose();
+    });
+
+    it('switches between windowed and tiled, which nothing else could reach', async () => {
+        // setMode was real, persisted, and lockable by policy — and no menu, button or binding
+        // called it. Tiled mode existed and could not be turned on.
+        clean();
+        const started = start({ application: 'test', parts: [{ id: 'widget', contribution: Widget }] });
+        await started.ready;
+
+        expect(started.manager.mode()).toBe('windowed');
+        press({ key: 't', alt: true });
+        expect(started.manager.mode()).toBe('tiled');
+        started.dispose();
+    });
+
+    it('does not steal a keystroke from something being typed into', async () => {
+        clean();
+        const started = start({ application: 'test', parts: [{ id: 'widget', contribution: Widget }] });
+        await started.ready;
+
+        const field = document.createElement('input');
+        document.body.append(field);
+        field.focus();
+
+        const before = started.manager.mode();
+        field.dispatchEvent(new KeyboardEvent('keydown', { key: 't', bubbles: true, cancelable: true }));
+        expect(started.manager.mode()).toBe(before);
+
+        field.remove();
+        started.dispose();
+    });
+});
