@@ -196,8 +196,29 @@ export function applyDefaultProp(el: Element, name: string, value: Json): void {
     }
 
     if (name === 'style' && typeof value === 'object' && !Array.isArray(value)) {
+        /**
+         * **`flexDirection` is not a CSS property, and this used to emit it anyway.**
+         *
+         * The object was serialised key-for-key, so every camelCase name — `flexDirection`,
+         * `borderBottom`, `overflowX`, `minHeight` — reached the browser as an unknown declaration
+         * and was *silently dropped*. The lowercase ones beside it worked, which is what made it so
+         * hard to see: `{ display: 'flex', flexDirection: 'column' }` applied the `display` and
+         * ignored the direction, leaving a row that looked like a styling mistake rather than a
+         * renderer bug.
+         *
+         * Found writing the first page chrome. `display:flex` without its direction laid the title
+         * bar beside the window area instead of above it, and the window host got whatever width was
+         * left over — 469px of 1400. Two version bumps went into chasing it as a CSS problem.
+         *
+         * A custom property (`--ink`) is passed through untouched: it is already the case-sensitive
+         * name the author meant, and hyphenating it would break it.
+         */
+        const cssName = (property: string): string => (property.startsWith('--')
+            ? property
+            : property.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
+
         const css = Object.entries(value)
-            .map(([property, v]) => `${property}:${String(v)}`)
+            .map(([property, v]) => `${cssName(property)}:${String(v)}`)
             .join(';');
         el.setAttribute('style', css);
         return;

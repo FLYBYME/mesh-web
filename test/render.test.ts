@@ -18,6 +18,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { effect, flushSync, signal } from '../src/reactivity/index.js';
+import { applyDefaultProp } from '../src/render/component.js';
 import { command, each, element, empty, text, when, createHandlerTable } from '../src/description/index.js';
 import type { Action, IntentValue } from '../src/description/index.js';
 import { createRegistry, PRIMITIVES, render, type Dispatcher } from '../src/render/index.js';
@@ -722,5 +723,34 @@ describe('a view mounted inside an effect is not owned by that effect', () => {
         posts.set(['first', 'second', 'third']);
         tick();
         expect(host.querySelectorAll('li')).toHaveLength(0);
+    });
+});
+
+describe('a style object reaches the browser as CSS', () => {
+    it('hyphenates a camelCase property, which used to be dropped silently', () => {
+        /**
+         * `flexDirection` is not a CSS property. The object was serialised key-for-key, so every
+         * camelCase name reached the browser as an unknown declaration and was ignored — while the
+         * lowercase ones beside it applied, which is what made it invisible.
+         *
+         * Found writing the first page chrome: `{ display: 'flex', flexDirection: 'column' }` gave a
+         * row, so the title bar sat beside the window area instead of above it and the window host
+         * got the 469px left over.
+         */
+        const el = document.createElement('div');
+        applyDefaultProp(el, 'style', {
+            display: 'flex', flexDirection: 'column', borderBottom: '1px solid red',
+        });
+
+        expect(el.getAttribute('style')).toContain('flex-direction:column');
+        expect(el.getAttribute('style')).toContain('border-bottom:1px solid red');
+        expect(el.getAttribute('style')).not.toContain('flexDirection');
+    });
+
+    it('leaves a custom property alone', () => {
+        // `--ink` is already the case-sensitive name the author meant; hyphenating it breaks it.
+        const el = document.createElement('div');
+        applyDefaultProp(el, 'style', { '--ink': '#fff' });
+        expect(el.getAttribute('style')).toContain('--ink:#fff');
     });
 });
