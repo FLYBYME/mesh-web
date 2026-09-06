@@ -11,6 +11,7 @@
 
 import type { Json, Props } from '../description/types.js';
 import { read } from '../description/types.js';
+import { canDrop, cancelGrab, drop, grab, hasGrab, isGrabbed } from './drag.js';
 
 export interface ComponentDefinition {
     readonly name: string;
@@ -203,6 +204,29 @@ export function applyDefaultProp(el: Element, name: string, value: Json): void {
     }
 
     el.setAttribute(name, String(value));
+}
+
+// ---------------------------------------------------------------------------- drag & drop helpers
+
+interface DraggableState {
+    data?: Json;
+    type?: string;
+    disabled?: boolean;
+}
+
+const draggableStates = new WeakMap<Element, DraggableState>();
+
+interface DropZoneState {
+    accepts?: string[];
+    disabled?: boolean;
+}
+
+const dropZoneStates = new WeakMap<Element, DropZoneState>();
+
+function isInteractiveChild(target: EventTarget | null, root: Element): boolean {
+    if (!(target instanceof Element)) return false;
+    const interactive = target.closest('button, input, textarea, select, a');
+    return interactive !== null && interactive !== root && root.contains(interactive);
 }
 
 // ---------------------------------------------------------------------------- primitives
@@ -538,4 +562,213 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
     tag('ListItem', 'li'),
     tag('Card', 'section'),
     tag('Badge', 'span'),
+    {
+        name: 'Draggable',
+        spaceIsTextInput: false,
+        create() {
+            const el = document.createElement('div');
+            el.setAttribute('data-mesh-draggable', '');
+            el.setAttribute('tabindex', '0');
+            el.setAttribute('role', 'button');
+            el.setAttribute('aria-grabbed', 'false');
+            el.setAttribute('draggable', 'true');
+
+            el.addEventListener('click', (e) => {
+                if (isInteractiveChild(e.target, el)) return;
+                const state = draggableStates.get(el);
+                if (state?.disabled) return;
+
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (isGrabbed(el)) {
+                    cancelGrab();
+                } else {
+                    grab(state?.data, state?.type, el);
+                }
+            });
+
+            el.addEventListener('keydown', (e) => {
+                if (isInteractiveChild(e.target, el)) return;
+                const state = draggableStates.get(el);
+                if (state?.disabled) return;
+
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if (isGrabbed(el)) {
+                        cancelGrab();
+                    } else {
+                        grab(state?.data, state?.type, el);
+                    }
+                }
+            });
+
+            el.addEventListener('dragstart', (e) => {
+                const state = draggableStates.get(el);
+                if (state?.disabled) {
+                    e.preventDefault();
+                    return;
+                }
+                grab(state?.data, state?.type, el);
+                if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    try {
+                        const json = JSON.stringify(state?.data);
+                        e.dataTransfer.setData('application/json', json);
+                        e.dataTransfer.setData('text/plain', typeof state?.data === 'string' ? state.data : json);
+                    } catch {
+                        // In case payload cannot be stringified
+                    }
+                }
+            });
+
+            el.addEventListener('dragend', () => {
+                if (isGrabbed(el)) {
+                    cancelGrab();
+                }
+            });
+
+            return el;
+        },
+        apply(el, name, value) {
+            if (name === 'data') {
+                const state = draggableStates.get(el) ?? {};
+                state.data = value;
+                draggableStates.set(el, state);
+                return true;
+            }
+            if (name === 'type') {
+                const state = draggableStates.get(el) ?? {};
+                state.type = typeof value === 'string' ? value : undefined;
+                draggableStates.set(el, state);
+                if (state.type !== undefined) {
+                    el.setAttribute('data-mesh-type', state.type);
+                } else {
+                    el.removeAttribute('data-mesh-type');
+                }
+                return true;
+            }
+            if (name === 'disabled') {
+                const state = draggableStates.get(el) ?? {};
+                state.disabled = Boolean(value);
+                draggableStates.set(el, state);
+                if (state.disabled) {
+                    el.setAttribute('data-mesh-disabled', '');
+                    el.setAttribute('aria-disabled', 'true');
+                    el.setAttribute('draggable', 'false');
+                    el.removeAttribute('tabindex');
+                } else {
+                    el.removeAttribute('data-mesh-disabled');
+                    el.removeAttribute('aria-disabled');
+                    el.setAttribute('draggable', 'true');
+                    el.setAttribute('tabindex', '0');
+                }
+                return true;
+            }
+            return false;
+        },
+    },
+    {
+        name: 'DropZone',
+        spaceIsTextInput: false,
+        create() {
+            const el = document.createElement('div');
+            el.setAttribute('data-mesh-dropzone', '');
+            el.setAttribute('tabindex', '0');
+            el.setAttribute('role', 'region');
+            el.setAttribute('aria-label', 'Drop zone');
+
+            el.addEventListener('click', (e) => {
+                if (isInteractiveChild(e.target, el)) return;
+                const state = dropZoneStates.get(el);
+                if (state?.disabled) return;
+
+                if (hasGrab() && canDrop(el)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    drop(el);
+                }
+            });
+
+            el.addEventListener('keydown', (e) => {
+                if (isInteractiveChild(e.target, el)) return;
+                const state = dropZoneStates.get(el);
+                if (state?.disabled) return;
+
+                if (e.key === 'Enter' || e.key === ' ') {
+                    if (hasGrab() && canDrop(el)) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        drop(el);
+                    }
+                }
+            });
+
+            el.addEventListener('dragover', (e) => {
+                const state = dropZoneStates.get(el);
+                if (state?.disabled) return;
+
+                if (canDrop(el)) {
+                    e.preventDefault();
+                    if (e.dataTransfer) {
+                        e.dataTransfer.dropEffect = 'move';
+                    }
+                    el.setAttribute('data-mesh-drag-over', '');
+                }
+            });
+
+            el.addEventListener('dragleave', (e) => {
+                if (!(e.relatedTarget instanceof Node) || !el.contains(e.relatedTarget)) {
+                    el.removeAttribute('data-mesh-drag-over');
+                }
+            });
+
+            el.addEventListener('drop', (e) => {
+                const state = dropZoneStates.get(el);
+                if (state?.disabled) return;
+
+                if (canDrop(el)) {
+                    e.preventDefault();
+                    drop(el);
+                }
+            });
+
+            return el;
+        },
+        apply(el, name, value) {
+            if (name === 'accepts') {
+                const state = dropZoneStates.get(el) ?? {};
+                if (Array.isArray(value)) {
+                    state.accepts = value.map(String);
+                    el.setAttribute('data-mesh-accepts', state.accepts.join(','));
+                } else if (value !== null && value !== undefined) {
+                    state.accepts = [String(value)];
+                    el.setAttribute('data-mesh-accepts', String(value));
+                } else {
+                    state.accepts = undefined;
+                    el.removeAttribute('data-mesh-accepts');
+                }
+                dropZoneStates.set(el, state);
+                return true;
+            }
+            if (name === 'disabled') {
+                const state = dropZoneStates.get(el) ?? {};
+                state.disabled = Boolean(value);
+                dropZoneStates.set(el, state);
+                if (state.disabled) {
+                    el.setAttribute('data-mesh-disabled', '');
+                    el.setAttribute('aria-disabled', 'true');
+                    el.removeAttribute('tabindex');
+                } else {
+                    el.removeAttribute('data-mesh-disabled');
+                    el.removeAttribute('aria-disabled');
+                    el.setAttribute('tabindex', '0');
+                }
+                return true;
+            }
+            return false;
+        },
+    },
 ];

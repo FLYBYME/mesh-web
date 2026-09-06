@@ -9,7 +9,7 @@
  * browser — is the property the description layer was built for.
  */
 
-import type { EachNode, ElementNode, Intents, Json, Node, WhenNode } from './types.js';
+import type { EachNode, ElementNode, Intents, Json, Node, SurfaceNode, WhenNode } from './types.js';
 import { read } from './types.js';
 
 /** A description with every reactive value resolved. Plain data, comparable, serializable. */
@@ -60,7 +60,30 @@ export function flatten(node: Node): readonly Flat[] {
 
         case 'each':
             return flattenEach(single);
+
+        case 'surface':
+            return [flattenSurface(single)];
     }
+}
+
+function flattenSurface(node: SurfaceNode): FlatElement {
+    const props: Record<string, Json> = {
+        'data-mesh-surface': 'placeholder',
+    };
+    if (node.props) {
+        for (const [name, value] of Object.entries(node.props)) {
+            if (value === undefined) continue;
+            props[name] = read(value);
+        }
+    }
+
+    return {
+        kind: 'element',
+        component: 'Surface',
+        props,
+        ...(node.key !== undefined ? { key: node.key } : {}),
+        children: [],
+    };
 }
 
 function flattenElement(node: ElementNode): FlatElement {

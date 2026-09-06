@@ -597,7 +597,7 @@ describe('an intent carries its value', () => {
     it('gives a handler the value too', () => {
         const { host, components, dispatch, seen, values } = setup();
         const handlers = createHandlerTable('view-1');
-        const typed: (string | number | boolean | undefined)[] = [];
+        const typed: IntentValue[] = [];
         const action = handlers.on((value) => typed.push(value));
 
         render(

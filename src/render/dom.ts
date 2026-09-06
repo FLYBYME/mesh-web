@@ -16,7 +16,7 @@ import { signal } from '../reactivity/signal.js';
 import { createScope } from '../reactivity/scope.js';
 import type { ReactiveScope, Signal } from '../reactivity/types.js';
 import type {
-    Action, EachNode, ElementNode, Intents, IntentValue, Json, Node, Reactive,
+    Action, EachNode, ElementNode, Intents, IntentValue, Json, Node, Reactive, SurfaceNode,
 } from '../description/types.js';
 import { isDynamic, read } from '../description/types.js';
 import { applyDefaultProp, type ComponentDefinition, type ComponentRegistry } from './component.js';
@@ -95,6 +95,9 @@ function build(node: Node, options: RenderOptions, scope: ReactiveScope): readon
 
         case 'each':
             return buildEach(single, options, scope);
+
+        case 'surface':
+            return [buildSurface(single, options, scope)];
     }
 }
 
@@ -147,6 +150,43 @@ function buildElement(node: ElementNode, options: RenderOptions, scope: Reactive
     for (const child of node.children) {
         for (const built of build(child, options, scope)) slot.appendChild(built);
     }
+
+    return el;
+}
+
+/**
+ * An escape hatch for raw DOM access — roadmap A7.5, spec/view-layer.md §8.
+ *
+ * Runs `setup(el)` synchronously during build, registering any returned teardown function
+ * within the active reactive scope so unmounts (or branch flips) immediately tear down
+ * the embedded DOM instance.
+ */
+function buildSurface(node: SurfaceNode, _options: RenderOptions, _scope: ReactiveScope): Element {
+    const el = document.createElement('div');
+    el.setAttribute('data-mesh-surface', '');
+
+    if (node.props !== undefined) {
+        for (const [name, value] of Object.entries(node.props)) {
+            if (value === undefined) continue;
+
+            const set = (v: Json): void => {
+                applyDefaultProp(el, name, v);
+            };
+
+            if (isDynamic(value)) {
+                effect(() => set(read(value)));
+            } else {
+                set(value);
+            }
+        }
+    }
+
+    effect(() => {
+        const teardown = node.setup(el);
+        if (typeof teardown === 'function') {
+            return teardown;
+        }
+    });
 
     return el;
 }
@@ -332,7 +372,7 @@ function bindIntents(
     dispatch: Dispatcher,
     definition?: ComponentDefinition,
 ): void {
-    const fire = (name: keyof Intents, event: Event): void => {
+    const fire = (name: keyof Intents, event: Event, value?: IntentValue): void => {
         const binding = intents[name];
         if (binding === undefined) return;
 
@@ -345,10 +385,12 @@ function bindIntents(
         // now the value*; `activate` means *act*, and carries nothing even from a control that has
         // a `value` property — a `<button>` has one, always `''`, and letting the element decide
         // would deliver that empty string to every command a button reaches.
+        // `drop` carries the payload from the drag-and-drop coordinator.
         //
         // The value, never the event: a string, a boolean or a number, with nothing on it that
         // could reach the DOM, which is the property that lets a description cross a boundary.
-        dispatch.dispatch(binding.action, name === 'change' ? valueOf(el) : undefined);
+        const intentValue = name === 'change' ? valueOf(el) : value;
+        dispatch.dispatch(binding.action, intentValue);
     };
 
     if (intents.activate) {
@@ -392,6 +434,26 @@ function bindIntents(
         // "it dropped my password" bug, and invisible in any test that dispatches events by hand.
         el.addEventListener('input', (e) => fire('change', e));
     }
+
+    if (intents.drop) {
+        el.addEventListener('mesh:drop', (e) => {
+            const value = isCustomPayloadEvent(e) ? e.detail : undefined;
+            fire('drop', e, value);
+        });
+    } else if (intents.activate) {
+        el.addEventListener('mesh:drop', (e) => {
+            const value = isCustomPayloadEvent(e) ? e.detail : undefined;
+            fire('activate', e, value);
+        });
+    }
+}
+
+interface CustomPayloadEvent {
+    readonly detail: IntentValue;
+}
+
+function isCustomPayloadEvent(e: object): e is CustomPayloadEvent {
+    return 'detail' in e;
 }
 
 interface ControlElement {

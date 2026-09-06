@@ -12,6 +12,7 @@ export type {
     Node,
     Props,
     Reactive,
+    SurfaceNode,
     TextNode,
     WhenNode,
 } from './types.js';

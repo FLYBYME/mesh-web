@@ -73,7 +73,8 @@ export type IntentName =
     | 'dismiss'
     | 'scroll'
     | 'zoom'
-    | 'change';
+    | 'change'
+    | 'drop';
 
 /**
  * Whether the default platform behaviour is suppressed.
@@ -96,12 +97,11 @@ export interface IntentBinding {
  * site built on the framework needed a sign-in form and there was no way to read what was typed.
  *
  * **Not the event.** A `string` for a text field, a `boolean` for a checkbox, a `number` for a
- * range — the value the control now holds, extracted by the renderer, with nothing of the DOM on
- * it. spec/input.md §2's rule is that an Application receives what was *meant*, and for a field the
- * thing meant is its value. `activate` on a button means nothing beyond itself and carries
- * `undefined`, which is why this is a parameter rather than a member of every action.
+ * range, or a `Json` payload for a dropped item — the value extracted by the renderer, with nothing
+ * of the DOM on it. spec/input.md §2's rule is that an Application receives what was *meant*, and for
+ * an action carrying data the thing meant is its value. `activate` on a button carries `undefined`.
  */
-export type IntentValue = string | number | boolean | undefined;
+export type IntentValue = Json | undefined;
 
 export type Intents = { readonly [K in IntentName]?: IntentBinding };
 
@@ -165,7 +165,21 @@ export interface EmptyNode {
     readonly kind: 'empty';
 }
 
-export type Node = ElementNode | TextNode | WhenNode | EachNode<unknown> | EmptyNode | readonly Node[];
+/**
+ * An escape hatch for raw DOM embedding (Monaco, canvas, WebGL) — roadmap A7.5.
+ *
+ * Available only to contributions declaring `needs('dom')`. Method bivariance on `setup`
+ * keeps concrete host elements assignable without casting, and the description layer
+ * contains no DOM types.
+ */
+export interface SurfaceNode {
+    readonly kind: 'surface';
+    setup(host: unknown): (() => void) | void;
+    readonly props?: Props;
+    readonly key?: string | number;
+}
+
+export type Node = ElementNode | TextNode | WhenNode | EachNode<unknown> | EmptyNode | SurfaceNode | readonly Node[];
 
 // ---------------------------------------------------------------------------- props
 

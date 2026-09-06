@@ -1,7 +1,7 @@
 export type {
     CapabilityContext, CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands,
-    ContributionBase, Credentials, Log, NotificationHandle, Notifications, State, WindowHandle,
-    Windows,
+    ContributionBase, Credentials, Dom, Log, NotificationHandle, Notifications, State, SurfaceOptions,
+    WindowHandle, Windows,
 } from './capabilities.js';
 export { needs } from './capabilities.js';
 

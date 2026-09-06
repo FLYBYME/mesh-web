@@ -11,7 +11,7 @@
  */
 
 import type { Signal } from '../reactivity/types.js';
-import type { Json, Node } from '../description/types.js';
+import type { Json, Node, Props, Reactive } from '../description/types.js';
 
 // ---------------------------------------------------------------------------- state
 
@@ -257,6 +257,32 @@ export interface Http {
 export type { Storage, BoundStore } from '../storage/index.js';
 import type { Storage } from '../storage/index.js';
 
+// ---------------------------------------------------------------------------- dom
+
+export interface SurfaceOptions {
+    /**
+     * Called when the element is created and mounted.
+     * Hands over the real DOM HTMLElement to the contribution.
+     * May return a teardown function, which is called on unmount.
+     */
+    setup(el: HTMLElement): (() => void) | void;
+    readonly key?: string | number;
+    readonly style?: Reactive<Json>;
+    readonly class?: Reactive<string>;
+    readonly props?: Props;
+}
+
+/**
+ * Escape hatch for raw DOM access (Monaco, canvas, WebGL) — roadmap A7.5, spec/view-layer.md §8.
+ *
+ * A contribution declaring `needs('dom')` opts out of description-layer isolation.
+ * A part that wants raw DOM says so in its manifest, where a reviewer can see it.
+ */
+export interface Dom {
+    Surface(options: SurfaceOptions): Node;
+    surface(options: SurfaceOptions): Node;
+}
+
 // ---------------------------------------------------------------------------- the map
 
 /**
@@ -277,6 +303,7 @@ export interface CapabilityMap {
     readonly chrome: Chrome;
     readonly http: Http;
     readonly storage: Storage;
+    readonly dom: Dom;
 }
 
 /**
