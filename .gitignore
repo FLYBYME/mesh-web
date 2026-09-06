@@ -9,3 +9,4 @@ out/
 # Dispatch results are per-run and land in the main tree; the worktrees are transient.
 agent-runs/results/*.result.md
 agent-runs/results/*-verify.log
+agent-runs/results/*-isolation-breach
