@@ -1,0 +1,166 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+**A third window mode: `single`.** The one a normal site runs in.
+
+`WindowMode` is `'windowed' | 'tiled'`. The spec promises three arrangements —
+[extension §2](./spec/extension.md):
+
+> Declaring capabilities is what lets one Extension run unchanged whether the
+> host arranges windows **as tiles, as floating windows, or as a single maximised
+> page**.
+
+The third does not exist as a value. That matters more than a missing enum member
+usually would, because **the entire locking mechanism is already built and points
+at nothing.** From `src/registry/hives.ts`:
+
+> **A locked blog is `system` policy on `window-manager/mode`.** No separate
+> locking mechanism and no special case in the window manager: the window manager
+> reads a setting, and the setting happens to be one nobody can change.
+
+That path is finished end to end — `site.policy` in mesh-serve, emitted into the
+generated boot module by `page.ts`, resolved by `registry.ts` **before any hive**
+so it cannot be outvoted, and hashed into the release so a locked build and an
+unlocked one are different releases. `start.ts` even documents
+`{ 'window-manager/mode': 'tiled' }` as the example. A blog cannot use any of it,
+because the value it would need to pin does not exist.
+
+================================================================================
+WHAT ALREADY EXISTS — READ BEFORE BUILDING
+================================================================================
+
+    src/window/manager.ts     the model. `WindowMode`, `mode`, `visible()`,
+                              `rectOf()`, `setMode()`, `hidden()`. **Read the
+                              comment above `visible()` in full** — it records a
+                              bug where a mode switch emptied the page, and the
+                              rule it settled on: *a mode switch that can empty
+                              the page is worse than one that does nothing.*
+                              `single` must not reintroduce that.
+    src/registry/hives.ts     `BuildPolicy` and the locked-blog paragraph above.
+    src/kernel/start.ts       `policy`, `defaultOpen`, `applyLayout`, `mountKeys`.
+    src/window/persistence.ts `window-manager/mode/${application}` — the setting
+                              path. Note it is **per application**, and think
+                              about whether that is right for a page-level mode.
+    spec/application.md §6    the same views serve every mode. This is the
+                              constraint: `single` may not need a different view.
+
+================================================================================
+WHAT `single` MEANS — READ THIS TWICE, THE OBVIOUS IMPLEMENTATION IS WRONG
+================================================================================
+
+One view, no title bar, no drag, no resize, no shadow, no stacking — not
+*disabled*, **not offered**. The spec's own words, and the reason this is a mode
+rather than a stylesheet:
+
+> a feature that is absent is a stronger guarantee than a feature that is disabled
+
+**`single` is not "one window maximised", and building it that way is the trap
+this section exists to prevent.**
+
+Look at how windows are painted before you write anything. `src/window/shell.ts`
+positions every window `absolute` with explicit `left`/`top`/`width`/`height` in
+pixels; `src/kernel.css` gives the mount root `height: 100%; overflow: hidden`
+and `.window` another `overflow: hidden`. That is an **app shell**: a fixed
+viewport with boxes placed inside it and clipped. It is correct for `windowed`
+and `tiled`.
+
+A normal website is a **document**. Its height is its content's height, it flows,
+and the *page* scrolls — not a box within the page. Implement `single` as a
+window sized to the viewport rect and a blog becomes a fixed-height box with an
+inner scrollbar, which silently costs: browser scroll restoration on back,
+find-in-page scrolling to its hit, `#anchor` links, the mobile URL bar collapsing
+on scroll, and printing — an `overflow: hidden` document prints one screenful.
+
+So: **`windowed` and `tiled` are modes where the manager positions things.
+`single` is the mode where the manager stops positioning anything.** No absolute,
+no rect, no z-index, no clipping — the view mounts into ordinary document flow
+and the browser does what it already does well. Most of this task is *not doing*
+work rather than doing it, and the CSS in `kernel.css` that assumes a fixed
+viewport has to stop applying, not be overridden with a taller number.
+
+Consequences to get right, and to state in the report:
+
+- **`rectOf()` has no meaningful answer in `single`.** Decide what it returns and
+  make it honest; a plausible-looking rect that nothing positions from is a
+  reader-audit entry waiting to happen.
+- **`ResizeObserver` viewport tracking** (html5.md, built) exists to drive tiles.
+  In `single` there is nothing to re-measure. Make sure it is not still running.
+- **The mount root's `overflow: hidden` and `height: 100%`** are the specific
+  lines that break a document. They are in `kernel.css` and they are not
+  negotiable for the other two modes, so this is a mode-scoped selector, not an
+  edit to the base rule.
+
+Decide and state in the report:
+
+- **Which window is the one shown**, when an Application opens more than one. The
+  focused one is the obvious answer and it is not the only defensible one. What
+  matters is that the rule is stated and that `hidden()` reports the rest —
+  `hidden()` exists precisely so a shell can offer what the mode cannot show.
+- **Whether `single` is per-application or per-page.** `windowed`/`tiled` persist
+  per application (`persistence.ts:75`). A site locked to `single` is a property
+  of the *deployment*, not of one Application, and those may not be the same
+  setting. If they are not, say so rather than overloading one path.
+- **What a second Application does.** On a blog there is one. On a page with two,
+  `single` has to mean something, and "the second one is hidden" is an answer as
+  long as it is deliberate.
+
+**`rect` must not be overwritten.** `manager.ts` line 78 states it for the
+existing pair: a window's rect survives a mode change, and that is what lets a
+switch be reversible. Entering and leaving `single` must be lossless.
+
+================================================================================
+WHAT NOT TO DO
+================================================================================
+
+**Do not add a locking mechanism.** It exists, it is `BuildPolicy`, and adding a
+second one is the exact mistake `hives.ts` argues against.
+
+**Do not make `single` a special case inside `windowed`.** A boolean that hides
+the chrome is not this: the guarantee is that dragging is *not there*, and a
+window manager that still holds drag handlers behind a flag has not given it.
+
+**Do not touch the chrome Extension** — it lives in mesh-core and it is a separate
+repository. Note in the report what it will need (a mode switch that offers a
+third option, and what it should do when policy has frozen the mode), but change
+nothing there.
+
+**Do not build the router.** A0.6 is blocked on A0.6a and this task does not
+unblock it.
+
+================================================================================
+WHAT GOOD LOOKS LIKE
+================================================================================
+
+- Browser tests: a kernel started with `policy: { 'window-manager/mode': 'single' }`
+  renders one view, offers no drag affordance, and **refuses a write to that
+  setting** — the refusal is the locking claim and it is the test that matters.
+- **A test that the document scrolls, not a box inside it.** Render content
+  taller than the viewport and assert the scrolling element is the document —
+  `document.scrollingElement`, not the mount root and not the window host. This
+  is the assertion that separates this task from "maximise one window", and if
+  it is hard to write, that is the finding.
+- A test that entering and leaving `single` restores the previous geometry.
+- A test that `hidden()` reports what `single` is not showing.
+- `A5.10`'s sibling property, if it comes for free: a kernel with no Extensions in
+  `single` mode is a page with one view and no furniture.
+- Every existing test passing. `npm run typecheck` clean, **zero casts.**
+- Tick the mode in `spec/roadmap.md`; update `spec/application.md` §6 and
+  `spec/extension.md`'s three-arrangements line to describe a built thing.
+- Bump the kernel minor. New mode, additive.
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/reports/9-single-mode.md`
+
+- the three decisions above and what you chose
+- whether per-application mode persistence is right for a page-level mode
+- what the chrome Extension in mesh-core must change, precisely enough to become
+  its prompt
+- **what a normal site still cannot do** after this lands. The honest list — the
+  router and server-side rendering are both missing and this task fixes neither.
+  That list is the point of the report.
