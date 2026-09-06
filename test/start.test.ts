@@ -463,3 +463,58 @@ describe('the keyboard', () => {
         started.dispose();
     });
 });
+
+describe('the layout an Application declared', () => {
+    it('reaches the window manager, so tiled mode has something to tile', async () => {
+        /**
+         * `setLayout` was called by nothing. An Application declared `layout`, `mergeManifests`
+         * collected it into `manifest.layouts`, and `WindowManager.setLayout` existed to receive
+         * it — three parts, no code joining them, so `layout()` was `undefined` for the life of
+         * every page.
+         *
+         * Tiled mode therefore had nothing to tile. The mode switched, the button's label changed,
+         * and not one window moved: *"the tile window button changes its text but the tiles do
+         * not."*
+         */
+        clean();
+
+        class Tiling implements Application<typeof NEEDS, readonly []> {
+            readonly needs = NEEDS;
+            readonly layout = {
+                split: 'row' as const,
+                children: [
+                    { node: { tile: 'main' }, size: 2 },
+                    { node: { tile: 'side' }, size: 1 },
+                ],
+            };
+            readonly views = [
+                { id: 'a', title: 'A', tile: 'main', render: () => text('a') },
+                { id: 'b', title: 'B', tile: 'side', render: () => text('b') },
+            ] as unknown as readonly ViewDecl<never, never>[];
+            async start(_cx: Context<typeof NEEDS, readonly []>): Promise<void> {}
+        }
+
+        const started = start({
+            application: 'test',
+            parts: [{ id: 'tiling', contribution: Tiling }],
+            open: [{ application: 'tiling', views: ['a', 'b'] }],
+        });
+        await started.ready;
+
+        expect(started.manager.layout()).toBeDefined();
+
+        // And the windows actually take tile rects rather than their own. The viewport is set
+        // explicitly because jsdom reports clientWidth 0, so a tile of it would be 0 wide.
+        started.manager.setViewport({ width: 1200, height: 800 });
+        started.manager.setMode('tiled');
+        const [a, b] = started.manager.windows();
+        const rectA = started.manager.rectOf(a!.id);
+        const rectB = started.manager.rectOf(b!.id);
+
+        expect(rectA).toBeDefined();
+        expect(rectB).toBeDefined();
+        // `main` is twice `side`, so the split is real rather than two equal halves.
+        expect(rectA!.width).toBeGreaterThan(rectB!.width);
+        started.dispose();
+    });
+});

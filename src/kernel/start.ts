@@ -404,6 +404,34 @@ async function open(
     }
 
     await restoreGeometry(kernel, manager, persistence);
+    applyLayout(kernel, manager);
+}
+
+/**
+ * Give the window manager the layout an Application declared.
+ *
+ * **`setLayout` was called by nothing.** An Application declared `layout`, `mergeManifests`
+ * collected it into `manifest.layouts`, `WindowManager.setLayout` existed to receive it — and no
+ * code joined the three, so `layout()` was `undefined` for the life of every page. Tiled mode
+ * therefore had nothing to tile: the mode switched, the button's label changed, and not one window
+ * moved. Reported exactly that way.
+ *
+ * The first Application with a layout wins, which is a placeholder for the real rule.
+ * [application §9](../../spec/application.md) says the *foreground* Application's layout governs and
+ * a background one keeps its own — that needs the router, because what is foreground is a routing
+ * question. Until then a composition with one tiling Application behaves correctly and one with two
+ * takes the first, rather than every composition behaving as if none had a layout at all.
+ */
+function applyLayout(kernel: Kernel, manager: WindowManager): void {
+    if (manager.layout() !== undefined) return;
+
+    for (const application of kernel.applications) {
+        const layout = kernel.manifest.layouts.get(application);
+        if (layout !== undefined) {
+            manager.setLayout(layout);
+            return;
+        }
+    }
 }
 
 /**
