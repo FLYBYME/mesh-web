@@ -9,7 +9,7 @@
  * browser — is the property the description layer was built for.
  */
 
-import type { EachNode, ElementNode, Intents, Json, Node, SurfaceNode, WhenNode } from './types.js';
+import type { DialogNode, EachNode, ElementNode, Intents, Json, Node, SurfaceNode, WhenNode } from './types.js';
 import { read } from './types.js';
 
 /** A description with every reactive value resolved. Plain data, comparable, serializable. */
@@ -63,7 +63,32 @@ export function flatten(node: Node): readonly Flat[] {
 
         case 'surface':
             return [flattenSurface(single)];
+
+        case 'dialog':
+            return [flattenDialog(single)];
     }
+}
+
+function flattenDialog(node: DialogNode): FlatElement {
+    const isOpen = Boolean(read(node.open));
+    const props: Record<string, Json> = {
+        open: isOpen,
+    };
+    if (node.props) {
+        for (const [name, value] of Object.entries(node.props)) {
+            if (value === undefined || name === 'open') continue;
+            props[name] = read(value);
+        }
+    }
+
+    return {
+        kind: 'element',
+        component: 'Dialog',
+        props,
+        ...(node.intents ? { intents: node.intents } : {}),
+        ...(node.key !== undefined ? { key: node.key } : {}),
+        children: isOpen ? node.children.flatMap(flatten) : [],
+    };
 }
 
 function flattenSurface(node: SurfaceNode): FlatElement {
@@ -93,13 +118,15 @@ function flattenElement(node: ElementNode): FlatElement {
         props[name] = read(value);
     }
 
+    const isClosedDialog = node.component === 'Dialog' && props.open !== true;
+
     return {
         kind: 'element',
         component: node.component,
         props,
         ...(node.intents ? { intents: node.intents } : {}),
         ...(node.key !== undefined ? { key: node.key } : {}),
-        children: node.children.flatMap(flatten),
+        children: isClosedDialog ? [] : node.children.flatMap(flatten),
     };
 }
 

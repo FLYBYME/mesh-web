@@ -7,7 +7,7 @@
  */
 
 import type {
-    Action, EachNode, ElementNode, EmptyNode, Intents, IntentValue, Json,
+    Action, DialogNode, DialogProps, EachNode, ElementNode, EmptyNode, Intents, IntentValue, Json,
     Node, Props, Reactive, TextNode, WhenNode,
 } from './types.js';
 
@@ -77,6 +77,33 @@ export function each<T>(
 ): EachNode<T> {
     return { kind: 'each', items, key, render };
 }
+
+export interface DialogOptions {
+    readonly open: Reactive<boolean>;
+    readonly props?: DialogProps;
+    readonly intents?: Intents;
+    readonly key?: string | number;
+    readonly children?: readonly Node[];
+}
+
+/**
+ * A modal dialog surface.
+ *
+ * Reconciled by the renderer to `<dialog>` and `showModal()` / `close()`.
+ * Focus is trapped while open and restored to the opener on close.
+ * When closed, contents are not in the tree.
+ */
+export function dialog(options: DialogOptions): DialogNode {
+    return {
+        kind: 'dialog',
+        open: options.open,
+        ...(options.props ? { props: options.props } : {}),
+        ...(options.intents ? { intents: options.intents } : {}),
+        ...(options.key !== undefined ? { key: options.key } : {}),
+        children: options.children ?? [],
+    };
+}
+
 
 // ---------------------------------------------------------------------------- actions
 

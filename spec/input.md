@@ -136,8 +136,15 @@ Three mechanisms, because spatial scoring alone produces navigation that feels r
 3. **Explicit overrides.** A component may declare `navigate: { down: 'footer' }` where scoring gets
    it wrong. Rare by design; if it is common, groups are wrong.
 
-**Traps.** A modal traps focus. A window in windowed mode traps until dismissed at the window-manager
-level.
+**Traps — Built.** A modal traps focus (`src/input/trap.ts`, `DialogNode`). On open, focus
+automatically enters the modal (prioritizing `[autofocus]`, then the first focusable child, then
+the container). `Tab` and `Shift+Tab` cycle strictly within the active dialog; controls behind the
+modal cannot be reached. Traps form an explicit stack (`trapStack`): a nested dialog pushes onto
+the stack so only the topmost dialog traps navigation. When dismissed or closed, the trap pops from
+the stack and restores focus to whatever element opened it. Escape key events map directly to the
+topmost dialog's `dismiss` intent rather than executing uncoordinated browser dismissals or raw DOM
+key handlers. If the opener ignores the dismissal, declared state and DOM reality do not diverge.
+A window in windowed mode traps until dismissed at the window-manager level.
 
 **Focus is renderer state**, not application state, and not view state in the geometry sense. It is
 per view instance, restored with it, and moved by the kernel — never set by an Application.

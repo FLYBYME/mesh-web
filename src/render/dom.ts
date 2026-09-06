@@ -15,11 +15,40 @@ import { effect } from '../reactivity/effect.js';
 import { signal } from '../reactivity/signal.js';
 import { createScope } from '../reactivity/scope.js';
 import type { ReactiveScope, Signal } from '../reactivity/types.js';
+import { createFocusTrap, getActiveTrap } from '../input/trap.js';
 import type {
-    Action, EachNode, ElementNode, Intents, IntentValue, Json, Node, Reactive, SurfaceNode,
+    Action, DialogNode, EachNode, ElementNode, Intents, IntentValue, Json, Node, Reactive, SurfaceNode,
 } from '../description/types.js';
 import { isDynamic, read } from '../description/types.js';
 import { applyDefaultProp, type ComponentDefinition, type ComponentRegistry } from './component.js';
+
+if (typeof HTMLDialogElement !== 'undefined') {
+    if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
+        HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
+            this.setAttribute('open', '');
+        };
+    }
+    if (typeof HTMLDialogElement.prototype.close !== 'function') {
+        HTMLDialogElement.prototype.close = function (this: HTMLDialogElement): void {
+            this.removeAttribute('open');
+        };
+    }
+}
+
+interface ModalDialogElement {
+    showModal(): void;
+    close(): void;
+    open: boolean;
+    hasAttribute(name: string): boolean;
+    setAttribute(name: string, value: string): void;
+    removeAttribute(name: string): void;
+}
+
+function isModalDialogElement(el: object): el is ModalDialogElement {
+    return 'showModal' in el && typeof el.showModal === 'function' &&
+           'close' in el && typeof el.close === 'function' &&
+           'open' in el && typeof el.open === 'boolean';
+}
 
 /**
  * Where an action goes.
@@ -98,6 +127,9 @@ function build(node: Node, options: RenderOptions, scope: ReactiveScope): readon
 
         case 'surface':
             return [buildSurface(single, options, scope)];
+
+        case 'dialog':
+            return [buildDialog(single, options, scope)];
     }
 }
 
@@ -117,6 +149,21 @@ function buildText(value: Reactive<string | number>): Text {
 }
 
 function buildElement(node: ElementNode, options: RenderOptions, scope: ReactiveScope): Element {
+    if (node.component === 'Dialog') {
+        const openProp = node.props.open;
+        const open = openProp !== undefined
+            ? (isDynamic(openProp) ? () => Boolean(read(openProp)) : Boolean(openProp))
+            : false;
+        return buildDialog({
+            kind: 'dialog',
+            open,
+            props: node.props,
+            intents: node.intents,
+            key: node.key,
+            children: node.children,
+        }, options, scope);
+    }
+
     const definition = options.components.get(node.component);
     if (definition === undefined) {
         throw new Error(
@@ -190,6 +237,151 @@ function buildSurface(node: SurfaceNode, _options: RenderOptions, _scope: Reacti
 
     return el;
 }
+
+/**
+ * A modal dialog surface with focus containment and top-layer semantics.
+ *
+ * The renderer reconciles declared `open` state to native `<dialog>`, calling showModal()
+ * and close(). When closed, its contents are not in the tree, matching WhenNode.
+ * Focus is trapped while open and restored to the opener on close.
+ * Escape maps to the dismiss intent, allowing the opener to update state without DOM key handlers.
+ */
+function buildDialog(node: DialogNode, options: RenderOptions, owner: ReactiveScope): Element {
+    const definition = options.components.get('Dialog');
+    const el = definition ? definition.create() : document.createElement('dialog');
+    el.setAttribute('data-mesh-dialog', '');
+
+    if (node.props !== undefined) {
+        for (const [name, value] of Object.entries(node.props)) {
+            if (value === undefined || name === 'open') continue;
+
+            const set = (v: Json): void => {
+                if (definition?.apply?.(el, name, v) === true) return;
+                applyDefaultProp(el, name, v);
+            };
+
+            if (isDynamic(value)) {
+                effect(() => set(read(value)));
+            } else {
+                set(value);
+            }
+        }
+    }
+
+    const trap = createFocusTrap(el);
+
+    const onCancel = (e: Event): void => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!trap.active || getActiveTrap() !== trap) return;
+        if (node.intents?.dismiss) {
+            const binding = node.intents.dismiss;
+            options.dispatch.dispatch(binding.action, undefined);
+        }
+    };
+
+    const onKeyDown = (e: Event): void => {
+        if ('key' in e && e.key === 'Escape') {
+            if (!trap.active || getActiveTrap() !== trap) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (node.intents?.dismiss) {
+                const binding = node.intents.dismiss;
+                options.dispatch.dispatch(binding.action, undefined);
+            }
+        }
+    };
+
+    el.addEventListener('cancel', onCancel);
+    el.addEventListener('keydown', onKeyDown);
+
+    if (node.intents !== undefined) {
+        const { dismiss: _dismiss, ...restIntents } = node.intents;
+        bindIntents(el, restIntents, options.dispatch, definition);
+    }
+
+    let childScope: ReactiveScope | undefined;
+    let childNodes: readonly ChildNode[] = [];
+    let isOpen: boolean | undefined;
+
+    const openModal = (): void => {
+        if (isModalDialogElement(el)) {
+            if (!el.open) {
+                try {
+                    el.showModal();
+                } catch {
+                    el.setAttribute('open', '');
+                }
+            }
+        } else {
+            el.setAttribute('open', '');
+        }
+
+        trap.activate();
+
+        if (!el.isConnected) {
+            queueMicrotask(() => {
+                if (isOpen && el.isConnected && isModalDialogElement(el) && !el.open) {
+                    try {
+                        el.showModal();
+                    } catch {
+                        // ignore
+                    }
+                }
+            });
+        }
+    };
+
+    const closeModal = (): void => {
+        trap.deactivate();
+
+        childScope?.dispose();
+        childScope = undefined;
+        for (const childNode of childNodes) {
+            childNode.remove();
+        }
+        childNodes = [];
+
+        if (isModalDialogElement(el)) {
+            if (el.open) {
+                try {
+                    el.close();
+                } catch {
+                    el.removeAttribute('open');
+                }
+            }
+        } else {
+            el.removeAttribute('open');
+        }
+    };
+
+    effect(() => {
+        const next = Boolean(read(node.open));
+        if (next === isOpen) return;
+        isOpen = next;
+
+        if (next) {
+            owner.run(() => {
+                const inner = createScope();
+                childScope = inner;
+                inner.run(() => {
+                    const slot = definition?.slot ? definition.slot(el) : el;
+                    childNodes = node.children.flatMap((child) => build(child, options, inner));
+                    for (const childNode of childNodes) {
+                        slot.appendChild(childNode);
+                    }
+                });
+            });
+
+            openModal();
+        } else {
+            closeModal();
+        }
+    });
+
+    return el;
+}
+
 
 /**
  * A branch, anchored between two comment markers.
