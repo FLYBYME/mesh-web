@@ -143,13 +143,34 @@ describe('parts', () => {
         started.dispose();
     });
 
-    it('opens every Application it can classify, when the site says nothing', async () => {
+    it('opens every Application, when the site says nothing', async () => {
         clean();
         const widget = new Widget();
         const started = start({ application: 'test', parts: [{ id: 'widget', contribution: widget }] });
         await started.ready;
 
         expect(started.kernel.processes).toHaveLength(1);
+        started.dispose();
+    });
+
+    it('opens an Application exported as a class, which is the ordinary case', async () => {
+        /**
+         * The regression this file was reopened for. `defaultOpen` read `composition.parts` and
+         * skipped anything `typeof 'function'`, because only an instance can be classified — so a
+         * part exported as a *class*, which is every part taking options, was filtered out and
+         * nothing started at all. Silently: an empty open list is indistinguishable from a site that
+         * asked for nothing.
+         *
+         * The test above passes an instance and always did. That is why nothing caught this until a
+         * real Application was published, deployed, and rendered a black page.
+         */
+        clean();
+        const started = start({ application: 'test', parts: [{ id: 'widget', contribution: Widget }] });
+        await started.ready;
+
+        expect(started.kernel.applications).toEqual(['widget']);
+        expect(started.kernel.processes).toHaveLength(1);
+        expect(started.kernel.processes[0]?.state).not.toBe('failed');
         started.dispose();
     });
 

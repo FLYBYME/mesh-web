@@ -41,7 +41,6 @@
  * needs before any of this runs.
  */
 
-import { isApplication } from '../contribution/contract.js';
 import type { ErasedContribution } from '../contribution/contract.js';
 import { effect } from '../reactivity/index.js';
 import { createRegistry as createComponents, PRIMITIVES } from '../render/component.js';
@@ -328,7 +327,19 @@ function mountNotifications(doc: Document, root: Element, kernel: Kernel): Eleme
  * application id nothing declared, which is a composition naming a part it does not have.
  */
 async function open(kernel: Kernel, composition: Composition): Promise<void> {
-    const wanted = composition.open ?? defaultOpen(composition);
+    const wanted = composition.open ?? defaultOpen(kernel);
+
+    if (wanted.length === 0 && composition.parts.length > 0) {
+        // Never silent. A composition with parts that opens nothing is a site that will render an
+        // empty page, and the reason has to be visible somewhere other than a debugger.
+        kernel.services.logs.push({
+            level: 'warn',
+            source: 'kernel',
+            message: `This composition has ${String(composition.parts.length)} part(s) and no `
+                + 'Application among them, so nothing was opened. An Application declares `views`; '
+                + 'an Extension is never opened.',
+        });
+    }
 
     for (const entry of wanted) {
         let pid: string;
@@ -366,17 +377,18 @@ async function open(kernel: Kernel, composition: Composition): Promise<void> {
 /**
  * Every Application in the composition, with no views. See `Composition.open`.
  *
- * Only instances can be classified: a class has to be constructed before anything can tell what it
- * is, and construction happens once, inside `boot`. So a site whose parts export constructors — the
- * ordinary case for anything taking options — must name what to open. That is a real limitation and
- * the alternative is worse: constructing every part twice, once to ask what it is.
+ * **Asked of the kernel, after `boot`.** This used to read `composition.parts` directly and skip any
+ * whose contribution was `typeof 'function'`, on the reasoning that only an instance can be
+ * classified and construction happens inside `boot`. Both halves were true and the conclusion was
+ * wrong: a part that takes options is exported as a *class*, which is the ordinary case rather than
+ * the exception, so the filter removed nearly everything and `open` iterated an empty list. A site
+ * with one Application started nothing, logged nothing, and rendered a black page — indistinguishable
+ * from a site that asked for nothing, because that is exactly what it had become.
+ *
+ * `boot` has already run by the time this is called, so the kernel knows what each part turned out to
+ * be. There was never a need to guess from the export.
  */
 type OpenEntry = NonNullable<Composition['open']>[number];
 
-const defaultOpen = (composition: Composition): readonly OpenEntry[] =>
-    composition.parts
-        .filter((part) => {
-            const value = part.contribution;
-            return typeof value !== 'function' && isApplication(value);
-        })
-        .map((part) => ({ application: part.id }));
+const defaultOpen = (kernel: Kernel): readonly OpenEntry[] =>
+    kernel.applications.map((application) => ({ application }));

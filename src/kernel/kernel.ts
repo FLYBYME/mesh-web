@@ -92,6 +92,18 @@ export class Kernel {
     }
 
     /**
+     * Which contributions turned out to be Applications, in composition order.
+     *
+     * **Only meaningful after `boot`**, and that is the point: a part is usually exported as a class,
+     * so nothing can tell what it is until it has been constructed. Anything asking the question
+     * before construction has to guess from the export, and guessing wrong is silent — see
+     * `defaultOpen` in `start.ts`, which used to and opened nothing at all.
+     */
+    get applications(): readonly string[] {
+        return [...this.#applications.keys()];
+    }
+
+    /**
      * What an Extension provided, by token.
      *
      * The public half of the provider graph. `cx.use` resolves a token for a *contribution*, which is
