@@ -1,0 +1,131 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+**A `dialog` in the description vocabulary, and the focus trap it needs.**
+
+The project owner asked for what Bootstrap calls a modal — *"dialogs for
+lightboxes, user notifications, or completely custom content"* — as a description
+of the need, **not as an API to copy.** Bootstrap's plugin cannot be ported here
+and the reason is structural, not stylistic:
+
+- `new bootstrap.Modal(el).show()` needs an element handle. A part never has one:
+  `src/description/types.ts` says in its header that there is deliberately no
+  `HTMLElement`, `Node` or `Event` anywhere in the description layer.
+- `data-bs-toggle="modal"` is a second way to express intent, expressed in markup
+  the description layer cannot see.
+
+So this is the same inversion as everything else here: **a part declares that its
+dialog is open; it never invokes anything.** The renderer — which is allowed DOM,
+unlike a part — reconciles that state to `<dialog>` and calls `showModal()` /
+`close()` itself.
+
+================================================================================
+WHAT ALREADY EXISTS — READ BEFORE BUILDING
+================================================================================
+
+    src/description/types.ts   `ElementNode`, `WhenNode`, `SurfaceNode`, `Props`,
+                               `Intents`, `Reactive<T>`. Read the header. Props are
+                               exact per component — spec/type-safety.md §4 bans an
+                               index signature, so a dialog declares its props.
+    src/description/flatten.ts the pure renderer. A dialog must flatten sensibly:
+                               whatever you add has to be expressible with no DOM.
+    src/render/component.ts    the DOM renderer, where `<dialog>` and `showModal()`
+                               actually happen.
+    src/input/                 the focus graph, groups, modality, bindings.
+    spec/input.md §3           **"Every action must have a non-pointer path."**
+                               This gates roadmap A7.1 and it gates this.
+    spec/input.md "Traps"      *"A modal traps focus. A window in windowed mode
+                               traps until dismissed at the window-manager level."*
+                               Specified for weeks; nothing implements it. This
+                               task is the first thing that forces it.
+    spec/html5.md              `<dialog>` is an unchecked capability — *"Native
+                               Dialog & Popover — accessible modal overlays without
+                               z-index conflicts."* Top layer is why `<dialog>` is
+                               worth using at all: stacking needs no arithmetic.
+
+================================================================================
+OWNERSHIP — DECIDE THIS BEFORE WRITING CODE
+================================================================================
+
+"Modal" is two features wearing one word, and they have different owners:
+
+- **Window-owned.** The dialog belongs to the window that opened it and blocks
+  that window. The other seven windows on `demos.localhost` keep working.
+- **Page-owned.** It takes the whole shell. **Only the shell may do this.** An
+  Application able to seize the page is the same mistake as two Applications each
+  rendering their own login form, which mesh-core dispatch 2 settled: page-level
+  concerns belong to the one part present on every page.
+
+**Build the description node and the trap in this dispatch. Do not build modal
+windows.** A normal site running in `single` mode has no windows at all, so the
+node and the trap are what serve both site kinds; window-owned modality is a
+desktop refinement and a later item. Say in the report what it will need.
+
+================================================================================
+WHAT TO BUILD
+================================================================================
+
+- **A dialog node with a reactive `open`.** Closed is not "rendered with
+  `display:none`" — a description that is not open should not have its content in
+  the tree, for the same reason `WhenNode` exists.
+- **Focus is trapped while open and restored on close**, to whatever opened it.
+  Focus is renderer state, per view instance, moved by the kernel and never set by
+  an Application — `input.md` already decided that and this must not deviate.
+- **Escape closes**, as an intent, not a DOM key handler. Tab cycles within.
+  There must be no way to reach a control behind the dialog by keyboard: that is
+  what "trap" means, and a trap with a hole is worse than none because it reads as
+  safe.
+- **A dismissal that the opener learns about.** A dialog closed by Escape and one
+  closed by a button must inform the same state, or `open` and reality diverge.
+- **Baseline CSS in `src/kernel.css`, including `::backdrop`**, using
+  `var(--token, fallback)` so a site's theme reaches it. The backdrop is kernel
+  furniture, not a part's — parts can ship CSS since C8, but this is not theirs.
+
+================================================================================
+WHAT NOT TO DO
+================================================================================
+
+**Do not build a notifications path.** `cx.notifications.info/warn/error` already
+exists with a handle that updates and dismisses. Bootstrap conflates notifications
+with modals because it has one mechanism; we have two, and a third of that quote
+is therefore already done. Adding a second notification surface is the error this
+paragraph exists to prevent.
+
+**Do not expose `showModal()` to a part**, directly or through a capability. If a
+part can call it, the description layer's guarantee is gone.
+
+**Do not implement window-owned modality.** See above.
+
+**Do not use `as any`, `as never`, or any cast.** A cast here is a bug, not a
+style nit.
+
+================================================================================
+WHAT GOOD LOOKS LIKE
+================================================================================
+
+- Browser tests: opens and closes from declared state; focus enters on open and
+  returns to the opener on close; **Tab cannot reach anything behind it**; Escape
+  closes and the opener's state reflects it; two dialogs stack in top layer
+  without a z-index anywhere in the CSS.
+- A `flatten` test: a dialog description flattens with no DOM, open and closed.
+- Every existing test passing. `npm run typecheck` clean, **zero casts.**
+- `spec/input.md`'s Traps paragraph updated from a promise to a description of
+  what is built; `spec/html5.md`'s Dialog row ticked.
+- Bump the kernel minor.
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/reports/10-dialog-and-trap.md`
+
+- how a dismissal reaches the opener, and what happens if the opener ignores it
+- what window-owned modality needs that you deliberately did not build
+- whether the focus trap exposed anything wrong in the focus graph — you are the
+  first caller to need it, and that is worth more than the dialog
+- **the three Bootstrap use cases, answered**: which are served, which was already
+  served by `notifications`, and which still is not
+- anything for the reader audit. Name the reader, or do not add the field.
