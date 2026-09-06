@@ -585,10 +585,18 @@ then a missing component is a blocked Application — there is no `div` to fall 
       | **`TextArea`** | any multi-line text at all | `Input` is `<input type=text>`; a markdown editor became a prompt-and-append loop |
       | **`ScrollView`** | content longer than a window | inline `style: { overflowY: 'auto' }` on a `Stack`, with no scroll position and no scroll-to-bottom |
       | **`Grid`** | a calculator keypad, a dashboard | five `Row`s of four `Button`s, each with `flex: 1 1 0` |
-      | **`Surface`** | canvas, SVG, an embedded editor | see A7.5 — the chart could only draw rectangles |
-      | **`Draggable`/`DropZone`** | reordering anything | a two-phase grab-and-drop state machine with ← → buttons on every card |
+      | **`Surface`** | canvas, SVG, an embedded editor | see A7.5 — landed via `needs('dom')` capability |
+      | **`Draggable`/`DropZone`** | reordering anything | landed 2026-09-06 (dispatch 7) — unified selection-and-target model |
       | **`Divider`** | a horizontal rule | an empty `Card` collapsed to 1px |
       | **`Span`** | inline code, any inline styling | `Badge`, which is a `<span>` wearing a pill |
+
+      **The drag model decision (2026-09-06, dispatch 7):** Drag is *selection (grab) followed by
+      target (drop)*. A mouse grabs and drops; a keyboard grabs (Space/Enter) and drops (Tab to
+      DropZone, Space/Enter); HTML5 pointer DnD drives the exact same coordinator (`dragstart` grabs,
+      `drop` drops). Pointer dragging is an affordance over the model rather than the model itself.
+      Both paths fire the exact same `mesh:drop` intent carrying the payload. Escape cancels in all
+      modalities. A8.2 focus graph was **not** required: grab and drop are ordinary focusable
+      activations connected by standard navigation.
 
       **And `Heading` takes no `level`.** It is `tag('Heading', 'h2')` and there is no `level` prop
       anywhere in `component.ts`, so a document has exactly one heading rank. Markdown h1–h6 became
@@ -617,9 +625,13 @@ then a missing component is a blocked Application — there is no `div` to fall 
       because only they are reached by a string — composition is a function call and is checked
       already. Same problem as **A3.1d**, and it should be solved once across views, commands,
       settings and components rather than four times. **M** · ⛔ A3.1d
-- [ ] **A7.5 ★ The `dom` capability and `Surface`** — the escape hatch for Monaco, canvas and WebGL.
-      Needed on day one or the IDE case is blocked, and a contribution declaring it is legibly
-      opting out of isolation. **M** · [view-layer §8](./view-layer.md)
+- [x] **A7.5 ★ The `dom` capability and `Surface`** — the escape hatch for Monaco, canvas and WebGL.
+      *(done 2026-09-06, dispatch 7)* Implemented as `needs('dom')` capability providing `cx.dom.Surface(...)`.
+      It is deliberately **not** in `PRIMITIVES`, so opting out of isolation is legible in the manifest
+      and auditable by reviewers. `setup(el: HTMLElement)` returns a teardown invoked on unmount or
+      reactive branch change. `flatten.ts` preserves SSR by emitting an explicit placeholder without
+      calling `setup`. Boundary rules in `test/boundaries.test.ts` hold clean with zero DOM types in
+      the description layer and a single `host as HTMLElement` seam in `broker.ts`. **M** · [view-layer §8](./view-layer.md)
       **No longer speculative** *(A7.1a)*: the chart application could express **rectangles and
       nothing else**. Line, area, scatter and pie are not awkward without a coordinate surface, they
       are unrepresentable — flexbox distributes space between siblings and has no Cartesian plane, so

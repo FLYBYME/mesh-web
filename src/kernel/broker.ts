@@ -19,10 +19,11 @@
 import { computed, effect, signal } from '../reactivity/index.js';
 import { createScope } from '../reactivity/scope.js';
 import type { ReactiveScope, Signal } from '../reactivity/types.js';
-import type { Json } from '../description/types.js';
+import type { Json, Node, Reactive } from '../description/types.js';
 import type {
-    CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Credentials, Http,
-    HttpRequest, HttpResponse, Log, NotificationHandle, Notifications, State, Storage, WindowHandle, Windows,
+    CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Credentials, Dom, Http,
+    HttpRequest, HttpResponse, Log, NotificationHandle, Notifications, State, Storage, SurfaceOptions,
+    WindowHandle, Windows,
 } from '../contribution/capabilities.js';
 import type { ResizeEdge } from '../window/geometry.js';
 import { windowHost } from '../window/page.js';
@@ -354,6 +355,9 @@ export function createContext(
             case 'storage':
                 capabilities.storage = makeStorage(declaredBy, id, services, (fn) => cleanups.push(fn));
                 break;
+            case 'dom':
+                capabilities.dom = makeDom(id, cleanups);
+                break;
         }
     }
 
@@ -637,4 +641,51 @@ function makeStorage(
         },
         onDispose,
     });
+}
+
+/**
+ * The escape hatch from isolation — roadmap A7.5, spec/view-layer.md §8.
+ *
+ * Available only when a contribution explicitly declared `needs('dom')`. The teardown
+ * returned from `setup` is tracked by the kernel cleanups array and also by the renderer's
+ * reactive scope, ensuring resources are torn down either when the surface unmounts or
+ * when the contributor context itself is disposed.
+ */
+function makeDom(owner: string, cleanups: (() => void)[]): Dom {
+    const make = (options: SurfaceOptions): Node => {
+        const props: Record<string, Reactive<Json> | undefined> = {};
+        if (options.props !== undefined) {
+            Object.assign(props, options.props);
+        }
+        if (options.style !== undefined) {
+            props.style = options.style;
+        }
+        if (options.class !== undefined) {
+            props.class = options.class;
+        }
+        return {
+            kind: 'surface',
+            setup(host: unknown): (() => void) | void {
+                const teardown = options.setup(host as HTMLElement);
+                if (typeof teardown === 'function') {
+                    let called = false;
+                    const safeTeardown = () => {
+                        if (!called) {
+                            called = true;
+                            teardown();
+                        }
+                    };
+                    cleanups.push(safeTeardown);
+                    return safeTeardown;
+                }
+            },
+            ...(options.key !== undefined ? { key: options.key } : {}),
+            props,
+        };
+    };
+
+    return {
+        Surface: make,
+        surface: make,
+    };
 }
