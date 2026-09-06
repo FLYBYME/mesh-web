@@ -387,3 +387,20 @@ span[data-code] {
     outline-offset: 2px;
 }
 
+
+/*
+ * A hidden window must actually be hidden.
+ *
+ * `.window` sets `display: flex`, and a class beats the user agent's `[hidden] { display: none }` —
+ * so every window the manager hid stayed on screen. In windowed mode nothing hides, which is why
+ * this went unnoticed; the first time it mattered was tiled mode, where `visible()` hides every
+ * window whose tile is not in the active layout. The two tiled windows laid out correctly and the
+ * other six floated over them, so tiling looked broken rather than half-applied.
+ *
+ * `!important` because the rule it has to beat is a class on the same element, and the alternative
+ * is `.window[hidden]` — which works until a site's own stylesheet raises specificity again. Hiding
+ * is the kernel's decision, not a suggestion.
+ */
+[hidden] {
+    display: none !important;
+}

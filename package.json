@@ -1,6 +1,6 @@
 {
     "name": "@flybyme/mesh-web",
-    "version": "0.11.3",
+    "version": "0.11.4",
     "description": "The browser half of the mesh framework: an abstract operating system in a browser.",
     "type": "module",
     "main": "./dist/index.js",
