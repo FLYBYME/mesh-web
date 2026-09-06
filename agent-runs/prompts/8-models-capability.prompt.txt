@@ -1,0 +1,126 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+**`models` — typed collections over a site's CRUD contracts, reactive.**
+Roadmap **A3.7**, rated **L**. [network §5](./spec/network.md) specifies it:
+
+> CRUD contracts are already generated as `create`/`find`/`get`/`update`/`delete`
+> sets. The `models` capability exposes them as typed reactive collections, so a
+> table binds to a query and re-renders without anybody writing a fetch.
+
+Two consoles exist today — `catalog` and `releases`, in mesh-core — and both
+hand-roll the same thing: a `cx.mesh.call('part.find', { query: {} })`, a signal
+to hold the rows, a loading flag, an error branch, and a manual re-fetch after
+every mutation. That is the code this capability deletes, and the third console
+is being written soon.
+
+================================================================================
+WHAT ALREADY EXISTS — READ BEFORE BUILDING
+================================================================================
+
+    src/contribution/capabilities.ts
+                          the capability map. `mesh` is the model to follow and
+                          the header comment explains why it is NOT a member of
+                          `CapabilityMap` — it is typed by the API the contribution
+                          declared, not one type for everybody. **`models` has the
+                          same property**, and getting that right is most of this
+                          task's difficulty.
+    src/net/api.ts        `defineApi`, `call`, `ApiCall`, `InputOf`/`OutputOf`,
+                          `toRequest`. The typing machinery already exists.
+    src/net/client.ts     `Transport`, `NetRequest`/`NetResponse`.
+    src/reactivity/       `signal`, `computed`, `effect`, `resource`, `scope`,
+                          `batch`. **`resource.ts` is the one to read first** —
+                          an async value with reactive reads is most of a
+                          collection already, and this task should extend that
+                          model rather than invent a parallel one.
+    src/storage/          the most recently built capability (A3.9, done
+                          2026-09-06). Follow its file layout and its testing
+                          shape; it is the current house style.
+    spec/network.md       §4 the call shape, §5 the three surfaces, **§5.1 why
+                          scoping an event is not scoping a call** — read §5.1
+                          even though this task is not events, because it is the
+                          reason a collection cannot naively trust a pushed row.
+    spec/type-safety.md   the standard. Read before writing an interface.
+
+================================================================================
+WHAT TO BUILD
+================================================================================
+
+A collection handle obtained from the capability, typed by the site's declared
+API, backed by the generated CRUD actions:
+
+- **A query is reactive.** A view binds to it and re-renders when it changes. The
+  query itself may be reactive too — a filter signal changing re-runs the find.
+- **A mutation updates the collection it belongs to** without the caller writing
+  a re-fetch. Decide and state whether that is a refetch, a local patch, or an
+  optimistic write plus reconciliation — all three are defensible, one of them is
+  right for this codebase, and inventing a fourth is not wanted.
+- **Loading, error and empty are first-class**, not `undefined` meaning three
+  different things. A table needs to distinguish "not asked yet" from "asked,
+  nothing there".
+- **Disposal is bound to the scope that created it.** A collection outliving the
+  view that made it is a leak with a re-render attached.
+
+**The typing is the hard half, not the caching.** `cx.models` must accept the
+collections that site's descriptor declares and no others, exactly the way
+`cx.mesh.call` accepts that API's actions and no others. An unknown collection
+name is a compile error. If the generated descriptor does not carry enough to do
+that, **that is the finding** — write it in the report and say precisely what is
+missing, rather than widening the type until it compiles.
+
+================================================================================
+WHAT NOT TO DO
+================================================================================
+
+**Do not build the events/SSE bridge.** That is A3.2 and it is a separate
+dispatch. A collection that re-renders on a pushed event is the eventual shape;
+this task ends at re-rendering on its own mutations and explicit invalidation.
+Leave the seam, do not fill it.
+
+**Do not write a generic client-side cache with eviction and TTLs.** Bind a query
+to a view and keep it correct. A cache nobody can predict the contents of is
+worse than a re-fetch.
+
+**Do not reach past the `mesh` capability to `fetch`.** Everything goes through
+the credential seam, for the reason `capabilities.ts` gives: a part never handles
+a ticket.
+
+**Do not use `as any`, `as never`, or any cast.** This repository exists in its
+current form because the project owner nearly rewrote MoleculerJS for type
+safety. A cast here is a bug, not a style nit. If a type will not express what
+you mean, say so in the report.
+
+================================================================================
+WHAT GOOD LOOKS LIKE
+================================================================================
+
+- Browser tests via `mountPart` with the API stubbed: a collection renders rows,
+  re-renders after a create, reflects a changed query signal, surfaces a refusal
+  as an error state rather than an empty list, and disposes with its scope.
+- A **type-level** test that an unknown collection name does not compile — the
+  guarantee is the point, and a runtime test cannot show it.
+- Every existing test still passing. `npm run typecheck` clean, **zero casts.**
+- Tick A3.7 in `spec/roadmap.md`, and write the built shape into
+  `spec/network.md` §5 — it is currently marked **Proposed** and this makes one
+  of its three surfaces real.
+- Bump the kernel minor in `package.json`: new capability, additive.
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/reports/8-models-capability.md`
+
+- the mutation decision — refetch, patch, or optimistic — and why this codebase
+- whether the descriptor carried enough to type collections per-site, and if not,
+  exactly what it needs
+- **what the two existing consoles would delete** if they adopted this. Go read
+  `mesh-core/src/catalog/` and `mesh-core/src/releases/` and answer in lines, not
+  adjectives. If the answer is "not much", say that — it is the honest test of
+  whether this capability earns its place.
+- what A3.2 (events) will need from this that you deliberately did not build
+- anything for the reader audit: a field or option you added that nothing yet
+  reads. Name the reader, or do not add the field.
