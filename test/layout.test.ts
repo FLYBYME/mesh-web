@@ -232,12 +232,28 @@ describe('the manager in tiled mode', () => {
         expect(m.visible()).toHaveLength(2);
     });
 
-    it('shows nothing tiled when the Application declared no layout', () => {
+    it('falls back to windowed when the Application declared no layout', () => {
+        /**
+         * This asserted `toHaveLength(0)` — nothing visible — and that was defensible while nothing
+         * could reach tiled mode: a site pinning `window-manager/mode: tiled` would also have
+         * declared a layout.
+         *
+         * Then `alt+t` made the mode reachable from the keyboard on any site, and pressing it on a
+         * composition whose Applications declare no layout **blanked the page**: ten windows to
+         * zero, no error, no way to tell what had happened. A mode switch that can empty the screen
+         * is worse than one that does nothing.
+         *
+         * So the assertion is inverted deliberately. The mode is still *set* — an Application that
+         * declares a layout later tiles immediately — there is simply nothing to tile yet, and
+         * "nothing to tile" is not "nothing to show".
+         */
         const m = new WindowManager(screen);
         m.setMode('tiled');
         open(m, 'postList', 'sidebar');
 
-        expect(m.visible()).toHaveLength(0);
+        expect(m.mode()).toBe('tiled');
+        expect(m.visible()).toHaveLength(1);
+        // Still no *tile* rect: there is no layout to take one from, so the window keeps its own.
         expect(m.rectOf(m.windows()[0]!.id)).toBeUndefined();
     });
 

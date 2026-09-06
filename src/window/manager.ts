@@ -125,8 +125,21 @@ export class WindowManager {
         const stacked = this.stacked();
         if (this.mode() === 'windowed') return stacked.filter((w) => w.state !== 'minimized');
 
+        /**
+         * **No layout means no tiling to do, not nothing to show.**
+         *
+         * This returned `[]`, which was defensible while nothing could reach tiled mode: a site that
+         * deliberately pinned `window-manager/mode: tiled` would also have declared a layout. Then
+         * `alt+t` made the mode reachable from the keyboard on any site, and pressing it on a
+         * composition whose Applications declare no `layout` blanked the screen — ten windows to
+         * zero, with no error and no way to tell what had happened.
+         *
+         * A mode switch that can empty the page is worse than one that does nothing, so an absent
+         * layout falls back to showing what windowed mode would. The mode is still *set*, so an
+         * Application that declares a layout later tiles immediately.
+         */
         const layout = this.layout();
-        if (layout === undefined) return [];
+        if (layout === undefined) return stacked.filter((w) => w.state !== 'minimized');
 
         const available = new Set(tileNames(layout));
         const occupant = new Map<string, WindowRecord>();
