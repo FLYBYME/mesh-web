@@ -78,8 +78,25 @@ describe('mountPart (browser test harness)', () => {
         expect(site.manager.windows()).toHaveLength(1);
         expect(site.manager.windows()[0]?.view).toBe('main');
 
-        // Window rendered into the root
+        // Window rendered into the root with visible, non-zero dimensions
         expect(site.root.textContent).toContain('Console View Content');
+        const win = site.root.querySelector<HTMLElement>('.window');
+        expect(win).not.toBeNull();
+        expect(win!.getBoundingClientRect().height).toBeGreaterThan(0);
+        expect(win!.getBoundingClientRect().width).toBeGreaterThan(0);
+
+        site.dispose();
+    });
+
+    it('mounts a part and asserts a window has a non-zero height', async () => {
+        const site = await mountPart({
+            parts: [{ id: 'console', contribution: FakeConsoleApp }],
+        });
+
+        const win = site.root.querySelector<HTMLElement>('.window');
+        expect(win).not.toBeNull();
+        expect(win!.getBoundingClientRect().height).toBeGreaterThan(0);
+        expect(win!.getBoundingClientRect().width).toBeGreaterThan(0);
 
         site.dispose();
     });

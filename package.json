@@ -21,14 +21,15 @@
         "./config": {
             "types": "./dist/testing/config.d.ts",
             "default": "./dist/testing/config.js"
-        }
+        },
+        "./kernel.css": "./dist/kernel.css"
     },
     "files": [
         "dist",
         "README.md"
     ],
     "scripts": {
-        "build": "tsc -p tsconfig.json",
+        "build": "tsc -p tsconfig.json && cp src/kernel.css dist/kernel.css",
         "prepare": "npm run build",
         "typecheck": "tsc -p tsconfig.check.json --noEmit",
         "test:browser": "vitest run --config vitest.browser.config.ts",

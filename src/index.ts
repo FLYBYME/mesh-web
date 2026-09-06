@@ -23,3 +23,5 @@ export * from './registry/index.js';
 export * from './auth/index.js';
 export * from './instance.js';
 export * from './testing/index.js';
+
+import './kernel.css';
