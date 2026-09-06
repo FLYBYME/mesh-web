@@ -1,0 +1,13 @@
+ISOLATION BREACH -- dispatch 6 wrote outside its worktree.
+
+  repo:     /home/ubuntu/code/mesh-web
+  worktree: /home/ubuntu/code/mesh-web-dispatch-6
+  HEAD:     2ce5bbd367cc0a9ec8e0606525ee989962eca1d5
+         -> 2ce5bbd367cc0a9ec8e0606525ee989962eca1d5
+
+Main tree now:
+?? agent-runs/prompts/7-surface-and-drag.prompt.txt
+
+The dispatch's own branch may therefore be empty, and its work is on the
+main tree where nothing separates it from anyone else's. Review the main
+tree directly; do not trust the branch diff.

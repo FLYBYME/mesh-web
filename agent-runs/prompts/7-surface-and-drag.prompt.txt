@@ -1,0 +1,131 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+The two primitives dispatch 6 deliberately held back, because each is a
+**decision** rather than a component:
+
+    Surface       roadmap A7.5 — the `dom` capability. An escape hatch that lets
+                  a contribution opt out of isolation.
+    Draggable     roadmap A7.3 — moving something with a pointer, in a framework
+    /DropZone     whose first rule is that every action has a non-pointer path.
+
+Dispatch 6 added `TextArea`, `ScrollView`, `Grid`, `Divider`, `Span` and
+`Heading level`, and its report may name things it wanted while in there. **Read
+`agent-runs/reports/6-five-primitives.md` first** — it is the most recent
+evidence about both of these.
+
+Make the decision explicitly, in code and in a comment that says why. Neither of
+these is hard to write and both are easy to write *wrongly* in a way that is
+expensive to reverse.
+
+================================================================================
+DRAGGABLE — THE RULE COMES FIRST
+================================================================================
+
+`spec/input.md` §3: **every action has a non-pointer path.** Dragging is the
+archetypal violation, which is why this was held back.
+
+**The leading candidate, and you should try it before anything else:** a drag
+with a keyboard path *is a selection followed by a target*. The kanban board in
+`mesh-demos` was blocked on this and invented exactly that — click "Grab" on a
+card, every column then offers a "Drop Here" target, plus `←`/`→` on each card.
+It reads as a workaround and it may be the **correct primitive**:
+
+- `Draggable` marks a thing as grabbable and carries its payload.
+- `DropZone` declares what it accepts and what happens on drop.
+- The *state* — what is currently grabbed — belongs to the framework, not to
+  every application that reimplements it.
+- Pointer dragging then becomes an **affordance over that model**, not the model
+  itself. A mouse grabs and drops; a keyboard grabs and drops; both go through
+  one path, so they cannot disagree.
+
+If you build it that way, the A8.2 focus graph is **not** required — grab and
+drop are ordinary activations, and directional movement between zones is the part
+that would need A8.2 and can wait. Say so in the report if you find otherwise.
+
+Read `mesh-demos/src/kanban/index.ts` before designing. It is the only real
+consumer, it was written without this primitive, and what it had to build is the
+requirement.
+
+**Do not** ship a pointer-only drag with a note saying keyboard comes later. That
+is the thing §3 exists to prevent, and adding it to the vocabulary makes it
+permanent.
+
+================================================================================
+SURFACE — WHAT DECLARING IT MEANS
+================================================================================
+
+Roadmap A7.5, [view-layer §8](./spec/view-layer.md): *"the escape hatch for
+Monaco, canvas and WebGL. Needed on day one or the IDE case is blocked, and a
+contribution declaring it is legibly opting out of isolation."*
+
+That last clause is the whole design. `Surface` hands a contribution a **real DOM
+element**, which is precisely what the description layer exists to avoid — so the
+question is not how to write it, it is what opting out has to cost:
+
+- It is a **capability**, `needs('dom')`, not a component anyone can reach. A part
+  that wants raw DOM says so in its manifest, where a reviewer can see it.
+- The manifest is the point. `mesh-serve` can then refuse, warn, or simply show
+  which parts on a site have it — none of which is possible if `Surface` is just
+  another name in `PRIMITIVES`.
+- `setup(el)` returns a teardown. The kernel calls it. A part that leaks a
+  listener leaks it inside its own window, not across the page.
+- **`flatten.ts` must keep working.** It is the server-side-rendering path and it
+  resolves a description with no DOM at all. A `Surface` cannot render there —
+  decide what it *does* do (an empty placeholder is the likely answer) and make
+  `flatten` explicit about it rather than crashing or silently emitting nothing.
+
+The audit that justified this is worth reading for what it actually needed —
+`mesh-demos/agent-runs/reports/5-breadth-four-small.result.md` §2.4. Two cases:
+a chart that could express rectangles and nothing else, and a markdown editor
+with no way to embed CodeMirror.
+
+================================================================================
+GO AND READ
+================================================================================
+
+    spec/view-layer.md §8            the escape hatch, as designed
+    spec/input.md §3                 every action has a non-pointer path
+    src/contribution/capabilities.ts how a capability is declared and scoped
+    src/kernel/broker.ts             how one is built per contributor
+    src/storage/                     the most recent capability added (0.8.0) —
+                                     follow its shape
+    src/description/flatten.ts       the SSR path that must survive Surface
+    src/render/component.ts          PRIMITIVES and `apply`
+    mesh-demos/src/kanban/index.ts   what a drag had to be without this
+
+================================================================================
+WHAT GOOD LOOKS LIKE
+================================================================================
+
+- **A keyboard test for drag that would fail on a pointer-only implementation.**
+  Grab with the keyboard, drop with the keyboard, assert the payload moved. That
+  single test is what makes this primitive safe to add to the vocabulary.
+- A test that `Surface` calls its teardown on unmount, and a test that `flatten`
+  handles a `Surface` node without throwing.
+- A test that a part without `needs('dom')` cannot obtain a `Surface`.
+- `npm run typecheck` clean, **zero `as any`, zero `as never`, zero casts** —
+  except where `Surface` genuinely hands over an `HTMLElement`, which is the one
+  place in this framework where a DOM type is the point. Keep it to that seam.
+- `npm test` green, including everything dispatch 6 added.
+- Bump to **0.10.0**.
+- Update the roadmap: tick A7.5 and the drag half of A7.3, and record what the
+  drag model turned out to be — that is a design decision worth writing down
+  where the next person will find it.
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/reports/7-surface-and-drag.md`
+
+- **the drag model you chose**, and whether the keyboard path is genuinely the
+  same path as the pointer one or two paths that agree by convention
+- whether A8.2 turned out to be required after all
+- what declaring `needs('dom')` costs a part, and what it buys a reviewer
+- what `flatten` does with a `Surface`, and whether that is honest for SSR
+- whether the eleven-now-seventeen primitives still look coherent, or whether
+  something in the original set now looks wrong
