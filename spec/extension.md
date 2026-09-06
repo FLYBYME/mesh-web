@@ -626,6 +626,11 @@ mounting. The framework gains exactly one new concept, *"the window area goes he
 layout at all. A site with no chrome Extension gets the window layer mounted at the root, which is
 what makes chrome genuinely optional rather than a mode with a default.
 
+A site with no chrome running in **`single` mode** produces an ordinary web page: one view mounted
+directly at the root in normal document flow, with natural browser page scrolling (`document.scrollingElement`)
+and zero window furniture. If chrome is present, the window host simply expands within chrome's layout
+without clipping or absolute coordinate constraints.
+
 Two constraints fall out and both are real:
 
 - **The host must be unconditional.** Inside a `when` or an `each` it would be destroyed and

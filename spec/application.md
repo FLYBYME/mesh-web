@@ -248,6 +248,13 @@ author-managed disposables.
 In **windowed mode tile names are simply unused.** Every view is a window and the layout is whatever
 the user dragged. Same views, two geometries.
 
+In **single mode**, the third arrangement, the window manager stops positioning entirely. One view —
+the active, focused non-minimized view — is shown in normal document flow. There is no title bar, no
+drag affordance, no resize grip, no border, and no shadow. Geometry is unconstrained by absolute
+positioning, and `document.scrollingElement` handles page scrolling naturally when content is taller
+than the viewport. Other views remain mounted but hidden (`host.hidden = true`). Switching into and out
+of single mode is lossless: window geometry is never overwritten and is restored on return.
+
 `layout` is therefore part of the manifest (§2), not something built in `start()` — the kernel needs
 the tile names to restore geometry before the Application runs.
 

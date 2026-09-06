@@ -139,6 +139,8 @@ export function windowPersistence(options: PersistenceOptions): WindowPersistenc
     const geometry = windowGeometry(application);
     const mode = windowMode(application);
     const pageMode = pageWindowMode;
+    const pageResolution = registry.resolution(pageMode);
+    const modeResolution = registry.resolution(mode);
     const onError = options.onError ?? (() => {});
     const debounce = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
 
@@ -186,11 +188,11 @@ export function windowPersistence(options: PersistenceOptions): WindowPersistenc
 
     return {
         modePolicy: computed(() => {
-            const pageResolved = registry.resolution(pageMode)();
+            const pageResolved = pageResolution();
             if (pageResolved.locked) {
                 return { locked: true, ...(pageResolved.reason === undefined ? {} : { reason: pageResolved.reason }) };
             }
-            const resolved = registry.resolution(mode)();
+            const resolved = modeResolution();
             return resolved.locked
                 ? { locked: true, ...(resolved.reason === undefined ? {} : { reason: resolved.reason }) }
                 : { locked: false };
