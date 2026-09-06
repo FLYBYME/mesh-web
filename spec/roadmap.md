@@ -570,7 +570,32 @@ then a missing component is a blocked Application — there is no `div` to fall 
       ([input §3](./input.md)), which is a constraint on the audit rather than a later fix.
 - [ ] **A7.2 Theme tokens as registry values**, so a site restyles without forking components.
       **S** · ⛔ A4
-- [ ] **A7.3 The missing primitives** the audit names. **L**
+- [x] **A7.1a The audit ran.** *(2026-09-06, mesh-demos dispatch 5)* Four applications of deliberately
+      different shapes — a calculator, a markdown viewer, a kanban board and a chart — written against
+      the eleven primitives by an author who had not seen them before. 72 browser tests, zero casts.
+      The report is `mesh-demos/agent-runs/reports/5-breadth-four-small.result.md`; A7.3 below is now
+      a list rather than a placeholder.
+      This does **not** close A7.1: the audit was against *what four apps needed*, not against A8.2's
+      "every action has a non-pointer path", which is still the gate on the vocabulary decision.
+- [ ] **A7.3 ★ The missing primitives, now named.** *(from the A7.1a audit)* Seven, in the order the
+      audit hit them:
+
+      | | for | today's workaround |
+      | --- | --- | --- |
+      | **`TextArea`** | any multi-line text at all | `Input` is `<input type=text>`; a markdown editor became a prompt-and-append loop |
+      | **`ScrollView`** | content longer than a window | inline `style: { overflowY: 'auto' }` on a `Stack`, with no scroll position and no scroll-to-bottom |
+      | **`Grid`** | a calculator keypad, a dashboard | five `Row`s of four `Button`s, each with `flex: 1 1 0` |
+      | **`Surface`** | canvas, SVG, an embedded editor | see A7.5 — the chart could only draw rectangles |
+      | **`Draggable`/`DropZone`** | reordering anything | a two-phase grab-and-drop state machine with ← → buttons on every card |
+      | **`Divider`** | a horizontal rule | an empty `Card` collapsed to 1px |
+      | **`Span`** | inline code, any inline styling | `Badge`, which is a `<span>` wearing a pill |
+
+      **And `Heading` takes no `level`.** It is `tag('Heading', 'h2')` and there is no `level` prop
+      anywhere in `component.ts`, so a document has exactly one heading rank. Markdown h1–h6 became
+      inline `fontSize` overrides on every instance. That is not only cosmetic: a page whose every
+      heading is `<h2>` is wrong for a screen reader and wrong for a crawler, and it lands on the
+      same seam as A9.1d — what a part renders has to be *right* in the document, not just look
+      right. **L**
 - [x] **A7.4 How an Extension contributes components — decided 2026-09-04: both, for two different
       things.** The question asked "a fourth contract, or a plain function returning a description"
       and the answer is that one word covered two things.
@@ -592,9 +617,17 @@ then a missing component is a blocked Application — there is no `div` to fall 
       because only they are reached by a string — composition is a function call and is checked
       already. Same problem as **A3.1d**, and it should be solved once across views, commands,
       settings and components rather than four times. **M** · ⛔ A3.1d
-- [ ] **A7.5 The `dom` capability and `Surface`** — the escape hatch for Monaco, canvas and WebGL.
+- [ ] **A7.5 ★ The `dom` capability and `Surface`** — the escape hatch for Monaco, canvas and WebGL.
       Needed on day one or the IDE case is blocked, and a contribution declaring it is legibly
       opting out of isolation. **M** · [view-layer §8](./view-layer.md)
+      **No longer speculative** *(A7.1a)*: the chart application could express **rectangles and
+      nothing else**. Line, area, scatter and pie are not awkward without a coordinate surface, they
+      are unrepresentable — flexbox distributes space between siblings and has no Cartesian plane, so
+      axes and tick marks cannot be placed at all. The markdown editor hit the same wall from the
+      other side: no `TextArea`, and no way to embed CodeMirror either.
+      That `element('svg', …)` throws by name is working as designed and is why this is a list rather
+      than a pile of raw tags — but two of four ordinary applications were blocked on it, which puts
+      it earlier than "the IDE case".
 - [ ] **A7.6 List virtualisation as a component** the renderer understands. Ten thousand rows cannot
       be ten thousand nodes, and an Application cannot implement windowing if it cannot measure.
       **M** · [view-layer §11](./view-layer.md)
