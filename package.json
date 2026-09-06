@@ -1,6 +1,6 @@
 {
     "name": "@flybyme/mesh-web",
-    "version": "0.6.1",
+    "version": "0.6.2",
     "description": "The browser half of the mesh framework: an abstract operating system in a browser.",
     "type": "module",
     "main": "./dist/index.js",
@@ -46,7 +46,6 @@
     "private": true,
     "devDependencies": {
         "@flybyme/mesh": "github:FLYBYME/mesh#v2.4.0",
-        "@flybyme/mesh-serve": "file:../mesh-serve",
         "@types/node": "^26.4.1",
         "@vitest/browser": "^2.1.9",
         "jsdom": "^30.0.1",
