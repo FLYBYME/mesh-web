@@ -231,6 +231,28 @@ input:focus {
     border-color: var(--accent, #58a6ff);
 }
 
+textarea {
+    font: inherit;
+    color: var(--ink, #e6edf3);
+    background: var(--page, #0d1117);
+    border: 1px solid var(--edge, #30363d);
+    border-radius: 4px;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    resize: vertical;
+    line-height: 1.4;
+}
+
+textarea:focus {
+    outline: none;
+    border-color: var(--accent, #58a6ff);
+}
+
+textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 section {
     box-sizing: border-box;
     background: var(--surface, #161b22);
@@ -239,12 +261,18 @@ section {
     padding: 12px;
 }
 
-h2 {
+h1, h2, h3, h4, h5, h6 {
     margin: 0 0 8px 0;
-    font-size: 16px;
     font-weight: 600;
     color: var(--ink, #e6edf3);
 }
+
+h1 { font-size: 20px; }
+h2 { font-size: 16px; }
+h3 { font-size: 14px; }
+h4 { font-size: 13px; }
+h5 { font-size: 12px; }
+h6 { font-size: 11px; }
 
 form {
     display: flex;
@@ -256,4 +284,53 @@ ul {
     list-style: none;
     margin: 0;
     padding: 0;
+}
+
+hr {
+    border: 0;
+    border-top: 1px solid var(--edge, #30363d);
+    margin: 8px 0;
+    height: 0;
+    box-sizing: content-box;
+}
+
+hr[data-orientation="vertical"] {
+    border-top: 0;
+    border-left: 1px solid var(--edge, #30363d);
+    height: 100%;
+    min-height: 1em;
+    width: 0;
+    margin: 0 8px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+span[data-code] {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--surface-hover, #21262d);
+    color: var(--ink, #e6edf3);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+[data-mesh-grid] {
+    display: grid;
+    box-sizing: border-box;
+}
+
+[data-mesh-scrollview] {
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    scrollbar-color: var(--edge, #30363d) transparent;
+}
+
+[data-mesh-scrollview]:focus {
+    outline: none;
+}
+
+[data-mesh-scrollview]:focus-visible {
+    outline: 2px solid var(--accent, #58a6ff);
+    outline-offset: -2px;
 }
