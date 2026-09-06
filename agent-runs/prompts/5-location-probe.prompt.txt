@@ -1,0 +1,92 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THIS IS A DIAGNOSTIC, NOT A FEATURE
+================================================================================
+
+Two dispatches in this repository have written their changes into the **main
+working tree** instead of the isolated git worktree they were launched in, while
+their process's working directory was verifiably correct the whole time. Two
+other repositories have had seven dispatches between them with no such problem.
+
+You are here to find out where you actually are. **Do not fix anything, do not
+refactor anything, and do not touch any file except the one named below.**
+
+================================================================================
+STEP 1 — REPORT YOUR LOCATION, BEFORE ANYTHING ELSE
+================================================================================
+
+Run each of these and record the exact output:
+
+    pwd
+    git rev-parse --show-toplevel
+    git rev-parse --abbrev-ref HEAD
+    readlink -f .
+    ls -d /home/ubuntu/code/mesh-web*
+
+Then, **without using an absolute path**, locate the file `src/index.ts` using
+whatever search or file-listing tool you would normally use to find a file in a
+project. Record:
+
+- the exact path your tool reported
+- whether that path is under `mesh-web` or under `mesh-web-dispatch-5`
+
+This is the whole point of the exercise. If your search tool reports a path in a
+directory other than the one `pwd` printed, **say so explicitly and quote both.**
+
+================================================================================
+STEP 2 — ONE EDIT
+================================================================================
+
+Add exactly one line to the very top of `src/index.ts`:
+
+    // location probe: <paste the output of `git rev-parse --show-toplevel` here>
+
+Nothing else. Do not reformat, do not reorder imports, do not fix anything you
+notice on the way past.
+
+Then:
+
+    git add src/index.ts
+    git commit -m "Location probe"
+    git log --oneline -1
+    git status --porcelain
+
+Record the output of the last two.
+
+================================================================================
+STEP 3 — CHECK WHETHER YOU LEAKED
+================================================================================
+
+Run:
+
+    git -C /home/ubuntu/code/mesh-web status --porcelain
+    git -C /home/ubuntu/code/mesh-web log --oneline -1
+
+If the main tree shows your change, you have reproduced the bug. Say so plainly
+and do not try to clean it up — leaving the evidence in place is more useful than
+tidying it away.
+
+================================================================================
+DO NOT
+================================================================================
+
+- Do not run `npm install`, `npm test`, or `npm run build`. They are irrelevant
+  here and they take longer than the whole task.
+- Do not read the roadmap or the spec. Nothing about this task needs them.
+- Do not fix, improve or comment on anything you notice. One line, one file.
+- Do not use an absolute path to reach `src/index.ts`. How your tools resolve a
+  relative path **is the measurement**.
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/reports/5-location-probe.md`
+
+Lead with a single table: the five commands from step 1 and their exact output.
+Then the path your search tool reported for `src/index.ts`, then where the commit
+landed, then whether the main tree changed.
+
+If everything stayed inside the worktree, say that plainly — a clean result is as
+useful as a reproduction, because it narrows what is left.
