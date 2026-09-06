@@ -55,6 +55,7 @@ export interface Frame {
 export interface FrameState {
     readonly focused: boolean;
     readonly tiled: boolean;
+    readonly single: boolean;
 }
 
 export interface FrameContext {
@@ -165,7 +166,9 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
          * know how the shell chose to position it — which is the whole point of frames being
          * replaceable.
          */
-        (built.root as HTMLElement).style.position = 'absolute';
+        if (manager.mode() !== 'single') {
+            built.root.style.position = 'absolute';
+        }
 
         built.root.addEventListener('pointerdown', () => { manager.focus(record.id); }, true);
         root.appendChild(built.root);
@@ -187,8 +190,22 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
         const stacked = manager.stacked();
         const live = new Set(stacked.map((r) => r.id));
         const visible = new Set(manager.visible().map((r) => r.id));
-        const tiled = manager.mode() === 'tiled';
+        const mode = manager.mode();
+        const single = mode === 'single';
+        const tiled = mode === 'tiled';
         const focused = manager.focused();
+
+        if (root instanceof HTMLElement) {
+            root.dataset['meshWindowMode'] = mode;
+            root.dataset['windowMode'] = mode;
+            if (single) {
+                root.style.overflow = '';
+                root.style.height = '';
+            }
+        } else {
+            root.setAttribute('data-mesh-window-mode', mode);
+            root.setAttribute('data-window-mode', mode);
+        }
 
         for (const record of stacked) {
             let entry = mounted.get(record.id);
@@ -202,23 +219,33 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
 
             const host = entry.frame.root;
 
-            // `rectOf`, not `record.rect`: in tiled mode a window's box comes from the tile its view
-            // targets, and the record's own rect is left alone so switching back restores it.
-            const rect = manager.rectOf(record.id);
-            if (rect !== undefined) {
-                host.style.left = `${String(rect.x)}px`;
-                host.style.top = `${String(rect.y)}px`;
-                host.style.width = `${String(rect.width)}px`;
-                host.style.height = `${String(rect.height)}px`;
-            }
+            if (single) {
+                host.style.position = '';
+                host.style.left = '';
+                host.style.top = '';
+                host.style.width = '';
+                host.style.height = '';
+                host.style.zIndex = '';
+            } else {
+                host.style.position = 'absolute';
+                // `rectOf`, not `record.rect`: in tiled mode a window's box comes from the tile its view
+                // targets, and the record's own rect is left alone so switching back restores it.
+                const rect = manager.rectOf(record.id);
+                if (rect !== undefined) {
+                    host.style.left = `${String(rect.x)}px`;
+                    host.style.top = `${String(rect.y)}px`;
+                    host.style.width = `${String(rect.width)}px`;
+                    host.style.height = `${String(rect.height)}px`;
+                }
 
-            host.style.zIndex = String(manager.zIndexOf(record.id));
+                host.style.zIndex = String(manager.zIndexOf(record.id));
+            }
 
             // Hidden, never unmounted: a window the current mode cannot show keeps its DOM, its
             // effects, its scroll position and whatever was typed into it.
             host.hidden = record.state === 'minimized' || !visible.has(record.id);
 
-            entry.frame.update?.(record, { focused: focused === record.id, tiled });
+            entry.frame.update?.(record, { focused: focused === record.id, tiled, single });
         }
 
         for (const [id, entry] of [...mounted]) {
@@ -351,7 +378,11 @@ export const defaultFrame: FrameChrome = ({ id, drag: onDrag, manager }) => {
     grip.className = 'grip';
 
     bar.append(label, buttons);
-    root.append(bar, content, grip);
+    if (manager.mode() === 'single') {
+        root.append(content);
+    } else {
+        root.append(bar, content, grip);
+    }
 
     onDrag(bar, (dx, dy) => { manager.move(id, dx, dy); });
     onDrag(grip, (dx, dy) => { manager.resize(id, 'se', dx, dy); });
@@ -366,6 +397,15 @@ export const defaultFrame: FrameChrome = ({ id, drag: onDrag, manager }) => {
             label.textContent = record.title;
             root.classList.toggle('focused', state.focused);
             root.classList.toggle('tiled', state.tiled);
+            root.classList.toggle('single', state.single);
+
+            if (state.single) {
+                if (bar.parentElement !== null) bar.remove();
+                if (grip.parentElement !== null) grip.remove();
+            } else {
+                if (bar.parentElement === null) root.prepend(bar);
+                if (grip.parentElement === null) root.append(grip);
+            }
 
             // Drawn only for a window that can actually be closed. A button that does nothing is
             // worse than no button, and since A6.3c-i the manager genuinely refuses.
