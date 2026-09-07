@@ -70,12 +70,27 @@ export interface ApiSpec<TCalls extends Record<string, AnyApiCall>> {
     /** Names the API a call is scoped to. Appears in errors and in the manifest. */
     readonly id: string;
     /**
-     * The exposure hash this client was generated from.
+     * The **gate** hash this client was generated from: what a site exposes and at what level.
      *
-     * spec/network.md section 6: the API reports its own, and a mismatch means this client is
-     * describing a surface that has changed. Carried here so the check needs no configuration.
+     * Per site, and a generated client cannot know it. A part declares what it *calls*, never the
+     * gate it runs at, so `mesh-serve client` writes `auth: 'public'` uniformly and this hash is
+     * computed over that placeholder. Kept because `api.describe` reports the site's own and a
+     * caller with site context can compare them; **it is not the staleness check.**
      */
     readonly exposure: string;
+    /**
+     * The **shape** hash: contracts, methods, paths, and request/response schemas. Site-independent
+     * and gate-independent, so it is identical between this client and any API serving those shapes.
+     *
+     * **This is the staleness check** (spec/network.md section 6, roadmap D4). Comparing `exposure`
+     * instead meant every gated site reported `stale` forever, because the two are computed over
+     * different things and cannot match by construction — the calls succeeded on the wire and the
+     * client discarded every result.
+     *
+     * Optional so a client generated before D4 keeps working: absent means the check is skipped,
+     * which is weaker than checking and honest about it, rather than failing everything.
+     */
+    readonly shapeHash?: string;
     /** Prefix for every path, so a descriptor is portable between environments. */
     readonly base?: string;
     readonly calls: TCalls;

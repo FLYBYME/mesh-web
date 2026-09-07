@@ -38,7 +38,11 @@ interface Session {
 
 const siteApi = defineApi({
     id: 'surfdns',
-    exposure: 'sha256:abc123',
+    // Deliberately different values. The staleness check compares `shapeHash` against
+    // `x-exposure-shape`; if it ever regresses to comparing `exposure` against `x-exposure`, these
+    // being equal would have hidden it — which is exactly how the original defect survived.
+    exposure: 'sha256:gate-hash',
+    shapeHash: 'sha256:abc123',
     calls: {
         'credential.resolve': call<{ id: string }, Credential, 'revoked'>('GET', '/credential/resolve'),
         'credential.create': call<{ name: string; provider: string }, Credential>('POST', '/credential'),
@@ -264,23 +268,54 @@ describe('failures are named, not numbered', () => {
         expect(!result.ok && result.error).toEqual({ kind: 'offline', detail: 'network down' });
     });
 
-    it('refuses to speak to an API that has moved on', async () => {
-        // spec/network.md section 6. The client was generated from one exposure; the API reports
-        // another. Saying so once is better than a confusing 404 three calls later.
-        const stale = await failsWith(json(200, {}, { 'x-exposure': 'sha256:different' }));
+    it('refuses to speak to an API whose shapes have moved on', async () => {
+        // spec/network.md section 6. The client was generated from one set of shapes; the API
+        // reports another. Saying so once is better than a confusing 404 three calls later.
+        const stale = await failsWith(json(200, {}, { 'x-exposure-shape': 'sha256:different' }));
         expect(stale).toEqual({ kind: 'stale', expected: 'sha256:abc123', actual: 'sha256:different' });
     });
 
-    it('proceeds when the exposure matches, and when the API does not report one', async () => {
+    it('ignores the gate hash, because a generated client cannot know it', async () => {
+        /**
+         * The defect this file did not catch, and the reason it did not.
+         *
+         * `x-exposure` is the **gate** hash — what a site exposes and at what level. A part
+         * declares what it *calls* and never the gate it runs at, so `mesh-serve client` writes
+         * `auth: 'public'` uniformly and a generated client's `exposure` is computed over that
+         * placeholder. The two cannot match by construction.
+         *
+         * Comparing them meant **every gated site answered `stale` forever**: the request
+         * succeeded, the response arrived, and the client discarded it. Found on
+         * `console.localhost`, where dev tools showed successful requests and a view that never
+         * updated. The old tests passed because the fixture used one hash for both roles.
+         */
+        const client = createClient(siteApi, {
+            transport: fakeTransport(() => json(200, { userId: 'u1', roles: [] }, {
+                'x-exposure': 'sha256:some-other-sites-gates',
+                'x-exposure-shape': 'sha256:abc123',
+            })).transport,
+        });
+        expect((await client.call('session.whoami')).ok).toBe(true);
+    });
+
+    it('proceeds when the shape matches, and when either side reports none', async () => {
         const matching = createClient(siteApi, {
-            transport: fakeTransport(() => json(200, { userId: 'u1', roles: [] }, { 'x-exposure': 'sha256:abc123' })).transport,
+            transport: fakeTransport(() => json(200, { userId: 'u1', roles: [] }, { 'x-exposure-shape': 'sha256:abc123' })).transport,
         });
         expect((await matching.call('session.whoami')).ok).toBe(true);
 
+        // An older API sends no header.
         const silent = createClient(siteApi, {
             transport: fakeTransport(() => json(200, { userId: 'u1', roles: [] })).transport,
         });
         expect((await silent.call('session.whoami')).ok).toBe(true);
+
+        // And a client generated before D4 carries no shapeHash. Unverifiable beats refusing
+        // everything, and it is a state that resolves itself on the next regenerate.
+        const older = createClient(defineApi({ id: 'surfdns', exposure: 'sha256:gate-hash', calls: siteApi.calls }), {
+            transport: fakeTransport(() => json(200, { userId: 'u1', roles: [] }, { 'x-exposure-shape': 'sha256:anything' })).transport,
+        });
+        expect((await older.call('session.whoami')).ok).toBe(true);
     });
 
     it('has a message for every failure, checked exhaustively', () => {

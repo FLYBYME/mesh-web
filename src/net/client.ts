@@ -134,9 +134,27 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
                 return err({ kind: 'offline', detail: cause instanceof Error ? cause.message : String(cause) });
             }
 
-            const reported = response.headers['x-exposure'];
-            if (check && reported !== undefined && reported !== api.exposure) {
-                return err({ kind: 'stale', expected: api.exposure, actual: reported });
+            /**
+             * The **shape** hash, not the gate hash.
+             *
+             * `x-exposure` is what a site exposes and at what level; a generated client cannot know
+             * it, because a part declares what it calls and never the gate it runs at. Comparing
+             * against it meant every gated site answered `stale` forever — the request succeeded,
+             * the response arrived, and the client threw it away. Found on `console.localhost`,
+             * where dev tools showed two successful requests and a view that never updated.
+             *
+             * `x-exposure-shape` is site-independent, which is the only thing a client generated
+             * from a part's own descriptor can honestly be compared against.
+             *
+             * Both sides are optional: a client generated before D4 carries no `shapeHash`, and an
+             * older API sends no header. Either absence skips the check rather than failing it —
+             * an unverifiable client is weaker than a verified one and infinitely better than one
+             * that refuses every call.
+             */
+            const reported = response.headers['x-exposure-shape'];
+            if (check && reported !== undefined && api.shapeHash !== undefined
+                && reported !== api.shapeHash) {
+                return err({ kind: 'stale', expected: api.shapeHash, actual: reported });
             }
 
             return interpret(response) as Result<never, CallError<string>>;
