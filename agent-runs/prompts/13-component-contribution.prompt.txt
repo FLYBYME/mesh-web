@@ -1,0 +1,138 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+**Let an Extension provide components.** `spec/components.md` §2 is the
+specification — read it first.
+
+The machinery exists and nothing is wired to it. `createRegistry()` in
+`src/render/component.ts`:
+
+```ts
+register(definition) {
+    const existing = map.get(definition.name);
+    if (existing !== undefined) {
+        throw new Error(
+            `Component "${definition.name}" is already registered. ` +
+            `Two contributors claiming one name is a conflict to resolve at load time, ` +
+            `not a last-one-wins.`,
+        );
+    }
+    map.set(definition.name, definition);
+}
+```
+
+**That error describes a situation that cannot currently arise.** One caller in
+the whole codebase — `window/page.ts`, registering the window host — and the
+contribution layer contains zero references to `components`. The extension point
+was designed and the last step was never wired. It is a reader-audit entry: a
+mechanism whose error message anticipates contributors it cannot have.
+
+Without this there is no design system, every part keeps writing its own styling,
+and the measurements in `spec/components.md` §1 stay true: **578 `element()` calls
+across ten applications, 446 inline `style: {}` objects, 318 hard-coded hex
+colours against 93 uses of a theme token.**
+
+================================================================================
+THREE THINGS ALREADY DECIDED
+================================================================================
+
+Recorded in `spec/components.md` §2. Do not re-litigate them; implement them.
+
+**1. Names are namespaced — `ui.Card`, `ui.Nav`, `ui.Slider`.** The registry is
+one map per page and `component` is a plain string nothing parses, so this needs
+no parsing support. It is required because component names are a **global
+namespace per page**, exactly like part names: two design systems both offering
+`Card` is otherwise a page that refuses to boot.
+
+Decide and state whether the kernel *enforces* the prefix — that a contribution's
+components must be named for it — or merely permits it. This project's word for
+things that are merely permitted is "encouraged", and it uses that word about
+things that do not happen.
+
+**2. Declared in the manifest, not registered at activate time.** The kernel
+already resolves this class of conflict before anything runs — A5.12, *"two
+Applications claiming `ctrl+n` is resolved before either runs"*, with
+`manifest.conflicts` surfaced at load (`kernel.ts:161`). Components ride that same
+machinery. **Imperative registration during activation would make load order
+decide the winner, silently**, which is the failure `mergeManifests` exists to
+prevent.
+
+**3. The dependency mechanism already exists.** A part using `ui.Card` declares
+`requiredParts: [{ id: 'ui', version: '^1.0' }]` in `mesh.json`, and
+`checkComposition` already refuses a release missing a required part. Nothing new
+is needed here — confirm it works and say so.
+
+================================================================================
+WHAT TO BUILD
+================================================================================
+
+- **A manifest field for components**, merged with the same conflict handling as
+  commands and bindings, so two contributions claiming `ui.Card` is an error
+  reported at load rather than an exception at render.
+- **A route from a contribution's declaration into the registry**, running before
+  anything renders — the kernel already builds the registry at `start.ts:234`
+  (`createComponents(PRIMITIVES)`), so this is about what else goes into it.
+- **A `ComponentDefinition` a part can actually write.** Read the shape in
+  `component.ts` — `name`, `create(props)`, `apply(el, name, value)`,
+  `spaceIsTextInput`. `create` returns a **DOM element**, which is the one place
+  in this system where a part touches the DOM, and that deserves a sentence in
+  the spec saying why it is allowed here and nowhere else.
+
+**The hard question, and the report must answer it:** a part that ships a
+component ships DOM-creating code, while `description/types.ts` says the
+description layer has *"deliberately no `HTMLElement`, `Node` or `Event` anywhere
+in it"*. Those are consistent — a component *implements* the vocabulary rather
+than using it — but the boundary needs stating, because the next person will
+either widen it or be confused by it.
+
+================================================================================
+WHAT NOT TO DO
+================================================================================
+
+**Do not build the `ui` part.** That is the next dispatch, in a different
+repository. This one makes it possible.
+
+**Do not add components to `PRIMITIVES`.** The 19 primitives are the kernel's
+vocabulary and this task does not change them. `spec/components.md` leaves open
+whether `Card` and `Badge` belong there at all; leaving them is correct for now.
+
+**Do not touch the styling story.** A part shipping CSS already works (C8) and
+stylesheet ordering needs `@layer`, which is `page.ts` in **mesh-serve** — a
+different repository. Note it in the report; change nothing.
+
+**Zero `as any`, zero `as never`, zero casts.** Foreground commands, commit as
+you go.
+
+================================================================================
+WHAT GOOD LOOKS LIKE
+================================================================================
+
+- A browser test where **an Extension provides a component and an Application
+  renders with it** — the whole point, and it cannot be shown any other way.
+- A test that two contributions claiming one component name is reported at load,
+  through `manifest.conflicts`, and does **not** throw at render.
+- A test that a part rendering an unknown component fails in a way that names the
+  component and says which part wanted it. Today the renderer's behaviour for an
+  unregistered name is worth checking before you assume it is good.
+- Every existing test passing — **361 today**, none edited. `npm run typecheck`
+  clean.
+- `spec/components.md` §2 updated from *"built and unwired"* to a description of
+  what exists.
+- Kernel minor bump. Additive.
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/reports/13-component-contribution.md`
+
+- whether the `ui.` prefix is enforced or permitted, and the argument
+- **the DOM boundary**: why a component may create elements when a description
+  may not, stated so the next person does not widen it
+- what happens today when a part renders an unregistered component name, and what
+  happens now
+- what the `ui` part will need that this does not give it
+- anything for the reader audit
