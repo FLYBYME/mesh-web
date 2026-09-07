@@ -107,6 +107,30 @@ function hasType(el: object): el is TypedElement {
     return 'type' in el && typeof el.type === 'string';
 }
 
+interface DisabledElement {
+    disabled: boolean;
+}
+
+function hasDisabled(el: object): el is DisabledElement {
+    return 'disabled' in el && typeof el.disabled === 'boolean';
+}
+
+interface RequiredElement {
+    required: boolean;
+}
+
+function hasRequired(el: object): el is RequiredElement {
+    return 'required' in el && typeof el.required === 'boolean';
+}
+
+interface ReadOnlyElement {
+    readOnly: boolean;
+}
+
+function hasReadOnly(el: object): el is ReadOnlyElement {
+    return 'readOnly' in el && typeof el.readOnly === 'boolean';
+}
+
 interface ScrollableElement {
     scrollHeight: number;
     clientHeight: number;
@@ -178,6 +202,40 @@ function applyScrollPosition(el: Element, value: Json): void {
 
 // ---------------------------------------------------------------------------- default prop handling
 
+const ARIA_MAP: Readonly<Record<string, string>> = {
+    ariaLabel: 'aria-label',
+    ariaLabelledBy: 'aria-labelledby',
+    ariaLabelledby: 'aria-labelledby',
+    ariaDescribedBy: 'aria-describedby',
+    ariaDescribedby: 'aria-describedby',
+    ariaHidden: 'aria-hidden',
+    ariaDisabled: 'aria-disabled',
+    ariaExpanded: 'aria-expanded',
+    ariaPressed: 'aria-pressed',
+    ariaChecked: 'aria-checked',
+    ariaInvalid: 'aria-invalid',
+    ariaRequired: 'aria-required',
+    ariaModal: 'aria-modal',
+    ariaLive: 'aria-live',
+    ariaCurrent: 'aria-current',
+    ariaControls: 'aria-controls',
+    ariaHasPopup: 'aria-haspopup',
+    ariaOrientation: 'aria-orientation',
+    ariaRoleDescription: 'aria-roledescription',
+    ariaPlaceholder: 'aria-placeholder',
+    ariaReadOnly: 'aria-readonly',
+    ariaSelected: 'aria-selected',
+    ariaAtomic: 'aria-atomic',
+    ariaBusy: 'aria-busy',
+    ariaRelevant: 'aria-relevant',
+    ariaKeyShortcuts: 'aria-keyshortcuts',
+    ariaActiveDescendant: 'aria-activedescendant',
+    ariaValueMin: 'aria-valuemin',
+    ariaValueMax: 'aria-valuemax',
+    ariaValueNow: 'aria-valuenow',
+    ariaValueText: 'aria-valuetext',
+};
+
 /**
  * What every component gets for free.
  *
@@ -185,6 +243,26 @@ function applyScrollPosition(el: Element, value: Json): void {
  * component's `apply`, not here, or the default becomes a second uncontrolled vocabulary.
  */
 export function applyDefaultProp(el: Element, name: string, value: Json): void {
+    const ariaAttr = ARIA_MAP[name] ?? (name.startsWith('aria-') ? name : undefined);
+    if (ariaAttr !== undefined) {
+        if (value === null || value === undefined) {
+            el.removeAttribute(ariaAttr);
+            return;
+        }
+        if (typeof value === 'boolean') {
+            if (ariaAttr === 'aria-expanded' || ariaAttr === 'aria-pressed' || ariaAttr === 'aria-checked' || ariaAttr === 'aria-grabbed') {
+                el.setAttribute(ariaAttr, String(value));
+            } else if (value) {
+                el.setAttribute(ariaAttr, 'true');
+            } else {
+                el.removeAttribute(ariaAttr);
+            }
+            return;
+        }
+        el.setAttribute(ariaAttr, String(value));
+        return;
+    }
+
     if (value === null || value === false) {
         el.removeAttribute(name);
         return;
@@ -250,6 +328,88 @@ function isInteractiveChild(target: EventTarget | null, root: Element): boolean 
     return interactive !== null && interactive !== root && root.contains(interactive);
 }
 
+// ---------------------------------------------------------------------------- field accessibility helpers
+
+function applyFieldAccessibilityProps(el: Element, name: string, value: Json): boolean {
+    if (name === 'labelledBy' || name === 'ariaLabelledBy' || name === 'ariaLabelledby' || name === 'aria-labelledby') {
+        if (value === null || value === undefined) {
+            el.removeAttribute('aria-labelledby');
+        } else {
+            el.setAttribute('aria-labelledby', String(value));
+        }
+        return true;
+    }
+
+    if (name === 'describedBy' || name === 'ariaDescribedBy' || name === 'ariaDescribedby' || name === 'aria-describedby') {
+        if (value === null || value === undefined) {
+            el.removeAttribute('aria-describedby');
+        } else {
+            el.setAttribute('aria-describedby', String(value));
+        }
+        return true;
+    }
+
+    if (name === 'ariaLabel' || name === 'aria-label') {
+        if (value === null || value === undefined) {
+            el.removeAttribute('aria-label');
+        } else {
+            el.setAttribute('aria-label', String(value));
+        }
+        return true;
+    }
+
+    if (name === 'invalid') {
+        const isInvalid = Boolean(value);
+        if (isInvalid) {
+            el.setAttribute('aria-invalid', 'true');
+        } else {
+            el.removeAttribute('aria-invalid');
+        }
+        return true;
+    }
+
+    if (name === 'required') {
+        const isRequired = Boolean(value);
+        if (hasRequired(el)) {
+            el.required = isRequired;
+        }
+        if (isRequired) {
+            el.setAttribute('aria-required', 'true');
+        } else {
+            el.removeAttribute('aria-required');
+        }
+        return true;
+    }
+
+    if (name === 'disabled') {
+        const isDisabled = Boolean(value);
+        if (hasDisabled(el)) {
+            el.disabled = isDisabled;
+        }
+        if (isDisabled) {
+            el.setAttribute('aria-disabled', 'true');
+        } else {
+            el.removeAttribute('aria-disabled');
+        }
+        return true;
+    }
+
+    if (name === 'readOnly' || name === 'readonly') {
+        const isReadOnly = Boolean(value);
+        if (hasReadOnly(el)) {
+            el.readOnly = isReadOnly;
+        }
+        if (isReadOnly) {
+            el.setAttribute('aria-readonly', 'true');
+        } else {
+            el.removeAttribute('aria-readonly');
+        }
+        return true;
+    }
+
+    return false;
+}
+
 // ---------------------------------------------------------------------------- primitives
 
 /** A tag, plus an optional prop mapping. The shorthand most primitives need. */
@@ -288,10 +448,37 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
         create() {
             const el = document.createElement('dialog');
             el.setAttribute('data-mesh-dialog', '');
+            el.setAttribute('role', 'dialog');
+            el.setAttribute('aria-modal', 'true');
+            el.tabIndex = -1;
             return el;
         },
-        apply(_el, name) {
+        apply(el, name, value) {
             if (name === 'open') return true;
+            if (name === 'ariaLabel' || name === 'aria-label') {
+                if (value === null || value === undefined) {
+                    el.removeAttribute('aria-label');
+                } else {
+                    el.setAttribute('aria-label', String(value));
+                }
+                return true;
+            }
+            if (name === 'labelledBy' || name === 'ariaLabelledBy' || name === 'ariaLabelledby' || name === 'aria-labelledby') {
+                if (value === null || value === undefined) {
+                    el.removeAttribute('aria-labelledby');
+                } else {
+                    el.setAttribute('aria-labelledby', String(value));
+                }
+                return true;
+            }
+            if (name === 'describedBy' || name === 'ariaDescribedBy' || name === 'ariaDescribedby' || name === 'aria-describedby') {
+                if (value === null || value === undefined) {
+                    el.removeAttribute('aria-describedby');
+                } else {
+                    el.setAttribute('aria-describedby', String(value));
+                }
+                return true;
+            }
             return false;
         },
     },
@@ -308,7 +495,51 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
             return false;
         },
     },
-    tag('Button', 'button'),
+    {
+        name: 'Button',
+        create() {
+            const el = document.createElement('button');
+            el.type = 'button';
+            return el;
+        },
+        apply(el, name, value) {
+            if (name === 'type') {
+                if (hasType(el)) {
+                    el.type = String(value);
+                    return true;
+                }
+            }
+            if (name === 'disabled') {
+                const isDisabled = Boolean(value);
+                if (hasDisabled(el)) {
+                    el.disabled = isDisabled;
+                }
+                if (isDisabled) {
+                    el.setAttribute('aria-disabled', 'true');
+                } else {
+                    el.removeAttribute('aria-disabled');
+                }
+                return true;
+            }
+            if (name === 'pressed') {
+                if (value === null || value === undefined) {
+                    el.removeAttribute('aria-pressed');
+                } else {
+                    el.setAttribute('aria-pressed', String(Boolean(value)));
+                }
+                return true;
+            }
+            if (name === 'expanded') {
+                if (value === null || value === undefined) {
+                    el.removeAttribute('aria-expanded');
+                } else {
+                    el.setAttribute('aria-expanded', String(Boolean(value)));
+                }
+                return true;
+            }
+            return false;
+        },
+    },
     tag('Input', 'input', {
         spaceIsTextInput(el) {
             // Checkbox and radio inputs are toggled by Space; for text/search/password/etc., Space is text entry.
@@ -343,11 +574,9 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
                 return true;
             }
 
-            // Note on other DOM properties with dirty flags (roadmap A7.0):
-            // `selected` on an <option> and `indeterminate` on a checkbox cannot arise here yet.
-            // There is currently no Option or Select primitive, and `indeterminate` is not yet
-            // declared in the primitive vocabulary (which is deferred to the A7.1 audit).
-            // They are deliberately omitted rather than added speculatively.
+            if (applyFieldAccessibilityProps(el, name, value)) {
+                return true;
+            }
 
             return false;
         },
@@ -367,6 +596,11 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
                 }
                 return true;
             }
+
+            if (applyFieldAccessibilityProps(el, name, value)) {
+                return true;
+            }
+
             return false;
         },
     }),
@@ -532,6 +766,7 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
                 const isVertical = String(value) === 'vertical';
                 if (isVertical) {
                     el.setAttribute('data-orientation', 'vertical');
+                    el.setAttribute('aria-orientation', 'vertical');
                     if (hasStyle(el)) {
                         el.style.borderTop = '0';
                         el.style.borderLeft = '1px solid var(--edge, #30363d)';
@@ -541,6 +776,7 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
                     }
                 } else {
                     el.setAttribute('data-orientation', 'horizontal');
+                    el.setAttribute('aria-orientation', 'horizontal');
                     if (hasStyle(el)) {
                         el.style.borderTop = '1px solid var(--edge, #30363d)';
                         el.style.borderLeft = '0';
@@ -799,6 +1035,14 @@ export const PRIMITIVES: readonly ComponentDefinition[] = [
                     el.removeAttribute('data-mesh-disabled');
                     el.removeAttribute('aria-disabled');
                     el.setAttribute('tabindex', '0');
+                }
+                return true;
+            }
+            if (name === 'ariaLabel' || name === 'aria-label' || name === 'label') {
+                if (value !== null && value !== undefined) {
+                    el.setAttribute('aria-label', String(value));
+                } else {
+                    el.setAttribute('aria-label', 'Drop zone');
                 }
                 return true;
             }

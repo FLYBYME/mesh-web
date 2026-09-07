@@ -571,6 +571,11 @@ function bindIntents(
         const binding = intents[name];
         if (binding === undefined) return;
 
+        // Disabled elements must not fire actions (spec/input.md §3).
+        if (el.getAttribute('aria-disabled') === 'true' || el.hasAttribute('disabled') || el.hasAttribute('data-mesh-disabled')) {
+            return;
+        }
+
         // Declared statically, because it cannot be decided asynchronously — across an isolation
         // boundary the default has already happened by the time a handler runs.
         if (binding.preventDefault) event.preventDefault();
@@ -589,6 +594,21 @@ function bindIntents(
     };
 
     if (intents.activate) {
+        // spec/input.md §3: "Unfocusable interactive elements. If it does something, it takes focus."
+        // Non-natively focusable elements (like ListItem, Row, Stack) given activate intent must take focus.
+        if (!el.hasAttribute('tabindex')) {
+            const tag = el.tagName.toLowerCase();
+            const naturallyFocusable = tag === 'button' || tag === 'input' || tag === 'textarea' || tag === 'select' || (tag === 'a' && el.hasAttribute('href'));
+            if (!naturallyFocusable) {
+                el.setAttribute('tabindex', '0');
+            }
+        }
+        if (!el.hasAttribute('role')) {
+            const tag = el.tagName.toLowerCase();
+            if (tag !== 'button' && tag !== 'input' && tag !== 'textarea' && tag !== 'select' && tag !== 'a' && tag !== 'dialog' && tag !== 'li') {
+                el.setAttribute('role', 'button');
+            }
+        }
         el.addEventListener('click', (e) => fire('activate', e));
         el.addEventListener('keydown', (e) => {
             const key = 'key' in e && typeof e.key === 'string' ? e.key : '';

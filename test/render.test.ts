@@ -921,3 +921,277 @@ describe('dialog and focus trap', () => {
     });
 });
 
+describe('accessibility lives in the primitives (roadmap A7.7)', () => {
+    it('Button defaults to type="button" to prevent accidental form submission', () => {
+        const { host, components, dispatch } = setup();
+        render(element('Button', { children: [text('Click')] }), host, { components, dispatch });
+
+        const btn = host.querySelector('button')!;
+        expect(btn.type).toBe('button');
+        expect(btn.getAttribute('type')).toBe('button');
+    });
+
+    it('Button allows explicit type override (e.g. submit)', () => {
+        const { host, components, dispatch } = setup();
+        render(element('Button', { props: { type: 'submit' }, children: [text('Submit Form')] }), host, { components, dispatch });
+
+        const btn = host.querySelector('button')!;
+        expect(btn.type).toBe('submit');
+        expect(btn.getAttribute('type')).toBe('submit');
+    });
+
+    it('Button handles disabled state with DOM property and aria-disabled', () => {
+        const { host, components, dispatch } = setup();
+        const isDisabled = signal(true);
+        render(element('Button', { props: { disabled: () => isDisabled() }, children: [text('Action')] }), host, { components, dispatch });
+
+        const btn = host.querySelector('button')!;
+        expect(btn.disabled).toBe(true);
+        expect(btn.getAttribute('aria-disabled')).toBe('true');
+
+        isDisabled.set(false);
+        tick();
+
+        expect(btn.disabled).toBe(false);
+        expect(btn.hasAttribute('aria-disabled')).toBe(false);
+    });
+
+    it('Button handles toggle pressed state and disclosure expanded state', () => {
+        const { host, components, dispatch } = setup();
+        const isPressed = signal(false);
+        const isExpanded = signal(false);
+
+        render(
+            element('Button', {
+                props: { pressed: () => isPressed(), expanded: () => isExpanded() },
+                children: [text('Toggle/Disclosure')],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const btn = host.querySelector('button')!;
+        expect(btn.getAttribute('aria-pressed')).toBe('false');
+        expect(btn.getAttribute('aria-expanded')).toBe('false');
+
+        isPressed.set(true);
+        isExpanded.set(true);
+        tick();
+
+        expect(btn.getAttribute('aria-pressed')).toBe('true');
+        expect(btn.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('disabled Button suppresses activate intent', () => {
+        const { host, components, dispatch, seen } = setup();
+        render(
+            element('Button', {
+                props: { disabled: true },
+                intents: { activate: { action: command('btn.click') } },
+                children: [text('Disabled Action')],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const btn = host.querySelector('button')!;
+        btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        expect(seen).toHaveLength(0);
+    });
+
+    it('Dialog enforces role="dialog", aria-modal="true", and container tabindex="-1"', () => {
+        const { host, components, dispatch } = setup();
+        const isOpen = signal(true);
+
+        render(
+            dialog({
+                open: () => isOpen(),
+                props: { ariaLabel: 'Preferences Dialog', ariaDescribedBy: 'pref-desc' },
+                children: [element('Text', { props: { id: 'pref-desc' }, children: [text('Configure settings')] })],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        tick();
+        const dialogEl = host.querySelector('dialog')!;
+        expect(dialogEl.getAttribute('role')).toBe('dialog');
+        expect(dialogEl.getAttribute('aria-modal')).toBe('true');
+        expect(dialogEl.tabIndex).toBe(-1);
+        expect(dialogEl.getAttribute('aria-label')).toBe('Preferences Dialog');
+        expect(dialogEl.getAttribute('aria-describedby')).toBe('pref-desc');
+    });
+
+    it('Input and TextArea establish label relationship via labelledBy and describedBy', () => {
+        const { host, components, dispatch } = setup();
+
+        render(
+            element('Stack', {
+                children: [
+                    element('Text', { props: { id: 'username-label' }, children: [text('Username')] }),
+                    element('Input', {
+                        props: { labelledBy: 'username-label', describedBy: 'username-hint' },
+                    }),
+                    element('Text', { props: { id: 'username-hint' }, children: [text('3-12 characters')] }),
+                    element('Text', { props: { id: 'bio-label' }, children: [text('Biography')] }),
+                    element('TextArea', {
+                        props: { labelledBy: 'bio-label', describedBy: 'bio-error' },
+                    }),
+                    element('Text', { props: { id: 'bio-error' }, children: [text('Too long')] }),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const input = host.querySelector('input')!;
+        expect(input.getAttribute('aria-labelledby')).toBe('username-label');
+        expect(input.getAttribute('aria-describedby')).toBe('username-hint');
+
+        const textarea = host.querySelector('textarea')!;
+        expect(textarea.getAttribute('aria-labelledby')).toBe('bio-label');
+        expect(textarea.getAttribute('aria-describedby')).toBe('bio-error');
+    });
+
+    it('Input and TextArea support invalid, required, disabled, and readOnly accessibility props', () => {
+        const { host, components, dispatch } = setup();
+        const invalid = signal(true);
+        const required = signal(true);
+        const disabled = signal(false);
+        const readOnly = signal(false);
+
+        render(
+            element('Input', {
+                props: {
+                    invalid: () => invalid(),
+                    required: () => required(),
+                    disabled: () => disabled(),
+                    readOnly: () => readOnly(),
+                },
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const input = host.querySelector('input')!;
+        expect(input.getAttribute('aria-invalid')).toBe('true');
+        expect(input.required).toBe(true);
+        expect(input.getAttribute('aria-required')).toBe('true');
+        expect(input.disabled).toBe(false);
+        expect(input.hasAttribute('aria-disabled')).toBe(false);
+        expect(input.readOnly).toBe(false);
+
+        invalid.set(false);
+        disabled.set(true);
+        readOnly.set(true);
+        tick();
+
+        expect(input.hasAttribute('aria-invalid')).toBe(false);
+        expect(input.disabled).toBe(true);
+        expect(input.getAttribute('aria-disabled')).toBe('true');
+        expect(input.readOnly).toBe(true);
+        expect(input.getAttribute('aria-readonly')).toBe('true');
+    });
+
+    it('Divider sets aria-orientation to vertical or horizontal', () => {
+        const { host, components, dispatch } = setup();
+        render(
+            element('Stack', {
+                children: [
+                    element('Divider', { props: { orientation: 'vertical' } }),
+                    element('Divider', { props: { orientation: 'horizontal' } }),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const [vDivider, hDivider] = [...host.querySelectorAll('hr')];
+        expect(vDivider?.getAttribute('data-orientation')).toBe('vertical');
+        expect(vDivider?.getAttribute('aria-orientation')).toBe('vertical');
+        expect(hDivider?.getAttribute('data-orientation')).toBe('horizontal');
+        expect(hDivider?.getAttribute('aria-orientation')).toBe('horizontal');
+    });
+
+    it('DropZone supports custom aria-label via ariaLabel prop', () => {
+        const { host, components, dispatch } = setup();
+        const label = signal('Drop image files here');
+
+        render(
+            element('DropZone', { props: { ariaLabel: () => label() } }),
+            host,
+            { components, dispatch },
+        );
+
+        const dropzone = host.querySelector('[data-mesh-dropzone]')!;
+        expect(dropzone.getAttribute('aria-label')).toBe('Drop image files here');
+
+        label.set('Drop video files here');
+        tick();
+
+        expect(dropzone.getAttribute('aria-label')).toBe('Drop video files here');
+    });
+
+    it('interactive non-natively focusable element automatically receives tabindex="0" and role="button"', () => {
+        const { host, components, dispatch, seen } = setup();
+
+        render(
+            element('Stack', {
+                children: [
+                    element('ListItem', {
+                        props: { id: 'list-item-btn' },
+                        intents: { activate: { action: command('list.select') } },
+                        children: [text('Clickable List Item')],
+                    }),
+                    element('Row', {
+                        props: { id: 'row-btn' },
+                        intents: { activate: { action: command('row.select') } },
+                        children: [text('Clickable Row')],
+                    }),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const listItem = host.querySelector('#list-item-btn')!;
+        expect(listItem.getAttribute('tabindex')).toBe('0');
+
+        const row = host.querySelector('#row-btn')!;
+        expect(row.getAttribute('tabindex')).toBe('0');
+        expect(row.getAttribute('role')).toBe('button');
+
+        // Can activate with Enter keydown
+        row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(seen).toContainEqual({ kind: 'command', id: 'row.select' });
+    });
+
+    it('applyDefaultProp normalizes camelCase ARIA properties and boolean ARIA values', () => {
+        const { host, components, dispatch } = setup();
+
+        render(
+            element('Stack', {
+                props: {
+                    ariaLabel: 'Navigation Landmark',
+                    ariaHidden: true,
+                    ariaExpanded: false,
+                    ariaDescribedBy: 'desc-1',
+                },
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        const el = host.querySelector('div')!;
+        expect(el.getAttribute('aria-label')).toBe('Navigation Landmark');
+        expect(el.getAttribute('aria-hidden')).toBe('true');
+        expect(el.getAttribute('aria-expanded')).toBe('false');
+        expect(el.getAttribute('aria-describedby')).toBe('desc-1');
+        // Ensure camelCase names are not present on DOM
+        expect(el.hasAttribute('ariaLabel')).toBe(false);
+        expect(el.hasAttribute('ariaHidden')).toBe(false);
+    });
+});
+
+
