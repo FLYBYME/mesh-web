@@ -1,0 +1,122 @@
+Code lives in:  FLYBYME/mesh-web — this worktree. All commits go here.
+
+================================================================================
+THE TASK
+================================================================================
+
+**A view reaches its own Application's state without going through the published
+API.** Read `spec/components.md` §5 first — it is the specification for this
+dispatch, written from measurement.
+
+Today:
+
+```ts
+export interface ViewContext<TParams = Record<string, never>, TApi = unknown> {
+    readonly params: TParams;
+    readonly app: TApi;      // ← a view's only route to its own state
+    ...
+}
+```
+
+`start()` returns `ApiOf<TProvides>`, which is what **another part** receives from
+`use(TOKEN)`. It is also, through `ViewContext.app`, the only way a view can read
+its own signals. **So every signal a view needs must be public**, and the
+published interface is not designed — it is the union of what the views happened
+to require.
+
+What that produced, measured:
+
+| part | `signal()` | members published |
+| --- | --- | --- |
+| `workbench` | 8 | **32** |
+| `kanban` | 9 | 28 |
+| `notes` | 7 | 24 |
+| `clock` | 12 | 23 |
+
+`WorkbenchApi` publishes **eight raw `Signal<T>`** — mutable handles, so anything
+holding the API can `.set()` them — plus ten methods that merely forward to
+`cx.chrome`, which the consumer already has, plus `filterRevision` and
+`docRevision`: revision counters that worked around the A7.0 `Input` bug **that
+kernel 0.11 fixed**. A workaround became permanent public API.
+
+**The urgency:** every part was just split into `views/<view>.ts`
+(mesh-demos dispatch 8, mesh-core dispatch 5). Views no longer close over
+module-local state; they are *given* something. Right now that something is the
+published API, and the next application written — the shopping cart, which other
+parts will consume — inherits this shape and freezes it.
+
+================================================================================
+WHAT TO BUILD
+================================================================================
+
+**Two objects, not one.**
+
+- **an internal context** — this part's own state, handed to this part's own
+  views, never published
+- **the published API** — what another part receives from `use(TOKEN)`,
+  deliberately small
+
+The shape is yours to design; `spec/components.md` §5 states the requirements and
+deliberately does not pick a spelling. Constraints:
+
+1. **Additive.** `Application` and `Extension` gained a `TApi` parameter with a
+   default in dispatch 10 and every existing contribution kept compiling. Do the
+   same here: a part that does not opt in must build unchanged. **The 15 parts in
+   `mesh-demos` and `mesh-core` are live on six sites** — verify against them
+   read-only, do not edit them.
+2. **A published API exposes `ReadonlySignal<T>`, never `Signal<T>`.** The type
+   exists in `reactivity/types.ts` and `models` uses it throughout. Handing out a
+   writable handle is a public field with a setter nobody asked for. Whether the
+   kernel can *enforce* this or only make it the obvious choice is a real
+   question — answer it in the report rather than assuming.
+3. **`ViewContext.app` keeps working**, because a view legitimately sometimes
+   wants the part's own public surface. It stops being the *only* route.
+
+================================================================================
+WHAT NOT TO DO
+================================================================================
+
+**Do not redesign the capability system.** `cx.mesh`, `cx.state`, `cx.windows`
+and the rest are unchanged. This is about a part's own state and its own views.
+
+**Do not change any part in mesh-demos or mesh-core.** They are a different
+repository and they are live. Read them to check the change is additive; adopting
+it is a later dispatch, and the report should say what adoption would look like
+for one of them.
+
+**Do not add a second way to declare views.** `ViewDecl` and the manifest stay as
+they are.
+
+**Zero `as any`, zero `as never`, zero casts.** Run every command in the
+foreground and commit as you go.
+
+================================================================================
+WHAT GOOD LOOKS LIKE
+================================================================================
+
+- A part can hold state its views read and its API does not publish.
+- **A test proving exactly that**: a mounted part whose view renders from internal
+  state, whose published API does not contain it, and where the type system
+  refuses an attempt to reach it from outside. That last half is the point — a
+  runtime test cannot show it.
+- Every existing test passing — **361 today** — with no test edited to
+  accommodate the change. If one needs editing, the change was not additive.
+- `npm run typecheck` clean, zero casts.
+- `spec/components.md` §5 updated from a problem statement to a description of
+  what exists, and `spec/application.md` updated where it describes `ViewContext`.
+- Kernel minor bump: new capability, additive.
+
+================================================================================
+YOUR REPORT
+================================================================================
+
+`agent-runs/reports/12-internal-context.md`
+
+- the shape you chose, and what you rejected
+- **whether `ReadonlySignal` in a published API can be enforced or only
+  encouraged** — if only encouraged, say what would enforce it, because
+  "encouraged" is the word this project uses for things that do not happen
+- what adopting this would look like for **one** real part — pick `workbench`
+  (32 members) or `notes` (24) and write the API you would publish instead. That
+  number is the measure of whether this worked.
+- anything for the reader audit
