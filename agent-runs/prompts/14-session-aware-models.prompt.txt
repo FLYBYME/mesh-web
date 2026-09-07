@@ -1,0 +1,161 @@
+You are **frank**. Sign every GitHub post you make with a last line of exactly:
+
+— frank
+
+An unsigned post is from the human. Never sign something you did not write.
+
+Tracking issue: FLYBYME/surfdns#40
+Code lives in:  FLYBYME/mesh-web  — this worktree. All commits and the PR go here.
+
+================================================================================
+BEFORE YOU WRITE ANY CODE
+================================================================================
+
+1. Read the issue and every comment:
+
+       gh issue view 40 --repo FLYBYME/surfdns --comments
+
+2. Confirm nobody else holds it:
+
+       gh issue view 40 --repo FLYBYME/surfdns --json labels --jq '.labels[].name'
+
+   If `bob` or `tony` is there and it is not you, stop and say so.
+
+3. Read AGENTS.md in this repository first. Then INVESTIGATE: read the `models`
+   capability end to end, and read `mesh-core/src/catalog/` (a sibling checkout
+   at ../mesh-core — READ ONLY, it is a different repository and not yours to
+   change) to see what a real consumer does today.
+
+4. POST YOUR PLAN as an issue comment, signed, before touching a file.
+   What you FOUND, what you will CHANGE in files, what you will NOT touch.
+   Short — it is read on a phone.
+
+   If what you found contradicts the issue, say so, pick how you will proceed,
+   and keep going. Nobody answers on GitHub.
+
+================================================================================
+THE TASK
+================================================================================
+
+A collection must not fire a request that is certain to fail for want of a
+session, and must load itself when a session arrives.
+
+Reported as: *"when i login it needs to be notified if it needs auth and then
+update."* Today signing in leaves every collection sitting on the 401 it got
+before there was a session, and the page looks broken until it is reloaded by
+hand.
+
+--- What is already true ----------------------------------------------------
+
+`AuthApi.session` is a `Signal<Session | null>` (see `mesh-core/src/auth/
+contract.ts`). The information is there and it is reactive. Nothing subscribes
+to it.
+
+`AUTH` is already a provider token exported from this package.
+
+--- 1. A collection reacts to the session ------------------------------------
+
+When the session changes from absent to present, a collection that failed for
+want of one reloads. When it changes to absent, it must not keep showing another
+person's rows.
+
+Signing out and signing back in as somebody else is the case that decides the
+design: a collection holding rows from the previous session is a data leak in
+the most literal sense, and it will look exactly like a caching bug.
+
+--- 2. An Application can say it needs a session -----------------------------
+
+Make it declarable and therefore visible in the manifest — the point of a
+manifest is that a contribution's requirements can be read without reading its
+source. Today `catalog` needs a session absolutely and its `NEEDS` line does not
+mention it.
+
+Design this yourself and justify it in your plan. The obvious shape is that a
+contribution `consumes(AUTH)`, but consuming is not the same statement as
+*requiring*, and an Application that is merely improved by a session is a real
+case (a public blog with an edit button). Say which you are building and why.
+
+--- 3. Deliberately NOT in this PR -------------------------------------------
+
+**A collection knowing on its own whether a call needs a session.** That needs
+the gate as runtime data, which is FLYBYME/surfdns#39, in mesh-serve, being done
+in parallel. Do not invent a second source of truth for the gate and do not
+hardcode a list of which calls need auth — when #39 lands, this should be able
+to consult it with a small change, so leave the seam where it fits.
+
+Until then a collection may react to *failure* (a 401 it actually received) and
+to the session signal. It may not guess in advance.
+
+Read `../mesh-web/spec/schema-driven-ui.md` §1 for what #39 will provide, so the
+seam you leave is the right shape. It is short.
+
+--- Constraints that decide which fixes are acceptable ----------------------
+
+  * **This is a kernel change, so it is a PATCH.** At 0.x a minor invalidates
+    every part: `^0.15` excludes `0.16.0`. The kernel is at 0.15.2. A fix is a
+    patch. This has been got wrong before.
+  * **Bump BOTH `package.json` and `mesh.json`.** They have drifted two minors
+    apart before because a dispatch bumped one.
+  * Do not make the window layer, chrome, or any Extension a dependency of the
+    models capability. `page.ts:148` shows chrome is optional and must stay so.
+  * A part cannot be assumed to exist. A site with no auth Extension at all must
+    still boot and must still load public collections.
+
+DO NOT:
+  - widen scope — a second problem gets a NEW issue on FLYBYME/surfdns, signed
+    and linked, not a bigger PR
+  - delete, skip, or `.only` past a failing test
+  - modify ../mesh-core or any sibling repository. Read it; do not write it.
+  - push to master
+  - run `npm test` or `tsc` in the background and end your turn. Run them in the
+    foreground and wait. Two dispatches have died with finished, uncommitted
+    work exactly this way.
+  - trust `node_modules` over `package.json`. If they disagree on a version, say
+    so loudly and reinstall before you conclude anything from a green suite.
+
+A NOTE ON TESTS. Three times in this repository a test has been written that
+encodes a known bug as intent — with a comment correctly explaining the bug, and
+an assertion demanding it. The most recent asserted that tiled mode does not move
+any window. If a test you are about to write needs a comment explaining why the
+behaviour is wrong, fix the behaviour or leave the test out.
+
+================================================================================
+FINISHING
+================================================================================
+
+These must pass, in the foreground:
+
+    npm run typecheck
+    npm test
+
+Add tests. At minimum: a collection that failed without a session loads when one
+arrives; a collection does not keep rows across a sign-out; a site with no auth
+Extension still boots and still loads a public collection.
+
+Then:
+
+    git push origin HEAD:frank/40-session-aware-models
+    gh pr create --repo FLYBYME/mesh-web --head frank/40-session-aware-models \
+      --title "Collections follow the session" --body "<what and why>
+
+    Refs FLYBYME/surfdns#40
+
+    — frank"
+
+Then comment that you are done, signed — link the PR, say what changed against
+your plan, and state plainly which shape you chose for §2 and what you rejected.
+
+DO NOT MERGE THE PR. The human merges.
+
+================================================================================
+COMMENT AT LEAST TWICE. NEVER WAIT.
+================================================================================
+
+The plan before any code, and the closing report. More whenever the picture
+changes. Nobody replies on GitHub — when you would want a decision, say so in a
+comment with the options and which you would pick, CHOOSE ONE, say you are
+proceeding under that assumption, and keep going.
+
+If you get stuck, finish every part you still can, then post the closing comment
+anyway with the actual error text and what you ruled out. A plausible-looking PR
+that does not work is worse than none — say plainly which you have.
