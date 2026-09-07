@@ -220,6 +220,52 @@ its sidebar, its content area and its footer.
 This is the decision that deletes most of the hard part: the window manager sees views and nothing
 under them, and there are no cross-level interactions to design.
 
+### How many windows an Application opens — **Decided 2026-09-06**
+
+> Apps have lost sight of the window idea. Most apps are one window, and maybe a setting or editing
+> window.
+
+Correct, and the demos have drifted a long way from it. Measured across the ten demo applications:
+
+| | |
+| --- | --- |
+| `windows.open()` call sites | **52** |
+| views declared per app | 2–5 (`workbench` 5, `clock` 3, `notes` 3, `palette` 3) |
+| `open()` calls in `workbench` | **10** |
+| `open()` calls in a *clock* | **6** |
+
+**The kernel's own default is one window per Application** — `defaultOpen` in `start.ts` is
+`kernel.applications.map((application) => ({ application }))`, exactly one each. Every window beyond
+that is an application deciding to open it.
+
+**The rule: an Application declares views and a layout. The shell arranges them.** Opening a window
+per region is doing the window manager's job, and it is why the demos read as a window system
+demonstrating itself rather than as software.
+
+A second window is right when it is a **genuinely separate task the user may want beside the first** —
+settings, a detached editor, a document opened alongside another document. It is wrong for a region of
+the same screen. A markdown editor and its preview are two views of one thing; a header, a sidebar, a
+content area and a footer are four views of one thing. That is what §6 already says: *views do not
+nest, and below a view are components.*
+
+**And the cost is not aesthetic.** `WindowManager.visible()` in `single` mode returns exactly one
+window:
+
+```ts
+if (this.mode() === 'single') {
+    return active === undefined ? [] : [active];
+}
+```
+
+So an application that opens six windows, running on a normal website, **shows one and silently hides
+five** — with no chrome bar to reach them, because a normal site does not compose one. Every demo
+application is therefore structurally desktop-only, and none of them would work on the sites this
+platform exists to serve.
+
+An Application that declares its views and a layout works in all three modes without knowing which it
+is in, which is the whole claim of [extension §2](./extension.md): *one Extension runs unchanged
+whether the host arranges windows as tiles, as floating windows, or as a single maximised page.*
+
 ### A tile is a slot. A view fills it. — **Decided**
 
 > "the 'content' is almost a sub thing … what i did like was the 'ViewProvider' in mesh-ui"
