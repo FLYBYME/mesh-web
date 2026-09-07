@@ -12,6 +12,7 @@ This one is the index and the state of play.
 | **[extension](./extension.md)** | **The Extension contract, providers, activation, lifecycle** |
 | **[application](./application.md)** | **The Application contract, the manifest, instances, routing** |
 | **[view-layer](./view-layer.md)** | **Descriptions not DOM, components, events, tiles** |
+| **[components](./components.md)** | **The `ui.*` design system, where styling lives, and what a part publishes** |
 | **[input](./input.md)** | **Intents, the focus graph, modality, bindings, window mechanics** |
 | **[network](./network.md)** | **Typed calls, events and collections — the link to the mesh** |
 | **[testing](./testing.md)** | **What is pure, what needs fakes, what needs a browser** |
