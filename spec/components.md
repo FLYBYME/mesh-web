@@ -153,13 +153,13 @@ That makes it the right second component to build, after the trivial ones prove 
 
 ## 5. The public interface is not the view's access path
 
-The sharpest of the three problems, raised by the project owner:
+The problem, raised by the project owner from measuring the initial demo applications:
 
 > I don't like how many signals an app or extension makes and keeps track of, and why they are all
 > being returned. **I believe that return object is the app's or extension's public interface.**
 
-It is. `start()` returns `ApiOf<TProvides>`, and that is what another part receives from `use(TOKEN)`.
-Measured:
+Previously, `start()` returned `ApiOf<TProvides>`, which was both what another part received from
+`use(TOKEN)` and the *only* object `ViewContext` gave a view (`vx.app`). Measured across the demo parts:
 
 | part | `signal()` | members returned |
 | --- | --- | --- |
@@ -169,53 +169,76 @@ Measured:
 | `clock` | 12 | 23 |
 | `calc` | 7 | 20 |
 
-`WorkbenchApi` publishes **eight raw `Signal<T>`** — mutable handles, so anything holding the API can
-`.set()` them — plus ten methods that merely forward to `cx.chrome` (`focusWindow`, `closeWindow`,
-`maximizeWindow`…), which the consumer already has. It also publishes `filterRevision` and
-`docRevision`: revision counters that existed to work around the A7.0 `Input` bug **that kernel 0.11
-fixed**. A workaround became permanent public API.
+`WorkbenchApi` published **eight raw `Signal<T>`** — mutable handles, so anything holding the API could
+`.set()` them — plus ten methods that merely forwarded to `cx.chrome` (`focusWindow`, `closeWindow`,
+`maximizeWindow`…), which consumers already have. It also published `filterRevision` and
+`docRevision`: revision counters that existed to work around the A7.0 `Input` bug that kernel 0.11
+fixed. Because `vx.app` was the view's only route to state, every internal signal had to become
+permanent public API.
 
-### The cause is structural, not sloppiness
+### The solution: two objects, not one
+
+The kernel (v0.14.0) separates what an Application publishes from what its views read:
 
 ```ts
-export interface ViewContext<TParams = Record<string, never>, TApi = unknown> {
+export interface ViewContext<
+    TParams = Record<string, never>,
+    TApi = unknown,
+    TInternal = never,
+> {
     readonly params: TParams;
-    readonly app: TApi;      // ← a view's only route to its own state
-    ...
+    readonly app: TApi;           // public API (for views that want public surface)
+    readonly internal: TInternal; // internal context (never published, holds part's own state)
+    setTitle(title: string): void;
+    close(): void;
+    onDispose(fn: () => void): void;
 }
 ```
 
-**A view reaches its Application's state through `ViewContext.app`, which is the published API.** So
-every signal a view needs must be public. The interface is not designed; it is the union of what the
-views happened to require.
+- **an internal context (`vx.internal`)** — the signals, drafts and mutation methods, handed to this
+  part's own views, scoped to the running process instance (`pid`), and never published to the provider
+  graph.
+- **the published API (`vx.app` / `use(TOKEN)`)** — what another part receives from `use(TOKEN)`.
+  Deliberately small, and exposing `ReadonlySignal<T>` where it exposes state.
 
-### This is about to get worse, and that is the opportunity
+### How an Application declares both
 
-Splitting each part into `views/<view>.ts`
-([boundaries](https://github.com/FLYBYME/surfdns/blob/master/architecture/boundaries.md)) means views
-stop closing over module-local state and must be *given* something. The easy answer is "give them the
-API", which would freeze this shape permanently.
+`Application` accepts a 5th type parameter `TInternal`, defaulting to `never`:
 
-**The right answer is two objects:**
+```ts
+export interface Application<
+    TNeeds extends readonly CapabilityName[],
+    TConsumes extends ProviderTokens = readonly [],
+    TProvides extends ProviderToken<unknown> | undefined = undefined,
+    TApi = Api<Record<string, never>>,
+    TInternal = never,
+> extends Declarations {
+    start(cx: Context<TNeeds, TConsumes, TApi>): Promise<ApplicationStartResult<ApiOf<TProvides>, TInternal>>;
+}
+```
 
-- **an internal context** — the signals, handed to this part's own views, never published
-- **the published API** — what another part may call, deliberately small, and read-only where it
-  exposes state
+`start()` returns:
+- `{ api, internal }` when providing both a published API and internal context
+- `{ internal }` when the Application has views but provides no public API to other parts (`provides: undefined`)
+- `api` directly when the Application does not opt in, maintaining complete backwards compatibility for existing parts.
 
-Concretely:
+At boot and process start, the kernel registers `entry.api` into `#providers` for `use(TOKEN)`, but
+holds `entry.internal` private to the process. When `mountView` mounts a view, `vx.internal` receives
+that private state.
 
-1. **A part's API exposes `ReadonlySignal<T>`, never `Signal<T>`.** The type already exists
-   (`reactivity/types.ts`) and `models` uses it throughout. Publishing a writable handle is the same
-   mistake as a public field with a setter nobody asked for.
+### The rules for published interfaces
+
+1. **A part's API exposes `ReadonlySignal<T>`, never `Signal<T>`.** The type exists in
+   `reactivity/types.ts` and `models` uses it throughout. Publishing a writable handle is handing out a
+   public field with a setter nobody asked for.
 2. **A part never re-exports a capability.** If a consumer wants `focusWindow`, it declares
-   `needs('windows')`. Ten forwarding methods on `WorkbenchApi` are ten ways to reach one thing.
-3. **`ViewContext` gains a route to internal state that is not the public API.** This is the change
-   that makes the other two possible, and it is a kernel change — an internal context type per part,
-   separate from `TApi`.
-4. **A workaround never becomes API.** `filterRevision` and `docRevision` should have been deleted
-   when 0.11 fixed the bug they existed for.
+   `needs('windows')`. Ten forwarding methods on `WorkbenchApi` are ten redundant ways to reach one thing.
+3. **`ViewContext.app` keeps working.** A view legitimately sometimes wants the part's own public
+   facade. It is no longer the *only* route.
+4. **A workaround never becomes API.** Internal revision counters or shim signals stay inside
+   `TInternal` if needed at all, and are deleted when the bug they worked around is fixed.
 
-> **The published interface is a decision. Right now it is a leftover.**
+> **The published interface is a decision, not a leftover.**
 
 ---
 

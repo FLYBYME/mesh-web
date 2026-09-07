@@ -365,6 +365,33 @@ view handed a container can construct DOM, and a view that can construct DOM can
 `HTMLElement`, no `mount`. [view-layer.md](./view-layer.md) is the whole argument; what carries over
 here is that a view's output is data and the renderer is the kernel's.
 
+### What a view receives: `ViewContext` — **Decided**
+
+A view's `render(vx)` receives `ViewContext<TParams, TApi, TInternal>`:
+
+```ts
+export interface ViewContext<
+    TParams = Record<string, never>,
+    TApi = unknown,
+    TInternal = never,
+> {
+    readonly params: TParams;
+    readonly app: TApi;
+    readonly internal: TInternal;
+    setTitle(title: string): void;
+    close(): void;
+    onDispose(fn: () => void): void;
+}
+```
+
+- **`internal`** is this process instance's internal context — its raw signals, drafts and private
+  methods, never published to other parts. A view reaches its Application's state through `vx.internal`,
+  so the view's data requirements do not dictate the public interface ([spec/components.md §5](./components.md)).
+- **`app`** is the Application's published API (what another part receives from `use(TOKEN)`). It remains
+  accessible for views that want to invoke the public surface, but is no longer the sole route to state.
+- **`params`** carries instance arguments supplied when opening the window (`windows.open({ view, params })`).
+- **`setTitle`**, **`close`**, and **`onDispose`** provide window lifecycle control.
+
 What mesh-ui got right — a named slot filled by different providers, resolved at runtime — is kept,
 and is the tile model above. What it got wrong is listed in
 [view-layer §6](./view-layer.md): four hard-coded panel locations, one instance per provider id, and
