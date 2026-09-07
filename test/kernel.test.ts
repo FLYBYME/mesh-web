@@ -158,6 +158,33 @@ describe('manifests merge before anything runs', () => {
         expect(kernel.manifest.views.get('blog/editor')?.decl.title).toBe('Editor');
     });
 
+    it('records session requirements from Application declarations in manifest.sessions', () => {
+        const kernel = new Kernel();
+
+        class CatalogApp implements Application<readonly []> {
+            readonly needs = [] as const;
+            readonly session = 'required' as const;
+            async start(): Promise<void> {}
+        }
+
+        class ProfileApp implements Application<readonly []> {
+            readonly needs = [] as const;
+            readonly session = 'optional' as const;
+            async start(): Promise<void> {}
+        }
+
+        kernel.boot([
+            load('auth', new AuthExtension()),
+            load('blog', new BlogApp()),
+            load('catalog', new CatalogApp()),
+            load('profile', new ProfileApp()),
+        ]);
+
+        expect(kernel.manifest.sessions.get('catalog')).toBe('required');
+        expect(kernel.manifest.sessions.get('profile')).toBe('optional');
+        expect(kernel.manifest.sessions.has('blog')).toBe(false);
+    });
+
     it('reports two Applications claiming one binding, at load time', () => {
         const kernel = new Kernel();
 

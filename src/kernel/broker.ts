@@ -18,7 +18,8 @@
 
 import { computed, effect, signal } from '../reactivity/index.js';
 import { createScope } from '../reactivity/scope.js';
-import type { ReactiveScope, Signal } from '../reactivity/types.js';
+import type { ReactiveScope, ReadonlySignal, Signal } from '../reactivity/types.js';
+import type { Session } from '../auth/extension.js';
 import type { Json, Node, Reactive } from '../description/types.js';
 import type {
     CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Credentials, Dom, Http,
@@ -126,6 +127,7 @@ export interface KernelServices {
      */
     readonly credentials: CredentialHolder;
     readonly hives: HiveBindings;
+    session?: ReadonlySignal<Session | null>;
 }
 
 /**
@@ -138,6 +140,7 @@ export interface CredentialHolder {
     readonly origin: string;
     owner: string | undefined;
     headers: (() => Readonly<Record<string, string>>) | undefined;
+    session?: ReadonlySignal<Session | null>;
 }
 
 /**
@@ -205,6 +208,7 @@ export interface ServiceOptions {
      */
     readonly apiOrigin?: string;
     readonly hives?: HiveBindings;
+    readonly session?: ReadonlySignal<Session | null>;
 }
 
 export function defaultHives(): HiveBindings {
@@ -224,6 +228,7 @@ export function createServices(
         origin: options.apiOrigin ?? '',
         owner: undefined,
         headers: undefined,
+        session: options.session,
     };
 
     return {
@@ -244,6 +249,7 @@ export function createServices(
             ),
         }) as MeshClient<unknown>,
         hives: options.hives ?? defaultHives(),
+        session: options.session,
     };
 }
 
@@ -342,6 +348,7 @@ export function createContext(
                 models = createModels(
                     services.meshClient(declaredApi, id),
                     (fn) => cleanups.push(fn),
+                    () => services.session ?? services.credentials.session,
                 );
                 break;
             case 'state':
@@ -623,7 +630,7 @@ function makeCredentials(owner: string, services: KernelServices): Credentials {
     return {
         get origin(): string { return held.origin; },
 
-        attach(headers) {
+        attach(headers, sessionSignal) {
             if (held.owner !== undefined && held.owner !== owner) {
                 throw new Error(
                     `${owner} tried to attach credentials, but ${held.owner} already has them. ` +
@@ -633,6 +640,12 @@ function makeCredentials(owner: string, services: KernelServices): Credentials {
             }
             held.owner = owner;
             held.headers = headers;
+            if (sessionSignal !== undefined) {
+                held.session = sessionSignal;
+                if (services.session === undefined) {
+                    services.session = sessionSignal;
+                }
+            }
         },
 
         clear() {

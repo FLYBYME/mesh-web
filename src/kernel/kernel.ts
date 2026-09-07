@@ -16,7 +16,17 @@ import { createContext, createServices, type BrokerHandle, type KernelServices }
 import { resolveOrder } from './graph.js';
 import { mergeManifests, type Manifest } from './manifest.js';
 import { signal } from '../reactivity/signal.js';
-import type { Signal } from '../reactivity/types.js';
+import type { ReadonlySignal, Signal } from '../reactivity/types.js';
+import { AUTH, type Session } from '../auth/extension.js';
+
+function isAuthApi(val: unknown): val is { readonly session: ReadonlySignal<Session | null> } {
+    return (
+        typeof val === 'object' &&
+        val !== null &&
+        'session' in val &&
+        typeof (val as { session: unknown }).session === 'function'
+    );
+}
 
 export interface Loaded {
     readonly id: string;
@@ -217,6 +227,9 @@ export class Kernel {
 
             if (contribution.provides !== undefined) {
                 this.#providers.set(contribution.provides.id, api);
+                if (contribution.provides.id === AUTH.id && isAuthApi(api)) {
+                    this.services.session = api.session;
+                }
             }
 
             this.#extensions.set(id, { id, state: 'activated', api });

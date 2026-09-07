@@ -164,8 +164,11 @@ export class AuthExtension implements Extension<typeof NEEDS, readonly [], typeo
 
         // Attached once, and *before* any request could be made. The lookup runs per request, so a
         // ticket that arrives later is on the next call rather than on the next page load.
-        cx.credentials.attach((): Readonly<Record<string, string>> =>
-            (ticket === undefined ? {} : { authorization: `Bearer ${ticket}` }));
+        cx.credentials.attach(
+            (): Readonly<Record<string, string>> =>
+                (ticket === undefined ? {} : { authorization: `Bearer ${ticket}` }),
+            session,
+        );
 
         /**
          * One request, by path.

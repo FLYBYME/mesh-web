@@ -11,6 +11,6 @@ export { consumes, provider } from './provider.js';
 export type {
     ApiOf, Application, ApplicationInstance, ApplicationStartResult, CommandDecl, Context, Declarations,
     ErasedApplication, ErasedContext, ErasedContribution, ErasedExtension, Extension, KeyDecl,
-    MenuDecl, SettingDecl, ViewContext, ViewDecl,
+    MenuDecl, SessionRequirement, SettingDecl, ViewContext, ViewDecl,
 } from './contract.js';
 export { applicationInstance, construct, isApplication, isApplicationInstance, isExtension } from './contract.js';

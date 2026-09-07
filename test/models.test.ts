@@ -22,7 +22,10 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    AUTH,
+    AuthExtension,
     call,
+    consumes,
     createClient,
     createScope,
     createServices,
@@ -30,12 +33,15 @@ import {
     flushSync,
     Kernel,
     needs,
+    recordingWindows,
     signal,
+    withHeaders,
     type Api,
     type Application,
     type Context,
     type NetRequest,
     type NetResponse,
+    type Session,
     type Transport,
 } from '../src/index.js';
 
@@ -596,5 +602,381 @@ describe('scope-bound disposal', () => {
 
         await new Promise((r) => setTimeout(r, 10));
         expect(fetches).toBe(1);
+    });
+});
+
+// ---------------------------------------------------------------------------- Session-aware collections
+
+describe('session-aware collections', () => {
+    it('reloads automatically when session transitions from absent to present after 401', async () => {
+        const sessionSignal = signal<Session | null>(null);
+        let fetchCount = 0;
+
+        const fake = createFakeTransport((req) => {
+            fetchCount++;
+            if (!req.headers['authorization']) {
+                return jsonResponse(401, { error: 'unauthorized' });
+            }
+            return jsonResponse(200, [{ id: 'p1', name: 'Alice Part', tag: 't1' }]);
+        });
+
+        const client = createClient(siteApi, {
+            transport: {
+                send: (req) => {
+                    const session = sessionSignal.peek();
+                    const headers = { ...req.headers };
+                    if (session) {
+                        headers['authorization'] = `Bearer ticket-${session.userId}`;
+                    }
+                    return fake.transport.send({ ...req, headers });
+                },
+            },
+        });
+
+        const { createModels } = await import('../src/models/index.js');
+        const models = createModels<typeof siteApi>(client, undefined, sessionSignal);
+
+        const parts = models('part');
+        expect(parts.loading()).toBe(true);
+        await new Promise((r) => setTimeout(r, 20));
+
+        // Initially unauthenticated: failed with 401
+        expect(fetchCount).toBe(1);
+        expect(parts.status()).toBe('error');
+        expect(parts.error()?.kind).toBe('unauthorized');
+        expect(parts.rows()).toEqual([]);
+        expect(parts.data()).toBeUndefined();
+
+        // User signs in (session transitions absent -> present)
+        sessionSignal.set({
+            userId: 'alice',
+            displayName: 'Alice',
+            roles: ['user'],
+            expiresAt: Date.now() + 10000,
+        });
+        flushSync();
+        await new Promise((r) => setTimeout(r, 15));
+
+        // Automatically reloaded with the new session
+        expect(fetchCount).toBe(2);
+        expect(parts.status()).toBe('ready');
+        expect(parts.error()).toBeNull();
+        expect(parts.rows()).toEqual([{ id: 'p1', name: 'Alice Part', tag: 't1' }]);
+        expect(parts.data()).toEqual([{ id: 'p1', name: 'Alice Part', tag: 't1' }]);
+    });
+
+    it('clears data and rows on sign-out (present -> absent) without leaking data', async () => {
+        const sessionSignal = signal<Session | null>({
+            userId: 'alice',
+            displayName: 'Alice',
+            roles: ['user'],
+            expiresAt: Date.now() + 10000,
+        });
+        let fetchCount = 0;
+
+        const fake = createFakeTransport(() => {
+            fetchCount++;
+            return jsonResponse(200, [{ id: 'p1', name: 'Secret Part', tag: 'confidential' }]);
+        });
+
+        const client = createClient(siteApi, { transport: fake.transport });
+        const { createModels } = await import('../src/models/index.js');
+        const models = createModels<typeof siteApi>(client, undefined, sessionSignal);
+
+        const parts = models('part');
+        expect(parts.loading()).toBe(true);
+        await new Promise((r) => setTimeout(r, 20));
+
+        // Loaded with session
+        expect(fetchCount).toBe(1);
+        expect(parts.status()).toBe('ready');
+        expect(parts.rows()).toHaveLength(1);
+        expect(parts.data()).toBeDefined();
+
+        // Sign-out (present -> absent)
+        sessionSignal.set(null);
+        flushSync();
+
+        // Rows and data cleared immediately, status idle, no new fetch fired
+        expect(parts.data()).toBeUndefined();
+        expect(parts.rows()).toEqual([]);
+        expect(parts.empty()).toBe(false);
+        expect(parts.status()).toBe('idle');
+        expect(parts.loading()).toBe(false);
+        expect(fetchCount).toBe(1);
+    });
+
+    it('does not fire requests certain to fail for want of a session', async () => {
+        const sessionSignal = signal<Session | null>(null);
+        const filterSignal = signal('initial');
+        let fetchCount = 0;
+
+        const fake = createFakeTransport(() => {
+            fetchCount++;
+            return jsonResponse(401, { error: 'unauthorized' });
+        });
+
+        const client = createClient(siteApi, { transport: fake.transport });
+        const { createModels } = await import('../src/models/index.js');
+        const models = createModels<typeof siteApi>(client, undefined, sessionSignal);
+
+        const parts = models('part', () => ({ search: filterSignal() }));
+        await new Promise((r) => setTimeout(r, 15));
+
+        expect(fetchCount).toBe(1);
+        expect(parts.status()).toBe('error');
+        expect(parts.error()?.kind).toBe('unauthorized');
+
+        // Unrelated query signal changes while signed out: must not fire requests certain to fail
+        filterSignal.set('changed');
+        flushSync();
+        await new Promise((r) => setTimeout(r, 15));
+        expect(fetchCount).toBe(1);
+
+        // Explicit manual refetch still attempts
+        await parts.refetch();
+        expect(fetchCount).toBe(2);
+    });
+
+    it('switches users (User A -> User B) without leaking rows across sessions', async () => {
+        const sessionSignal = signal<Session | null>({
+            userId: 'alice',
+            displayName: 'Alice',
+            roles: ['user'],
+            expiresAt: Date.now() + 10000,
+        });
+
+        const fake = createFakeTransport((req) => {
+            const authHeader = req.headers['authorization'];
+            if (authHeader === 'Bearer ticket-alice') {
+                return jsonResponse(200, [{ id: 'p-alice', name: 'Alice Doc', tag: 'private' }]);
+            }
+            if (authHeader === 'Bearer ticket-bob') {
+                return jsonResponse(200, [{ id: 'p-bob', name: 'Bob Doc', tag: 'private' }]);
+            }
+            return jsonResponse(401, { error: 'unauthorized' });
+        });
+
+        const client = createClient(siteApi, {
+            transport: {
+                send: (req) => {
+                    const session = sessionSignal();
+                    const headers = { ...req.headers };
+                    if (session) {
+                        headers['authorization'] = `Bearer ticket-${session.userId}`;
+                    }
+                    return fake.transport.send({ ...req, headers });
+                },
+            },
+        });
+
+        const { createModels } = await import('../src/models/index.js');
+        const models = createModels<typeof siteApi>(client, undefined, sessionSignal);
+
+        const parts = models('part');
+        expect(parts.loading()).toBe(true);
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(parts.status()).toBe('ready');
+        expect(parts.rows()).toEqual([{ id: 'p-alice', name: 'Alice Doc', tag: 'private' }]);
+
+        // User switches from Alice directly to Bob
+        sessionSignal.set({
+            userId: 'bob',
+            displayName: 'Bob',
+            roles: ['user'],
+            expiresAt: Date.now() + 10000,
+        });
+        flushSync();
+        await new Promise((r) => setTimeout(r, 15));
+
+        expect(parts.status()).toBe('ready');
+        expect(parts.rows()).toEqual([{ id: 'p-bob', name: 'Bob Doc', tag: 'private' }]);
+    });
+
+    it('boots cleanly and loads public collections on a site without AuthExtension', async () => {
+        let fetches = 0;
+        const fake = createFakeTransport(() => {
+            fetches++;
+            return jsonResponse(200, [{ id: 'pub1', name: 'Public Part', tag: 'public' }]);
+        });
+
+        const services = createServices();
+        services.meshClient = (api) => createClient(api, { transport: fake.transport });
+
+        const kernel = new Kernel({ services });
+        const APP_NEEDS = needs('models');
+
+        let cx!: Context<typeof APP_NEEDS, readonly [], typeof siteApi>;
+        class PublicApp implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
+            readonly needs = APP_NEEDS;
+            readonly api = siteApi;
+            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<void> {
+                cx = startCx;
+            }
+        }
+
+        // Boot WITHOUT AuthExtension
+        kernel.boot([{ id: 'pub-app', contribution: new PublicApp() }]);
+        await kernel.start('pub-app');
+
+        const parts = cx.models('part');
+        expect(parts.loading()).toBe(true);
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(fetches).toBe(1);
+        expect(parts.status()).toBe('ready');
+        expect(parts.rows()).toEqual([{ id: 'pub1', name: 'Public Part', tag: 'public' }]);
+    });
+
+    it('reloads in-flight request when session arrives concurrently before 401 returns', async () => {
+        const sessionSignal = signal<Session | null>(null);
+        let resolveFirstFetch!: (resp: NetResponse) => void;
+        let secondFetchFired = false;
+
+        const fake = createFakeTransport((req) => {
+            if (!req.headers['authorization']) {
+                return new Promise<NetResponse>((resolve) => {
+                    resolveFirstFetch = resolve;
+                });
+            }
+            secondFetchFired = true;
+            return jsonResponse(200, [{ id: 'p1', name: 'Concurrent Part', tag: 't1' }]);
+        });
+
+        const client = createClient(siteApi, {
+            transport: {
+                send: (req) => {
+                    const session = sessionSignal();
+                    const headers = { ...req.headers };
+                    if (session) {
+                        headers['authorization'] = `Bearer ticket-${session.userId}`;
+                    }
+                    return fake.transport.send({ ...req, headers });
+                },
+            },
+        });
+
+        const { createModels } = await import('../src/models/index.js');
+        const models = createModels<typeof siteApi>(client, undefined, sessionSignal);
+
+        const parts = models('part');
+        // Initial fetch is in flight...
+        expect(parts.loading()).toBe(true);
+
+        // Session arrives WHILE the request is still pending
+        sessionSignal.set({
+            userId: 'alice',
+            displayName: 'Alice',
+            roles: ['user'],
+            expiresAt: Date.now() + 10000,
+        });
+
+        // Now first fetch completes with 401 (since it was sent unauthenticated)
+        resolveFirstFetch(jsonResponse(401, { error: 'unauthorized' }));
+        await new Promise((r) => setTimeout(r, 15));
+
+        // It should have detected that session arrived while in flight, and reloaded with the session
+        expect(secondFetchFired).toBe(true);
+        expect(parts.status()).toBe('ready');
+        expect(parts.rows()).toEqual([{ id: 'p1', name: 'Concurrent Part', tag: 't1' }]);
+    });
+
+    it('integrates end-to-end with Kernel, AuthExtension, and Application models', async () => {
+        let requestsCount = 0;
+
+        // Mock global fetch for AuthExtension sign in / sign out / endpoints
+        const origFetch = globalThis.fetch;
+        globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+            if (url.endsWith('/api/identity/ticket') && init?.method === 'POST') {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ token: 'tk-alice', userId: 'alice', expiresAt: Date.now() + 3600000 }),
+                } as unknown as Response;
+            }
+            if (url.endsWith('/api/identity/whoami')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ userId: 'alice', displayName: 'Alice', roles: ['admin'] }),
+                } as unknown as Response;
+            }
+            if (url.endsWith('/api/identity/ticket/revoke')) {
+                return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+            }
+            return { ok: false, status: 404 } as unknown as Response;
+        }) as typeof globalThis.fetch;
+
+        try {
+            const fake = createFakeTransport((req) => {
+                requestsCount++;
+                if (!req.headers['authorization']) {
+                    return jsonResponse(401, { error: 'unauthorized' });
+                }
+                return jsonResponse(200, [{ id: 'p1', name: 'Alice Exclusive', tag: 't1' }]);
+            });
+
+            const services = createServices(recordingWindows(), { apiOrigin: 'https://test.local' });
+            services.meshClient = (api) => createClient(api, {
+                transport: withHeaders(fake.transport, () => services.credentials.headers?.() ?? {}),
+            });
+
+            const kernel = new Kernel({ services });
+            const authExt = new AuthExtension();
+
+            const APP_NEEDS = needs('models');
+            const APP_CONSUMES = consumes(AUTH);
+
+            let appCx!: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof siteApi>;
+            class SecretApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES, undefined, typeof siteApi> {
+                readonly needs = APP_NEEDS;
+                readonly consumes = APP_CONSUMES;
+                readonly api = siteApi;
+                readonly session = 'required' as const;
+
+                async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof siteApi>): Promise<void> {
+                    appCx = cx;
+                }
+            }
+
+            kernel.boot([
+                { id: 'auth', contribution: authExt },
+                { id: 'app', contribution: new SecretApp() },
+            ]);
+            await kernel.start('app');
+
+            const parts = appCx.models('part');
+            expect(parts.loading()).toBe(true);
+            await new Promise((r) => setTimeout(r, 20));
+
+            // Initial fetch failed with 401
+            expect(requestsCount).toBe(1);
+            expect(parts.status()).toBe('error');
+            expect(parts.error()?.kind).toBe('unauthorized');
+
+            // Sign in
+            const authApi = appCx.use(AUTH);
+            await authApi.signIn({ email: 'alice@test.local', password: 'secret' });
+            flushSync();
+            await new Promise((r) => setTimeout(r, 15));
+
+            // Reloaded automatically
+            expect(requestsCount).toBe(2);
+            expect(parts.status()).toBe('ready');
+            expect(parts.rows()).toEqual([{ id: 'p1', name: 'Alice Exclusive', tag: 't1' }]);
+
+            // Sign out
+            await authApi.signOut();
+            flushSync();
+
+            // Data cleared immediately
+            expect(parts.status()).toBe('idle');
+            expect(parts.rows()).toEqual([]);
+            expect(parts.data()).toBeUndefined();
+        } finally {
+            globalThis.fetch = origFetch;
+        }
     });
 });

@@ -139,10 +139,19 @@ type DescriptionNode = import('../description/types.js').Node;
  * declared, not registered. Keys settle it on their own — a binding created by calling
  * `cx.keys.bind()` can never be rebound by the user.
  */
+export type SessionRequirement = 'required' | 'optional';
+
 export interface Declarations {
     readonly needs?: readonly CapabilityName[];
     readonly consumes?: ProviderTokens;
     readonly provides?: ProviderToken<unknown> | undefined;
+    /**
+     * Whether this contribution requires an authenticated session.
+     *
+     * 'required' means the contribution is unusable without a session (e.g. catalog).
+     * 'optional' means the contribution can run signed out and uses a session if available.
+     */
+    readonly session?: SessionRequirement;
     /**
      * The API this contribution talks to, declared like everything else the kernel needs before the
      * contribution runs (spec/network.md section 4).
