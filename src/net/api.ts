@@ -148,7 +148,8 @@ export function toRequest(api: Api<Record<string, AnyApiCall>>, c: AnyApiCall, i
     readonly method: HttpMethod;
     readonly body: string | undefined;
 } {
-    const url = `${api.base}${c.path}`;
+    const { path, consumed } = fillPath(c.path, input);
+    const url = `${api.base}${path}`;
 
     if (c.method !== 'GET' && c.method !== 'DELETE') {
         return { url, method: c.method, body: input === undefined ? undefined : JSON.stringify(input) };
@@ -159,9 +160,57 @@ export function toRequest(api: Api<Record<string, AnyApiCall>>, c: AnyApiCall, i
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(input as Record<string, Json>)) {
         if (value === undefined || value === null) continue;
+        // Already in the path. Repeating it in the query is noise, and the server takes the path
+        // value regardless — `api.service.ts` merges path params last, deliberately.
+        if (consumed.has(key)) continue;
         query.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
     }
 
     const q = query.toString();
     return { url: q === '' ? url : `${url}?${q}`, method: c.method, body: undefined };
+}
+
+/**
+ * Put the input's values into the path's `:param` segments.
+ *
+ * **This was not done at all**, so `POST /sites/:host/deploy` was requested with `:host` still in
+ * it, literally. No route matched, and the answer was a 404 that named a path no caller had written
+ * — reported exactly that way. It was true of every parameterised call the console has: `part.get`,
+ * `partVersion.get`, `release.get`, `site.get` and `cdn.deploy`. The consoles list with `find` and
+ * pick client-side, so five broken calls sat behind screens that never made them.
+ *
+ * The value stays in the body for a body-carrying method. That is not laziness: the server merges
+ * path params **last** and says why — *"a route with `:id` in the path and `id` in the body is a
+ * caller trying to act on one record through another's URL, and the URL is the one the router and
+ * the gate agreed on."* So the path wins either way, and sending both cannot disagree.
+ *
+ * A missing value **throws**, rather than sending `:host` and letting the server answer 404. The
+ * whole reason this took a bug report is that the failure looked like a routing problem on the
+ * server instead of a missing argument on the client.
+ */
+function fillPath(path: string, input: unknown): { path: string; consumed: ReadonlySet<string> } {
+    if (!path.includes(':')) return { path, consumed: new Set() };
+
+    const values = (input ?? {}) as Record<string, Json>;
+    const consumed = new Set<string>();
+
+    const filled = path.split('/').map((segment) => {
+        if (!segment.startsWith(':')) return segment;
+
+        const name = segment.slice(1);
+        const value = values[name];
+
+        if (value === undefined || value === null) {
+            throw new Error(
+                `The call to ${path} needs "${name}" and the input does not have it. Without it the `
+                + `request would ask for "${segment}" literally, which matches no route and answers `
+                + `404 as though the endpoint did not exist.`,
+            );
+        }
+
+        consumed.add(name);
+        return encodeURIComponent(typeof value === 'object' ? JSON.stringify(value) : String(value));
+    }).join('/');
+
+    return { path: filled, consumed };
 }

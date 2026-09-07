@@ -47,6 +47,11 @@ const siteApi = defineApi({
         'credential.resolve': call<{ id: string }, Credential, 'revoked'>('GET', '/credential/resolve'),
         'credential.create': call<{ name: string; provider: string }, Credential>('POST', '/credential'),
         'session.whoami': call<void, Session>('GET', '/session/whoami'),
+        // Parameterised, because five of the console's eighteen calls are and not one of them
+        // worked: the path was sent with `:id` still in it.
+        'credential.get': call<{ id: string }, Credential>('GET', '/credentials/:id'),
+        'site.deploy': call<{ host: string; release: string }, { changed: boolean }>(
+            'POST', '/sites/:host/deploy'),
     },
 });
 
@@ -176,6 +181,53 @@ describe('a call becomes a request', () => {
         const fake = fakeTransport(() => json(200, {}));
         await createClient(siteApi, { transport: fake.transport }).call('session.whoami');
         expect(fake.sent[0]!.url).toBe('/api/session/whoami');
+    });
+
+    /**
+     * Reported as a 404 on `POST /api/sites/:host/deploy` — with `:host` in the request URL,
+     * literally. Nothing substituted path parameters, so every parameterised call asked for a route
+     * that cannot exist and got told the endpoint does not exist. Five of the console's calls:
+     * `part.get`, `partVersion.get`, `release.get`, `site.get` and `cdn.deploy`.
+     *
+     * It survived because the consoles list with `find` and select client-side, so the screens that
+     * would have made these calls never did.
+     */
+    it('puts the input into the path, and does not repeat it in the query', async () => {
+        const fake = fakeTransport(() => json(200, {}));
+        await createClient(siteApi, { transport: fake.transport }).call('credential.get', { id: 'c1' });
+
+        expect(fake.sent[0]!.url).toBe('/api/credentials/c1');
+    });
+
+    it('fills a path parameter on a body-carrying method, and keeps the body whole', async () => {
+        const fake = fakeTransport(() => json(200, {}));
+        await createClient(siteApi, { transport: fake.transport })
+            .call('site.deploy', { host: 'console.localhost', release: 'sha256:abc' });
+
+        expect(fake.sent[0]!.url).toBe('/api/sites/console.localhost/deploy');
+        // Still in the body: the server merges path params last and takes the URL's value, so the
+        // two cannot disagree, and stripping it would be a second rule to keep in step.
+        expect(JSON.parse(fake.sent[0]!.body!))
+            .toEqual({ host: 'console.localhost', release: 'sha256:abc' });
+    });
+
+    it('encodes a path value rather than letting it change the route', async () => {
+        const fake = fakeTransport(() => json(200, {}));
+        await createClient(siteApi, { transport: fake.transport }).call('credential.get', { id: 'a/b c' });
+
+        expect(fake.sent[0]!.url).toBe('/api/credentials/a%2Fb%20c');
+    });
+
+    it('throws when a path parameter has no value, rather than requesting the template', async () => {
+        const fake = fakeTransport(() => json(200, {}));
+        const client = createClient(siteApi, { transport: fake.transport });
+
+        // The whole cost of the original bug was that this looked like a server routing fault.
+        await expect(
+            client.call('credential.get', { id: undefined as unknown as string }),
+        ).rejects.toThrow(/needs "id"/);
+
+        expect(fake.sent).toHaveLength(0);
     });
 
     it('lets a wrapper attach a ticket, so no Application ever handles one', async () => {
