@@ -135,6 +135,7 @@ export async function mountPart(input: MountOptions | readonly PartRef[] | PartR
         page: started.page,
         settings: started.settings,
         components: started.components,
+        logViewer: started.logViewer,
         ready: started.ready,
         root,
         get frameworkInstances() {
