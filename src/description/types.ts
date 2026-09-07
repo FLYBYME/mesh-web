@@ -185,6 +185,8 @@ export interface SurfaceNode {
 export interface DialogProps {
     readonly open?: Reactive<boolean>;
     readonly ariaLabel?: Reactive<string>;
+    readonly ariaLabelledBy?: Reactive<string>;
+    readonly ariaDescribedBy?: Reactive<string>;
     readonly title?: Reactive<string>;
     readonly class?: Reactive<string>;
 }
