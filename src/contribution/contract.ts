@@ -79,15 +79,26 @@ export interface StoreDecl {
 /**
  * What a view receives.
  *
- * `app` is whatever the Application's `start()` returned. It is here, rather than on the
- * Application as a field, because a view mounts only after `start()` resolves (when the process
- * reaches `running`) — so the guarantee is carried by the types and enforced at runtime by holding
- * view mounting until `start()` finishes, instead of by a definite-assignment assertion papering
- * over a gap (spec/application.md section 6, roadmap A5.7b).
+ * `internal` is this part's own state (the internal context), handed to this part's own views and
+ * never published to the outside world (spec/components.md section 5).
+ *
+ * `app` is whatever the Application's published API is (or the return value of start()).
+ * It is here because a view legitimately sometimes wants the part's own public surface, but stops
+ * being the only route to state.
+ *
+ * Both are here, rather than on the Application as fields, because a view mounts only after
+ * `start()` resolves (when the process reaches `running`) — so the guarantee is carried by the
+ * types and enforced at runtime by holding view mounting until `start()` finishes, instead of by a
+ * definite-assignment assertion papering over a gap (spec/application.md section 6, roadmap A5.7b).
  */
-export interface ViewContext<TParams = Record<string, never>, TApi = unknown> {
+export interface ViewContext<
+    TParams = Record<string, never>,
+    TApi = unknown,
+    TInternal = never,
+> {
     readonly params: TParams;
     readonly app: TApi;
+    readonly internal: TInternal;
     setTitle(title: string): void;
     close(): void;
     onDispose(fn: () => void): void;
@@ -101,7 +112,11 @@ export interface ViewContext<TParams = Record<string, never>, TApi = unknown> {
  * from application state to a description, and a view handed a container could hold logic
  * (spec/view-layer.md section 1).
  */
-export interface ViewDecl<TParams = Record<string, never>, TApi = unknown> {
+export interface ViewDecl<
+    TParams = Record<string, never>,
+    TApi = unknown,
+    TInternal = never,
+> {
     readonly id: string;
     readonly title: string;
     /** Which named node of the layout's split tree, in tiled mode. Unused when windowed. */
@@ -110,7 +125,7 @@ export interface ViewDecl<TParams = Record<string, never>, TApi = unknown> {
     readonly closable?: boolean;
     readonly defaultSize?: { readonly width?: number; readonly height?: number };
     readonly minSize?: { readonly width?: number; readonly height?: number };
-    render(vx: ViewContext<TParams, TApi>): DescriptionNode;
+    render(vx: ViewContext<TParams, TApi, TInternal>): DescriptionNode;
 }
 
 /** Imported as a type alias so this file does not depend on the description layer's runtime. */
@@ -126,7 +141,7 @@ type DescriptionNode = import('../description/types.js').Node;
 export interface Declarations {
     readonly needs?: readonly CapabilityName[];
     readonly consumes?: ProviderTokens;
-    readonly provides?: ProviderToken<unknown>;
+    readonly provides?: ProviderToken<unknown> | undefined;
     /**
      * The API this contribution talks to, declared like everything else the kernel needs before the
      * contribution runs (spec/network.md section 4).
@@ -158,10 +173,51 @@ export interface Declarations {
      * bivariance, which is the same reason `EachNode`'s callbacks are methods rather than
      * properties. As `unknown` it would reject every real view.
      */
-    readonly views?: readonly ViewDecl<never, never>[];
+    readonly views?: readonly ViewDecl<never, never, never>[];
 }
 
 // ---------------------------------------------------------------------------- the contracts
+
+/**
+ * An Application's runtime instance, returning both a public API for use(TOKEN) and an internal
+ * context for this part's own views (spec/components.md section 5).
+ */
+export interface ApplicationInstance<TPublic = unknown, TInternal = unknown> {
+    readonly api?: TPublic;
+    readonly internal: TInternal;
+}
+
+/**
+ * What start() may return. When TInternal is never (the default for parts that do not opt in),
+ * this collapses to TPublic (ApiOf<TProvides>), preserving complete backwards compatibility.
+ */
+export type ApplicationStartResult<TPublic = unknown, TInternal = never> = [TInternal] extends [never]
+    ? TPublic
+    : [TPublic] extends [void]
+      ? { readonly internal: TInternal; readonly api?: void }
+      : unknown extends TPublic
+        ? { readonly internal: TInternal; readonly api?: unknown }
+        : { readonly api: TPublic; readonly internal: TInternal };
+
+/** Helper to construct an ApplicationInstance with explicit typing. */
+export function applicationInstance<TPublic, TInternal>(instance: {
+    readonly api?: TPublic;
+    readonly internal: TInternal;
+}): ApplicationInstance<TPublic, TInternal> {
+    return instance;
+}
+
+/** Check whether a value returned by start() is an ApplicationInstance. */
+export function isApplicationInstance(
+    value: unknown,
+): value is ApplicationInstance<unknown, unknown> {
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        'internal' in value &&
+        value.internal !== undefined
+    );
+}
 
 /**
  * An Extension: a capability contributed to whatever is running.
@@ -186,18 +242,22 @@ export interface Extension<
  *
  * `views` is optional, because a headless Application is a background process and a daemon with no
  * window is an ordinary thing for an operating system to run (spec/application.md section 1).
+ *
+ * An Application may return just its public API from `start()`, or an object holding both its public
+ * API (`api`) and its internal context (`internal`) handed to its views (spec/components.md section 5).
  */
 export interface Application<
     TNeeds extends readonly CapabilityName[],
     TConsumes extends ProviderTokens = readonly [],
     TProvides extends ProviderToken<unknown> | undefined = undefined,
     TApi = Api<Record<string, never>>,
+    TInternal = never,
 > extends Declarations {
     readonly needs: TNeeds;
     readonly consumes?: TConsumes;
     readonly provides?: TProvides;
     readonly singleton?: boolean;
-    start(cx: Context<TNeeds, TConsumes, TApi>): Promise<ApiOf<TProvides>>;
+    start(cx: Context<TNeeds, TConsumes, TApi>): Promise<ApplicationStartResult<ApiOf<TProvides>, TInternal>>;
     stop?(): Promise<void>;
 }
 

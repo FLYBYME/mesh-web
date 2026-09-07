@@ -21,8 +21,9 @@ import type { WindowManager } from './manager.js';
 
 export interface ViewHostOptions {
     readonly windowId: string;
-    readonly decl: ViewDecl<never, never>;
+    readonly decl: ViewDecl<never, never, never>;
     readonly api: unknown;
+    readonly internal?: unknown;
     readonly params: Readonly<Record<string, Json>>;
     readonly windows: WindowManager;
     readonly render: RenderOptions;
@@ -79,9 +80,10 @@ export function mountView(host: Element, options: ViewHostOptions): ViewInstance
         },
     };
 
-    const vx: ViewContext<never, never> = {
+    const vx: ViewContext<never, never, never> = {
         params: options.params as never,
         app: options.api as never,
+        internal: options.internal as never,
         setTitle: (title) => options.windows.setTitle(options.windowId, title),
         close: () => options.windows.close(options.windowId),
         onDispose: (fn) => void cleanups.push(fn),
