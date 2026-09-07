@@ -25,6 +25,7 @@ import {
     AUTH,
     AuthExtension,
     call,
+    computed,
     consumes,
     createClient,
     createScope,
@@ -35,6 +36,7 @@ import {
     needs,
     recordingWindows,
     signal,
+    type ReadonlySignal,
     withHeaders,
     type Api,
     type Application,
@@ -1354,5 +1356,81 @@ describe('session-aware collections', () => {
             expect(fetchCount).toBe(2);
             expect(parts.rows()[0]?.name).toBe('Fetch 2');
         });
+    });
+});
+
+// ---------------------------------------------------------------------------- ownership of the default query
+
+describe("a collection's default query is nobody else's to own", () => {
+    /**
+     * **A signed-out console kept showing the previous user's rows.**
+     *
+     * `models('part')` with no query returns the collection *handle*, whose query is built lazily on
+     * the first read. In a console that first read is inside a `computed` — an error message derived
+     * from `parts.error()` — so the query's session effect became owned by that computed, and was
+     * disposed the moment it re-evaluated, which the first successful fetch guarantees. After that
+     * the collection had rows, no effects, and no way to hear about a sign-out.
+     *
+     * Constructing it there also threw `Cannot write to a signal inside a computed`, because
+     * starting a fetch writes `loading` — and the throw was swallowed by the computed's caller,
+     * which is why this looked like a stale list rather than an error.
+     *
+     * The fix is `runDetached`: a thing the collection owns and disposes must not also be owned by
+     * whoever happened to read it first. Same rule as `createDetachedScope`, one level down.
+     */
+    it('survives the computed that first read it, and still clears on sign-out', async () => {
+        const gatedApi = defineApi({
+            id: 'site-models-gated',
+            exposure: 'sha256:models1234',
+            calls: {
+                'part.find': call<PartQuery, readonly Part[]>('GET', '/parts', { kind: 'auth', level: 'user' }),
+            },
+        });
+
+        const sessionSignal = signal<Session | null>(null);
+        const fake = createFakeTransport(() => jsonResponse(
+            200, [{ id: 'p1', name: 'Secret Part', tag: 'confidential' }],
+        ));
+
+        const client = createClient(gatedApi, { transport: fake.transport });
+        const { createModels } = await import('../src/models/index.js');
+
+        // The shape the kernel actually hands a contribution: a function returning a computed over
+        // a holder, not the auth Extension's own signal.
+        const holder = signal<ReadonlySignal<Session | null> | undefined>(sessionSignal);
+        const kernelSession = computed<Session | null>(() => {
+            const inner = holder();
+            return inner ? inner() : null;
+        });
+
+        const models = createModels<typeof gatedApi>(client, undefined, () => kernelSession);
+        const parts = models('part');
+
+        // **The first read is inside a computed.** This is the line that broke it.
+        const message = computed<string | null>(() => (parts.error() === null ? null : 'failed'));
+        void message();
+        void parts.rows();
+        await new Promise((r) => setTimeout(r, 20));
+
+        // Gated, no session: declined rather than fired blind.
+        expect(parts.status()).toBe('idle');
+        expect(fake.sent).toHaveLength(0);
+
+        sessionSignal.set({
+            userId: 'alice', displayName: 'Alice', roles: ['user'], expiresAt: Date.now() + 10_000,
+        });
+        flushSync();
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(parts.status()).toBe('ready');
+        expect(parts.rows()).toHaveLength(1);
+
+        // And the effect is still alive to hear this, which is the whole point.
+        sessionSignal.set(null);
+        flushSync();
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(parts.rows()).toEqual([]);
+        expect(parts.status()).toBe('idle');
     });
 });

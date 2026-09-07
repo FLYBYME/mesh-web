@@ -10,6 +10,7 @@
 
 import { isCollectionStreamed, type AnyApiCall, type Api, type Gate } from '../net/api.js';
 import type { Result, CallError } from '../net/result.js';
+import { runDetached } from '../reactivity/scope.js';
 import type { ReadonlySignal } from '../reactivity/types.js';
 import { CollectionQueryImpl, type QueryFetcher, type SessionSource } from './query.js';
 import type {
@@ -361,7 +362,22 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
     let defaultQueryInstance: CollectionQuery<TItem, TQuery> | null = null;
     function getDefaultQuery(): CollectionQuery<TItem, TQuery> {
         if (defaultQueryInstance === null) {
-            defaultQueryInstance = instantiateQuery(undefined, false);
+            /**
+             * **Detached, because this one is created by whoever reads it first.**
+             *
+             * The collection owns this query and disposes it in `handle.dispose`, so it must not
+             * also be owned by whatever scope happened to be evaluating at the first read — which
+             * is an accident of render order, not a lifetime anybody chose.
+             *
+             * The console found it: the first read of `parts` was inside a `computed` deriving an
+             * error message, so the query's session effect belonged to that computed and died the
+             * moment it re-evaluated — which the first successful fetch guaranteed. The collection
+             * kept its rows, lost its effects, and never heard about a sign-out, so a signed-out
+             * page went on showing the previous user's data. Constructing it there also threw
+             * `Cannot write to a signal inside a computed`, because starting a fetch writes
+             * `loading` — and that throw went into the computed's caller and was lost.
+             */
+            defaultQueryInstance = runDetached(() => instantiateQuery(undefined, false));
         }
         return defaultQueryInstance;
     }

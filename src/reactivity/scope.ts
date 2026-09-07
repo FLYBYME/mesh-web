@@ -1,5 +1,8 @@
 import type { ReactiveScope, IDisposableContainer } from './types.js';
-import { getActiveScopeContext, setActiveScopeContext } from './context.js';
+import {
+    getActiveComputedStack, getActiveScopeContext, popActiveComputed, pushActiveComputed,
+    setActiveScopeContext, setCurrentSubscriber, type IComputedNode,
+} from './context.js';
 
 /**
  * ReactiveScopeImpl: owns a collection of reactive effects and resources.
@@ -112,5 +115,50 @@ export function createDetachedScope(): ReactiveScope {
         return new ReactiveScopeImpl();
     } finally {
         setActiveScopeContext(previous);
+    }
+}
+
+/**
+ * Run something with **no owner, no subscriber and no computed above it**.
+ *
+ * The same rule as `createDetachedScope`, applied to a value rather than to a scope: *an
+ * explicitly-disposed thing must not be implicitly owned*. A lazily-created object inherits
+ * whatever happened to be evaluating at the moment of first use, and "whoever read it first" is
+ * never a sensible owner — it is an accident of render order.
+ *
+ * Found through a signed-out console still showing the previous user's rows. A collection's default
+ * query is created on first read; in that console the first read was inside a `computed` deriving
+ * an error message, so the query's session effect became owned by that computed — and was disposed
+ * the moment the computed re-evaluated, which the first successful fetch guaranteed. From then on
+ * the collection had rows, no effects, and no way to hear about a sign-out. Constructing it also
+ * *threw* `Cannot write to a signal inside a computed`, since the effect writes `loading` as it
+ * starts, and that throw was swallowed by the caller.
+ *
+ * All three are cleared, because all three do damage: the scope makes ownership wrong, the
+ * subscriber makes the reader depend on internals it never asked about, and the computed stack
+ * makes any write during construction an error.
+ */
+export function runDetached<T>(fn: () => T): T {
+    const previousScope = setActiveScopeContext(null);
+    const previousSubscriber = setCurrentSubscriber(null);
+
+    // Unwound and restored in order, because a computed evaluating inside another computed is
+    // ordinary and the stack has to come back exactly as it was.
+    const unwound: IComputedNode[] = [];
+    while (getActiveComputedStack().length > 0) {
+        const popped = popActiveComputed();
+        if (popped === undefined) break;
+        unwound.push(popped);
+    }
+
+    try {
+        return fn();
+    } finally {
+        for (let i = unwound.length - 1; i >= 0; i -= 1) {
+            const node = unwound[i];
+            if (node !== undefined) pushActiveComputed(node);
+        }
+        setCurrentSubscriber(previousSubscriber);
+        setActiveScopeContext(previousScope);
     }
 }
