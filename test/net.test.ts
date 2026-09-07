@@ -871,3 +871,72 @@ describe('stale client recovery and exposure difference reporting', () => {
     });
 });
 
+
+describe('a moved exposure is not a broken client', () => {
+    /**
+     * The failure this prevents, three times in two days: adding one contract anywhere moved the
+     * site's whole-exposure hash, and every part on the page began refusing every call — the
+     * catalog browser dead because the fleet gained a call it has never heard of.
+     *
+     * The two hashes are computed over different sets **by construction**: a generated client
+     * hashes every contract every part declares; the server hashes the deployed release's
+     * `requires` intersected with what the site exposes. They will essentially never be equal.
+     */
+    const describeBody = {
+        application: 'surfdns',
+        base: '/api',
+        exposure: 'sha256:gate',
+        shapeHash: 'sha256:moved',
+        calls: [
+            // Same shape as the client's — nothing this client uses has changed.
+            { key: 'credential.resolve', method: 'GET', path: '/credential/resolve', input: {}, output: {} },
+            { key: 'credential.create', method: 'POST', path: '/credential', input: {}, output: {} },
+            { key: 'session.whoami', method: 'GET', path: '/session/whoami', input: {}, output: {} },
+            { key: 'credential.get', method: 'GET', path: '/credentials/:id', input: {}, output: {} },
+            { key: 'site.deploy', method: 'POST', path: '/sites/:host/deploy', input: {}, output: {} },
+        ],
+    };
+
+    it('returns the response when nothing this client uses moved', async () => {
+        const fake = fakeTransport((request) => (
+            request.url.endsWith('/_describe')
+                ? json(200, describeBody)
+                : json(200, { id: 'c1', name: 'prod', provider: 'cloudflare', createdAt: 1 },
+                    { 'x-exposure-shape': 'sha256:moved' })
+        ));
+
+        const result = await createClient(siteApi, { transport: fake.transport })
+            .call('credential.resolve', { id: 'c1' });
+
+        // The response was good. Refusing it because somebody else's contract appeared is the bug.
+        expect(result.ok).toBe(true);
+        expect(result.ok && result.value.name).toBe('prod');
+    });
+
+    it('still refuses the call that actually moved, and says what changed', async () => {
+        const moved = {
+            ...describeBody,
+            calls: describeBody.calls.map((c) => (c.key === 'credential.resolve'
+                ? { ...c, method: 'POST' }   // this one really did change
+                : c)),
+        };
+
+        const fake = fakeTransport((request) => (
+            request.url.endsWith('/_describe')
+                ? json(200, moved)
+                : json(200, {}, { 'x-exposure-shape': 'sha256:moved' })
+        ));
+        const client = createClient(siteApi, { transport: fake.transport });
+
+        const broken = await client.call('credential.resolve', { id: 'c1' });
+        expect(broken.ok).toBe(false);
+        if (!broken.ok) {
+            expect(broken.error.kind).toBe('stale');
+            expect(JSON.stringify(broken.error)).toContain('credential.resolve');
+        }
+
+        // And a call that did not move is unaffected, on the same stale exposure.
+        const fine = await client.call('session.whoami');
+        expect(fine.ok).toBe(true);
+    });
+});

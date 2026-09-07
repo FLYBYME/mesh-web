@@ -191,6 +191,34 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
                     }
                 }
 
+                /**
+                 * **A different exposure is not a broken client.**
+                 *
+                 * `shapeHash` covers the site's *whole* exposure, and the two sides compute it over
+                 * different sets by construction: a generated client hashes every contract every
+                 * part **declares**, and the server hashes the deployed release's `requires`
+                 * intersected with what the site **exposes**. A deploy reporting
+                 * `unusedGrants: [identity.sign_out, node.provision]` is those sets already
+                 * disagreeing, harmlessly. They will essentially never be equal.
+                 *
+                 * So the hash is a **hint that something moved**, not a verdict. Failing every call
+                 * on it meant adding one contract anywhere broke every part on the page — the
+                 * catalog browser refusing to load because the fleet gained a call it has never
+                 * heard of. That happened three times in two days, and each time the fix was to
+                 * rebuild six parts that were not wrong.
+                 *
+                 * `diffExposure` compares **only the calls this client declares**, which is the
+                 * question actually worth asking: *did anything I use change?* If nothing did, the
+                 * response in hand is good and is returned. If something did, only the calls that
+                 * changed fail — and they fail naming what moved.
+                 */
+                const affected = differences?.find((d) => d.contract === action);
+
+                if (differences !== undefined && affected === undefined) {
+                    // Nothing this client uses moved. Anything else is somebody else's contract.
+                    return interpret(response) as Result<never, CallError<string>>;
+                }
+
                 return err({
                     kind: 'stale',
                     expected: api.shapeHash,
