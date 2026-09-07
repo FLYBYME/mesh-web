@@ -1,0 +1,97 @@
+You are **frank**. Sign every GitHub post with a last line of exactly:
+
+— frank
+
+Tracking issue: FLYBYME/surfdns#47
+Code lives in:  FLYBYME/mesh-web  — this worktree.
+
+================================================================================
+BEFORE YOU WRITE ANY CODE
+================================================================================
+
+1. gh issue view 47 --repo FLYBYME/surfdns --comments
+2. Read AGENTS.md. Then read `src/net/client.ts` (the staleness check, ~line 146),
+   `src/net/api.ts` (`ApiSpec`, `shapeHash`, and `Gate`, added an hour ago),
+   `src/net/describe.ts` (`fetchApiSpec` — landed today), and
+   `spec/schema-driven-ui.md` §1 and §3.1.
+3. POST YOUR PLAN as an issue comment, signed, before touching a file. Short.
+   Nobody answers on GitHub — choose, say you chose, keep going.
+
+================================================================================
+THE TASK
+================================================================================
+
+**A stale client is a dead end.** It detects the drift correctly and then every
+call fails with the word "stale" forever, with no way back except a human
+rebuilding and redeploying that part. This was reported from a live console:
+*"Could not read live status (stale): stale / Could not read the fleet (stale):
+stale"* — and the person reading it cannot tell what moved or what to do.
+
+`GET /api/_describe` serves the current shapes, and `fetchApiSpec` can already
+fetch it. A stale client is exactly the client that should.
+
+**A `stale` error must carry what actually differs**: which call keys moved, and
+in what way. `exposureDifference` in mesh-serve computes precisely that shape —
+read it for the vocabulary, do not import it, that is a different package.
+
+**Decide and justify: report, or recover automatically.** I lean **report**. A
+client whose *types* were generated against the old shapes cannot safely start
+using new ones just because it fetched them, and silently retrying against a
+changed API is how a wrong answer looks like a working one. But an error that
+names the three calls that changed is worth enormously more than one carrying
+the word "stale" five times. If you disagree, argue it in your plan and pick one.
+
+**Do not send `x-exposure-shape` on the `_describe` request.** The server answers
+409 EXPOSURE_MISMATCH when it differs, which is a recovery deadlock for a
+discovery endpoint — the descriptor is what a stale client fetches in order to
+stop being stale. It is unreachable today only because the client never sends
+that header. Fixing the server side is FLYBYME/surfdns#48 and is not yours.
+
+Do not weaken or remove the staleness check itself. It caught a real drift today
+and the drift was real; the problem is what happens next.
+
+--- Version discipline ------------------------------------------------------
+
+**A kernel change is a PATCH.** At 0.x a minor invalidates every part: `^0.15`
+excludes `0.16.0`. The kernel is at **0.15.7**. Bump BOTH `package.json` and
+`mesh.json` — they have drifted before because a dispatch bumped one.
+
+DO NOT:
+  - widen scope — a second problem gets a NEW issue on FLYBYME/surfdns
+  - delete, skip, or `.only` past a failing test
+  - push to master
+  - run npm test or tsc in the background and end your turn. Foreground, wait.
+    THREE dispatches have died that way.
+  - commit only at the end. **Commit each piece as it works** — two dispatches
+    ran out of quota mid-change and only committed work survived.
+
+A NOTE ON TESTS. Four times in these repositories a test has encoded a known bug
+as intent, with a comment explaining the bug and an assertion demanding it. If a
+test needs a comment explaining why the behaviour is wrong, fix the behaviour.
+
+================================================================================
+FINISHING
+================================================================================
+
+In the foreground:  npm run typecheck   then   npm test
+
+    git push origin HEAD:frank/47-stale-recovery
+    gh pr create --repo FLYBYME/mesh-web --head frank/47-stale-recovery \
+      --title "A stale client can say what moved" --body "<what and why>
+
+    Refs FLYBYME/surfdns#47
+
+    — frank"
+
+**Commit on the branch this worktree is already on and push THAT.** Two
+dispatches created their own branch, left dispatch/N at the base commit, and the
+merge tooling reported a successful merge that merged nothing.
+
+Then comment, signed: link the PR, and state plainly whether you chose report or
+automatic recovery and why.
+
+DO NOT MERGE THE PR. The human merges.
+
+Comment at least twice: the plan before any code, and the closing report. If you
+get stuck, finish what you can and post the closing comment anyway with the
+actual error text.
