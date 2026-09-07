@@ -1,0 +1,183 @@
+You are **tony**. Sign every GitHub post you make with a last line of exactly:
+
+— tony
+
+An unsigned post is from the human. Never sign something you did not write.
+
+Tracking issue: FLYBYME/surfdns#44
+Code lives in:  FLYBYME/mesh-web  — this worktree. All commits and the PR go here.
+
+================================================================================
+BEFORE YOU WRITE ANY CODE
+================================================================================
+
+1. Read the issue and every comment:
+
+       gh issue view 44 --repo FLYBYME/surfdns --comments
+
+2. Confirm nobody else holds it:
+
+       gh issue view 44 --repo FLYBYME/surfdns --json labels --jq '.labels[].name'
+
+   If `bob` or `frank` is there and it is not you, stop and say so.
+
+3. Read AGENTS.md, then `spec/schema-driven-ui.md` (§1 and §3.1 — short), then
+   `spec/unread.md` if it exists. Its rule is *"name the reader, or do not add
+   the field"*, and all three items here are that rule being enforced late.
+
+4. POST YOUR PLAN as an issue comment, signed, before touching a file. What you
+   FOUND, what you will CHANGE, what you will NOT touch. Short — read on a phone.
+   If what you found contradicts the issue, say so, pick how you will proceed,
+   and keep going. Nobody answers on GitHub.
+
+================================================================================
+THE TASK — three items, in this order
+================================================================================
+
+Three gaps, and they are the same gap three times: the kernel computes
+something, carries it correctly, and no code consumes it.
+
+**Commit each item separately.** They are independent and a PR that mixes them
+cannot be reverted for one of them.
+
+Item 2 is the one a person is waiting to see. If you run short, land 1 and 2.
+
+--- 1. Fetch the exposure descriptor at run time ---------------------------
+
+`GET /api/_describe` exists and is gated `public` (mesh-serve, merged). It
+carries `input`, `output`, `gate`, `destructive`, `errors` and `stream` per call,
+with `ETag`/`304`. **Nothing fetches it.**
+
+A client should be able to obtain an `ApiSpec` from a live site, not only from a
+build-time generated file. Keep `net/api.ts`'s rules: structural types, never
+`z.infer` across a package boundary, and a generated file states the shapes it
+means.
+
+Carry **`shapeHash`, never the exposure hash** — `net/client.ts:154` documents
+the distinction and getting it backwards is a bug that was already fixed once.
+
+**Do not send `x-exposure-shape` on this request.** The server answers 409
+EXPOSURE_MISMATCH when it differs, which is a recovery deadlock for a discovery
+endpoint — the descriptor is exactly what a stale client fetches to stop being
+stale. It is unreachable today only because the client never sends that header.
+If you think the server should change, open an issue on mesh-serve and link it;
+do not change it from here and do not work around it by sending the header.
+
+--- 2. `ctrl+alt+q`: a full-screen log viewer ------------------------------
+
+Asked for twice and still unbuilt. `kernel/broker.ts:418`'s `makeLog` pushes
+into `services.logs`; `services.logs.push(...)` also appears in `start.ts` at
+lines 185, 423, 437, 450, 518 and in `kernel.ts:163`.
+
+**Six writers. No reader.** Every `cx.log.*` from every part and every kernel
+warning — manifest conflicts, mount failures, a part that failed to start — is
+collected perfectly and shown nowhere. Reported as *"i believe there are logs but
+i never see them."*
+
+Requirements that decide the design:
+
+  * **It must work on a site with no chrome.** `window/page.ts:148` — chrome is
+    optional and a site without it mounts the window layer at the root. This is a
+    kernel-level affordance, which is exactly why it is a keybinding and not a
+    button somebody's shell has to provide.
+  * **Check `BROWSER_TAB_RESERVED`** in `kernel/start.ts`. The existing default
+    bindings are chosen against it and this one needs the same treatment: a
+    binding that fires *and* triggers the browser's own action is worse than none.
+  * **The array is unbounded and only grows.** That is a leak in a page left open
+    for a day. Decide the bound, say what happens when it is reached, and make
+    sure the viewer shows that it happened rather than quietly dropping.
+  * A log record carries `level`, `source`, `message` and sometimes `data`. Being
+    able to see which part emitted a line is most of the value; filtering by
+    source and level is worth more than pretty formatting.
+
+--- 3. A confirmation capability, so `destructive` can have a reader --------
+
+`destructive: true` is declared on every contract that writes, travels in the
+descriptor, now reaches the browser — **and nothing reads it.**
+
+There is no way to ask a person "is this ok?" and wait for an answer. `Dialog` is
+a primitive that renders a `<dialog>`; `notifications` is a one-way signal array.
+Neither is a decision.
+
+Build the capability: a contribution declares it, the kernel provides it, a call
+asks and awaits an answer. Two things it must get right:
+
+  * **Declared like every other capability**, so a site can read its manifest and
+    see which parts are able to interrupt the user.
+  * **A caller must not be able to pretend the user answered.** If the resolution
+    can be forged by the asking code, the capability is decoration.
+
+**Do not wire it to `destructive` automatically in this PR.** Build the
+capability and name the intended consumer; making every destructive call prompt
+is a product decision that deserves to be made in daylight, not to arrive as a
+side effect.
+
+--- Version discipline ------------------------------------------------------
+
+**This is a kernel change, so it is a PATCH.** At 0.x a minor invalidates every
+part: `^0.15` excludes `0.16.0`. The kernel is at **0.15.4**. This has been got
+wrong before.
+
+Bump BOTH `package.json` and `mesh.json` — they have drifted before because a
+dispatch bumped one. (A decision to make `mesh.json` the single source is
+recorded but not implemented; until it is, bump both.)
+
+DO NOT:
+  - widen scope — a second problem gets a NEW issue on FLYBYME/surfdns, signed
+    and linked
+  - make the window layer or chrome a dependency of anything here
+  - delete, skip, or `.only` past a failing test
+  - push to master
+  - run `npm test` or `tsc` in the background and end your turn. Foreground, and
+    wait. THREE dispatches have died exactly this way — the most recent finished
+    all its work, pushed a passing branch, and still reported ERROR because it
+    ended its turn waiting on a backgrounded suite.
+  - commit only at the end. Commit each item as it is finished.
+
+A NOTE ON TESTS. Four times in these repositories a test has been written that
+encodes a known bug as intent — with a comment correctly explaining the bug and
+an assertion demanding it. The most recent asserted that tiled mode moves no
+window. If a test you are about to write needs a comment explaining why the
+behaviour is wrong, fix the behaviour or leave the test out.
+
+================================================================================
+FINISHING
+================================================================================
+
+These must pass, in the foreground:
+
+    npm run typecheck
+    npm test
+
+Then:
+
+    git push origin HEAD:tony/44-readers
+    gh pr create --repo FLYBYME/mesh-web --head tony/44-readers \
+      --title "Readers for three things the kernel already declares" --body "<what and why>
+
+    Refs FLYBYME/surfdns#44
+
+    — tony"
+
+**IMPORTANT: commit on the branch this worktree is already on, and push THAT.**
+Two dispatches created their own branch and left `dispatch/N` at the base commit;
+the merge tooling then reported a successful merge that merged nothing. If you
+create a branch, say so loudly in your closing comment.
+
+Then comment that you are done, signed — link the PR, say which items you
+finished, and state what bound you chose for the log buffer and why.
+
+DO NOT MERGE THE PR. The human merges.
+
+================================================================================
+COMMENT AT LEAST TWICE. NEVER WAIT.
+================================================================================
+
+The plan before any code, and the closing report. More whenever the picture
+changes. Nobody replies on GitHub — when you would want a decision, say so with
+the options and which you would pick, CHOOSE ONE, say you are proceeding under
+that assumption, and keep going.
+
+If you get stuck, finish every part you still can, then post the closing comment
+anyway with the actual error text and what you ruled out. A plausible-looking PR
+that does not work is worse than none — say plainly which you have.
