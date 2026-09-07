@@ -10,9 +10,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    Kernel, call, createClient, createServices, defineApi, describe as describeError, needs,
-    provider, withHeaders,
-    type Api, type Application, type Context, type NetRequest, type NetResponse, type Transport,
+    Kernel, call, createClient, createServices, defineApi, describe as describeError, fetchApiSpec,
+    needs, provider, toApiSpec, withHeaders,
+    type Api, type Application, type Context, type ExposureDescriptor, type NetRequest, type NetResponse, type Transport,
 } from '../src/index.js';
 
 // ---------------------------------------------------------------------------- a generated API
@@ -457,5 +457,143 @@ describe('mesh as a capability', () => {
         // the manifest with nothing started.
         expect(kernel.processes).toHaveLength(0);
         expect(kernel.manifest.apis.map((a) => a.decl.id)).toEqual(['surfdns']);
+    });
+});
+
+// ---------------------------------------------------------------------------- live descriptor discovery
+
+describe('runtime exposure descriptor discovery (GET /api/_describe)', () => {
+    const sampleDescriptor: ExposureDescriptor = {
+        application: 'surfdns.console',
+        base: '/api',
+        exposure: 'sha256:gate-exposure-123',
+        shapeHash: 'sha256:shape-hash-456',
+        calls: [
+            {
+                key: 'zone.list',
+                domain: 'zone',
+                action: 'list',
+                method: 'GET',
+                path: '/zones',
+                description: 'List DNS zones',
+                gate: 'user',
+                destructive: false,
+                stream: false,
+                errors: ['unauthorized'],
+                input: { type: 'object', properties: {} },
+                output: { type: 'array', items: { type: 'object' } },
+            },
+            {
+                key: 'zone.destroy',
+                domain: 'zone',
+                action: 'destroy',
+                method: 'DELETE',
+                path: '/zones/:id',
+                description: 'Delete a DNS zone',
+                gate: 'admin',
+                destructive: true,
+                stream: false,
+                errors: ['not_found', 'forbidden'],
+                input: { type: 'object', properties: { id: { type: 'string' } } },
+                output: { type: 'object', properties: { deleted: { type: 'boolean' } } },
+            },
+        ],
+    };
+
+    it('fetches the descriptor, maps it to an ApiSpec, and carries shapeHash', async () => {
+        const fake = fakeTransport(() => json(200, sampleDescriptor, {
+            etag: '"etag-1"',
+            'x-exposure-shape': 'sha256:shape-hash-456',
+        }));
+
+        const result = await fetchApiSpec({ transport: fake.transport });
+        if (!result.ok) throw new Error('expected ok');
+
+        expect(result.value.notModified).toBe(false);
+        if (result.value.notModified) throw new Error('expected modified');
+
+        const spec = result.value.spec;
+        expect(spec.id).toBe('surfdns.console');
+        expect(spec.base).toBe('/api');
+        // Carries shapeHash, never exposure hash for staleness
+        expect(spec.shapeHash).toBe('sha256:shape-hash-456');
+        expect(spec.exposure).toBe('sha256:gate-exposure-123');
+
+        // Calls carry all metadata: input, output, gate, destructive, errors, stream
+        expect(spec.calls['zone.list']?.method).toBe('GET');
+        expect(spec.calls['zone.list']?.path).toBe('/zones');
+        expect(spec.calls['zone.list']?.destructive).toBe(false);
+        expect(spec.calls['zone.list']?.gate).toBe('user');
+        expect(spec.calls['zone.list']?.errors).toEqual(['unauthorized']);
+
+        expect(spec.calls['zone.destroy']?.method).toBe('DELETE');
+        expect(spec.calls['zone.destroy']?.path).toBe('/zones/:id');
+        expect(spec.calls['zone.destroy']?.destructive).toBe(true);
+        expect(spec.calls['zone.destroy']?.gate).toBe('admin');
+
+        // Verify that defineApi and createClient work with this spec
+        const api = defineApi(spec);
+        const client = createClient(api, { transport: fake.transport });
+        expect(client.api).toBe('surfdns.console');
+    });
+
+    it('never sends x-exposure-shape on the request to avoid recovery deadlock', async () => {
+        const fake = fakeTransport(() => json(200, sampleDescriptor));
+
+        await fetchApiSpec({ transport: fake.transport });
+
+        expect(fake.sent).toHaveLength(1);
+        expect(fake.sent[0]!.url).toBe('/api/_describe');
+        expect(fake.sent[0]!.method).toBe('GET');
+        expect(fake.sent[0]!.headers['x-exposure-shape']).toBeUndefined();
+        expect(fake.sent[0]!.headers['x-exposure']).toBeUndefined();
+    });
+
+    it('handles ETag and 304 Not Modified', async () => {
+        const fake = fakeTransport((req) => {
+            if (req.headers['if-none-match'] === '"etag-1"') {
+                return { status: 304, headers: { etag: '"etag-1"' }, body: '' };
+            }
+            return json(200, sampleDescriptor, { etag: '"etag-1"' });
+        });
+
+        // First request: gets 200
+        const first = await fetchApiSpec({ transport: fake.transport });
+        if (!first.ok || first.value.notModified) throw new Error('expected modified');
+        expect(first.value.etag).toBe('"etag-1"');
+
+        // Second request with ETag: gets 304
+        const second = await fetchApiSpec({ transport: fake.transport, etag: first.value.etag });
+        if (!second.ok) throw new Error('expected ok');
+        expect(second.value.notModified).toBe(true);
+        expect(second.value.etag).toBe('"etag-1"');
+        expect(fake.sent[1]!.headers['if-none-match']).toBe('"etag-1"');
+    });
+
+    it('maps network errors to offline result', async () => {
+        const failingTransport: Transport = {
+            send: async () => { throw new Error('connection refused'); },
+        };
+
+        const result = await fetchApiSpec({ transport: failingTransport });
+        expect(result.ok).toBe(false);
+        if (result.ok) throw new Error('expected err');
+        expect(result.error.kind).toBe('offline');
+    });
+
+    it('maps HTTP errors to CallError cases', async () => {
+        const fake = fakeTransport(() => json(404, { error: 'NOT_FOUND', message: 'Not found' }));
+
+        const result = await fetchApiSpec({ transport: fake.transport });
+        expect(result.ok).toBe(false);
+        if (result.ok) throw new Error('expected err');
+        expect(result.error.kind).toBe('not_found');
+    });
+
+    it('toApiSpec converts an in-memory ExposureDescriptor correctly', () => {
+        const spec = toApiSpec(sampleDescriptor);
+        expect(spec.id).toBe('surfdns.console');
+        expect(spec.shapeHash).toBe('sha256:shape-hash-456');
+        expect(Object.keys(spec.calls)).toEqual(['zone.list', 'zone.destroy']);
     });
 });

@@ -62,6 +62,7 @@ import type { Action } from '../description/types.js';
 import { bindingTable } from '../input/keys.js';
 import { createServices } from './broker.js';
 import { Kernel } from './kernel.js';
+import { mountLogViewer, type LogViewer } from './logs.js';
 
 /**
  * One part, as the page hands it over.
@@ -130,6 +131,7 @@ export interface Composition {
     /** Injected by a test that would rather not touch `window`. */
     readonly window?: { addEventListener(type: 'resize', fn: () => void): void };
     readonly hives?: HiveBindings;
+    readonly logCapacity?: number;
 }
 
 export interface Started {
@@ -138,6 +140,7 @@ export interface Started {
     readonly page: Page;
     readonly settings: Registry;
     readonly components: ComponentRegistry;
+    readonly logViewer: LogViewer;
     /**
      * Resolves when the Applications named in `open` have started.
      *
@@ -167,7 +170,11 @@ export function start(composition: Composition): Started {
         session: { provider: memoryProvider('session'), writable: true },
     };
 
-    const services = createServices(undefined, { apiOrigin: api, hives });
+    const services = createServices(undefined, {
+        apiOrigin: api,
+        hives,
+        logCapacity: composition.logCapacity,
+    });
     const kernel = new Kernel({ services });
 
     /**
@@ -264,8 +271,9 @@ export function start(composition: Composition): Started {
         onCommand: run,
     });
 
+    const logViewer = mountLogViewer(doc, root, kernel.services.logs);
     const notifications = mountNotifications(doc, root, kernel);
-    const keys = mountKeys(doc, kernel, manager, persistence);
+    const keys = mountKeys(doc, kernel, manager, persistence, logViewer);
 
     // A resize is the viewport changing under the manager, which clamps every window back inside it.
     // In single mode there is nothing to re-measure.
@@ -318,7 +326,7 @@ export function start(composition: Composition): Started {
     });
 
     return {
-        kernel, manager, page, settings, components,
+        kernel, manager, page, settings, components, logViewer,
         ready: open(kernel, composition, manager, persistence),
         dispose() {
             stopPersisting();
@@ -326,6 +334,7 @@ export function start(composition: Composition): Started {
             keys();
             page.dispose();
             notifications.remove();
+            logViewer.dispose();
             if (host !== undefined && 'removeEventListener' in host && typeof host.removeEventListener === 'function') {
                 host.removeEventListener('resize', onResize);
             }
@@ -576,6 +585,7 @@ function mountKeys(
     kernel: Kernel,
     manager: WindowManager,
     persistence?: WindowPersistence,
+    logViewer?: LogViewer,
 ): () => void {
     /**
      * Kernel commands, and the reason they are commands rather than key handlers.
@@ -628,7 +638,17 @@ function mountKeys(
                 manager.setMode(next);
             }
         },
+        'kernel.logs': () => {
+            logViewer?.toggle();
+        },
     };
+
+    if (logViewer !== undefined) {
+        kernel.services.commands.set('kernel.logs', {
+            owner: 'kernel',
+            run: () => { logViewer.toggle(); },
+        });
+    }
 
     /**
      * Defaults, chosen against `BROWSER_TAB_RESERVED`.
@@ -643,6 +663,7 @@ function mountKeys(
         { binding: 'alt+n', command: 'window.minimize' },
         { binding: 'alt+`', command: 'window.cycle' },
         { binding: 'alt+t', command: 'window.mode' },
+        { binding: 'ctrl+alt+q', command: 'kernel.logs' },
     ];
 
     const onKey = (event: KeyboardEvent): void => {

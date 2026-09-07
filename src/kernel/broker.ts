@@ -37,6 +37,7 @@ import type { HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
 import { createStorage } from '../storage/index.js';
 import { createModels, type Models } from '../models/index.js';
+import { createLogBuffer, type LogBuffer } from './logs.js';
 
 export interface LogRecord {
     readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -100,7 +101,7 @@ export interface WindowSink {
  * knows who is asking.
  */
 export interface KernelServices {
-    readonly logs: LogRecord[];
+    readonly logs: LogBuffer;
     /** A signal, so a notification host can render them. See NotificationRecord. */
     readonly notifications: Signal<readonly NotificationRecord[]>;
     windows: WindowSink;
@@ -209,6 +210,7 @@ export interface ServiceOptions {
     readonly apiOrigin?: string;
     readonly hives?: HiveBindings;
     readonly session?: ReadonlySignal<Session | null>;
+    readonly logCapacity?: number;
 }
 
 export function defaultHives(): HiveBindings {
@@ -232,7 +234,7 @@ export function createServices(
     };
 
     return {
-        logs: [],
+        logs: createLogBuffer(options.logCapacity),
         notifications: signal<readonly NotificationRecord[]>([]),
         windows,
         commands: new Map(),
