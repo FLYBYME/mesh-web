@@ -42,6 +42,20 @@ export const err = <E>(error: E): Err<E> => ({ ok: false, error });
  * from an exposure that has since moved on is a lie, and it is worth an error of its own rather than
  * a confusing 404 somewhere downstream.
  */
+/**
+ * What differed between the client's expectations and the API's exposure.
+ *
+ * mesh-serve descriptor vocabulary: which contract key changed and how.
+ */
+export interface ExposureDifference {
+    /** The contract key that differed, e.g. `domains.zone_find`. */
+    readonly contract: string;
+    /** What aspect changed. */
+    readonly kind: 'missing' | 'method' | 'path' | 'input' | 'output' | 'gate';
+    /** Human-readable explanation of what changed. */
+    readonly message: string;
+}
+
 export type TransportError =
     | { readonly kind: 'unauthorized' }
     | { readonly kind: 'forbidden' }
@@ -51,7 +65,12 @@ export type TransportError =
     | { readonly kind: 'rate_limited'; readonly retryAfterMs?: number }
     | { readonly kind: 'server'; readonly status: number; readonly detail: string }
     | { readonly kind: 'offline'; readonly detail: string }
-    | { readonly kind: 'stale'; readonly expected: string; readonly actual: string };
+    | {
+        readonly kind: 'stale';
+        readonly expected: string;
+        readonly actual: string;
+        readonly differences?: readonly ExposureDifference[];
+    };
 
 /** A failure the exposure declared for one call, carried as a literal so it can be discriminated. */
 export interface DeclaredError<TName extends string> {
@@ -79,7 +98,13 @@ export function describe(error: CallError<string>): string {
         case 'rate_limited': return 'Too many requests. Try again shortly.';
         case 'server': return `The server failed (${error.status}).`;
         case 'offline': return 'Could not reach the server.';
-        case 'stale': return 'This page is out of date with the API. Reload.';
+        case 'stale': {
+            if (error.differences !== undefined && error.differences.length > 0) {
+                const details = error.differences.map((d) => d.message).join(' ');
+                return `This page is out of date with the API: ${details}`;
+            }
+            return 'This page is out of date with the API. Reload.';
+        }
         case 'declared': return error.detail;
     }
 }
