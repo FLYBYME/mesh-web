@@ -232,6 +232,9 @@ export function start(composition: Composition): Started {
     })));
 
     const components = createComponents(PRIMITIVES);
+    for (const { decl } of kernel.manifest.components.values()) {
+        components.register(decl);
+    }
 
     const run = (action: Action): void => {
         if (action.kind !== 'command') return;
@@ -253,6 +256,7 @@ export function start(composition: Composition): Started {
             const process = kernel.processes.find((p) => p.pid === owner);
             return process === undefined ? undefined : kernel.viewOf(process.pid, view);
         },
+        partOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.applicationId,
         apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
         internalOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.internal,
         isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',

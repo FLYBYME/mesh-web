@@ -14,6 +14,7 @@ import type { MeshClient } from '../net/client.js';
 import type { Consumer, ProviderToken, ProviderTokens } from './provider.js';
 import type { Json } from '../description/types.js';
 import type { Models } from '../models/types.js';
+import type { ComponentDefinition } from '../render/component.js';
 
 /**
  * Capabilities, resolved providers, and the declared API. One type parameter per declaration, each
@@ -168,6 +169,14 @@ export interface Declarations {
     readonly menus?: readonly MenuDecl[];
     readonly settings?: readonly SettingDecl[];
     readonly stores?: readonly StoreDecl[];
+    /**
+     * Components contributed by this part (spec/components.md §2).
+     *
+     * Contributed components extend the vocabulary beyond the 19 primitives (e.g. `ui.Card`,
+     * `ui.Nav`). Declared in the manifest so the kernel resolves name collisions at load time
+     * before anything renders.
+     */
+    readonly components?: readonly ComponentDefinition[];
     /**
      * `never` for params: a view with concrete params stays assignable here through method
      * bivariance, which is the same reason `EachNode`'s callbacks are methods rather than

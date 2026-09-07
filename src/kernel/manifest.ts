@@ -12,6 +12,7 @@
 import type {
     CommandDecl, Declarations, KeyDecl, MenuDecl, SettingDecl, StoreDecl, ViewDecl,
 } from '../contribution/contract.js';
+import type { ComponentDefinition } from '../render/component.js';
 import type { AnyApiCall, Api } from '../net/api.js';
 import type { LayoutNode } from '../window/layout.js';
 import { BROWSER_TAB_RESERVED, normalizeBinding, reservedSet } from '../input/keys.js';
@@ -22,7 +23,7 @@ export interface Contributed<T> {
 }
 
 export interface Conflict {
-    readonly kind: 'command' | 'binding' | 'setting' | 'view' | 'store';
+    readonly kind: 'command' | 'binding' | 'setting' | 'view' | 'store' | 'component';
     readonly key: string;
     readonly claimants: readonly string[];
     readonly message: string;
@@ -53,6 +54,7 @@ export interface Manifest {
     readonly stores: ReadonlyMap<string, Contributed<StoreDecl>>;
     /** Keyed `<contributor>/<view id>`; view ids are scoped, so two Applications may both have `main`. */
     readonly views: ReadonlyMap<string, Contributed<ViewDecl>>;
+    readonly components: ReadonlyMap<string, Contributed<ComponentDefinition>>;
     readonly conflicts: readonly Conflict[];
 }
 
@@ -76,6 +78,7 @@ export function mergeManifests(
     const settings = new Map<string, Contributed<SettingDecl>>();
     const stores = new Map<string, Contributed<StoreDecl>>();
     const views = new Map<string, Contributed<ViewDecl>>();
+    const components = new Map<string, Contributed<ComponentDefinition>>();
     const conflicts: Conflict[] = [];
 
     const claim = <T>(
@@ -163,6 +166,21 @@ export function mergeManifests(
             claim(views, `${id}/${decl.id}`, id, decl, 'view', (key, first, second) =>
                 `View "${key}" is declared twice, by ${first} and ${second}.`);
         }
+
+        for (const decl of declarations.components ?? []) {
+            if (!decl.name.startsWith(`${id}.`) || decl.name.length <= id.length + 1) {
+                conflicts.push({
+                    kind: 'component',
+                    key: decl.name,
+                    claimants: [id],
+                    message: `${id} declared component "${decl.name}", which must be prefixed with "${id}.". ` +
+                        `Component names must be namespaced by their contributing part.`,
+                });
+            }
+
+            claim(components, decl.name, id, decl, 'component', (key, first, second) =>
+                `Component "${key}" is declared by both ${first} and ${second}. Component names are global per page.`);
+        }
     }
 
     // A menu item pointing at a command nobody declared is a dangling reference, and finding it
@@ -191,7 +209,7 @@ export function mergeManifests(
         }
     }
 
-    return { commands, bindings, menus, apis, layouts, settings, stores, views, conflicts };
+    return { commands, bindings, menus, apis, layouts, settings, stores, views, components, conflicts };
 }
 
 /**

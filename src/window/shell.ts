@@ -84,6 +84,8 @@ export interface ShellOptions {
      * never render against an undefined API.
      */
     isReady?(owner: string): boolean;
+    /** Which part/application owns this process, if known. */
+    partOf?(owner: string): string | undefined;
     readonly render: RenderOptions;
     readonly onCommand: (action: Action) => void;
     /**
@@ -175,6 +177,7 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
         built.root.addEventListener('pointerdown', () => { manager.focus(record.id); }, true);
         root.appendChild(built.root);
 
+        const part = options.partOf?.(record.owner) ?? record.owner;
         const instance = mountView(built.content, {
             windowId: record.id,
             decl,
@@ -182,7 +185,8 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
             internal: options.internalOf?.(record.owner),
             params: record.params,
             windows: manager,
-            render: options.render,
+            render: { ...options.render, ...(part !== undefined ? { part } : {}) },
+            part,
             onCommand: options.onCommand,
         });
 

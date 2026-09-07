@@ -165,7 +165,7 @@ export function mountPage(root: Element, options: PageOptions): Page {
         options.render.components.register(windowHostComponent);
     }
 
-    const chrome = render(options.chrome.render(), root, options.render);
+    const chrome = render(options.chrome.render(), root, { ...options.render, part: 'chrome' });
 
     const host = root.querySelector(`[${HOST_ATTRIBUTE}]`);
     if (host === null) {

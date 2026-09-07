@@ -45,9 +45,9 @@ Eleven `Form` elements and eighteen `Input`s, each with its own label, spacing a
 
 ---
 
-## 2. Yes, an Extension can provide components — the machinery is built and unwired
+## 2. Yes, an Extension can provide components — built, wired, and verified
 
-`createRegistry()` in [`render/component.ts`](../src/render/component.ts) already has this:
+`createRegistry()` in [`render/component.ts`](../src/render/component.ts) previously had this:
 
 ```ts
 register(definition) {
@@ -63,23 +63,44 @@ register(definition) {
 }
 ```
 
-**That error anticipates multiple contributors.** There is exactly one caller in the codebase —
-`window/page.ts`, registering the window host — and the contribution layer contains **zero**
-references to `components`. So the extension point was designed and the last step was never wired.
-A mechanism whose error message describes a situation that cannot arise belongs in the reader audit.
+That error anticipated multiple contributors, but until now the contribution layer contained zero
+references to `components`. Dispatch 13 wired the full extension point into the manifest, the merge
+pipeline, and the rendering registry.
 
-### The design
+### What exists
 
-**Names are namespaced: `ui.Card`, `ui.Nav`, `ui.Slider`.** *(decided 2026-09-06)* The registry is
-one `Map<string, ComponentDefinition>` per page and `component` is a plain string that nothing
-parses, so this works today with no change. It is needed because component names are a **global
-namespace per page**, exactly like part names — two design systems both offering `Card` is otherwise
-a page that refuses to boot.
+**Declared in the manifest, not registered at activate time.** `Declarations` has `components?: readonly ComponentDefinition[]`.
+Like `commands` and `keys`, components are declared statically on the constructed contribution instance
+before anything activates or starts. Imperative registration during activation would make load order
+decide the winner, silently; manifest declaration allows the kernel to resolve conflicts before
+anything runs (roadmap A5.12).
 
-**Declared in the manifest, not registered at activate time.** The kernel already resolves this class
-of conflict before anything runs — A5.12, *"two Applications claiming `ctrl+n` is resolved before
-either runs"*, with `manifest.conflicts` surfaced at load. Components must ride that same machinery.
-Imperative registration during activation would make load order decide the winner, silently.
+**Merged with conflict handling at load time.** `mergeManifests` merges component declarations into
+`manifest.components`. If two contributions claim the same component name, a conflict is recorded in
+`manifest.conflicts` naming both claimants, surfaced in kernel logs at boot as a warning, and the
+first claim stands so that rendering does not throw an exception.
+
+**Names are namespaced: `ui.Card`, `ui.Nav`, `ui.Slider`.** The registry is one `Map<string, ComponentDefinition>`
+per page. The kernel enforces that contributed components are prefixed with their contributing part id
+(`${id}.*`). This achieves two guarantees:
+1. Contributed components can never collide with or shadow the 19 un-dotted kernel primitives (`Button`, `Card`, etc.).
+2. An Extension cannot squat on or hijack another part's component namespace.
+
+**The route into the registry.** At `start.ts:234`, the kernel creates the page's `ComponentRegistry`
+seeded with `PRIMITIVES`, then iterates `kernel.manifest.components.values()` and registers each
+contributed component before any window or chrome is rendered.
+
+**The DOM boundary.** `ComponentDefinition.create` returns a DOM `Element`. This is the **one place
+in the system where a part touches the DOM**, and it is allowed here and nowhere else because a
+component *implements* the vocabulary rather than *using* it.
+The description layer (`src/description/types.ts`) remains strictly free of DOM types (`Element`,
+`HTMLElement`, `Node`, `Event`), and Applications only return pure data descriptions. The component
+definition provides the renderer with the instructions for turning a vocabulary name into a DOM tree.
+Applications and views never receive the DOM element.
+
+**Unknown component diagnostics.** If a part renders an unknown component name, the renderer throws
+an error that names both the missing component and the requesting part (`Unknown component "${name}" wanted by "${part}". Known: ...`),
+making missing dependencies and typos immediately diagnosable.
 
 **The dependency is `requiredParts`, which already exists.** A part using `ui.Card` declares
 `requiredParts: [{ id: 'ui', version: '^1.0' }]` in `mesh.json`, and `checkComposition` already

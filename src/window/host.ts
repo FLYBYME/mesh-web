@@ -27,6 +27,8 @@ export interface ViewHostOptions {
     readonly params: Readonly<Record<string, Json>>;
     readonly windows: WindowManager;
     readonly render: RenderOptions;
+    /** The part or application owning this view, if known. */
+    readonly part?: string;
     /** Commands go to the kernel; handlers come back to this view's own table. */
     readonly onCommand: (action: Action) => void;
 }
@@ -91,8 +93,13 @@ export function mountView(host: Element, options: ViewHostOptions): ViewInstance
 
     let mounted: Mounted | undefined;
 
+    const part = options.part ?? options.render.part;
     scope.run(() => {
-        mounted = render(options.decl.render(vx), host, { ...options.render, dispatch });
+        mounted = render(options.decl.render(vx), host, {
+            ...options.render,
+            ...(part !== undefined ? { part } : {}),
+            dispatch,
+        });
     });
 
     return {
