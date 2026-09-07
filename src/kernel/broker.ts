@@ -36,7 +36,7 @@ import { createClient, fetchTransport, withHeaders, type MeshClient } from '../n
 import type { HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
 import { createStorage } from '../storage/index.js';
-import { createModels, type Models } from '../models/index.js';
+import { createModels, type EventSourceLike, type Models } from '../models/index.js';
 import { createLogBuffer, type LogBuffer } from './logs.js';
 
 export interface LogRecord {
@@ -129,6 +129,7 @@ export interface KernelServices {
     readonly credentials: CredentialHolder;
     readonly hives: HiveBindings;
     session?: ReadonlySignal<Session | null>;
+    eventSource?: (url: string) => EventSourceLike;
     /**
      * How the kernel prompts the user for a decision when `cx.confirmation.ask(...)` is called.
      *
@@ -231,6 +232,7 @@ export interface ServiceOptions {
      * the whole property `Confirmation` claims. A test can pass one that answers without a DOM.
      */
     readonly confirm?: ConfirmPrompter;
+    readonly eventSource?: (url: string) => EventSourceLike;
 }
 
 export function defaultHives(): HiveBindings {
@@ -278,6 +280,7 @@ export function createServices(
          * `start()` replaces this with a real prompter when there is a page to draw on.
          */
         confirm: options.confirm ?? (async () => false),
+        eventSource: options.eventSource,
         windows,
         commands: new Map(),
         declaredCommands: new Map(),
@@ -399,6 +402,10 @@ export function createContext(
                     (fn) => cleanups.push(fn),
                     () => services.session,
                     declaredApi,
+                    {
+                        eventSource: services.eventSource,
+                        origin: services.credentials.origin,
+                    },
                 );
                 break;
             case 'state':

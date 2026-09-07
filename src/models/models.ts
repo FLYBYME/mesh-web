@@ -8,7 +8,7 @@
  * - Zero type parameters at the call site
  */
 
-import type { AnyApiCall, Api, Gate } from '../net/api.js';
+import { isCollectionStreamed, type AnyApiCall, type Api, type Gate } from '../net/api.js';
 import type { Result, CallError } from '../net/result.js';
 import type { ReadonlySignal } from '../reactivity/types.js';
 import { CollectionQueryImpl, type QueryFetcher, type SessionSource } from './query.js';
@@ -35,9 +35,174 @@ import type {
     UpdateOutputOf,
 } from './types.js';
 
+export interface EventSourceLike {
+    addEventListener?(event: string, listener: (event: any) => void): void;
+    removeEventListener?(event: string, listener: (event: any) => void): void;
+    onopen?: ((event: any) => void) | null;
+    onmessage?: ((event: any) => void) | null;
+    onerror?: ((event: any) => void) | null;
+    close(): void;
+}
+
+export type EventSourceFactory = (url: string) => EventSourceLike;
+
+export interface ModelsOptions {
+    readonly eventSource?: EventSourceFactory;
+    readonly origin?: string;
+}
+
+export interface EventStreamClient {
+    subscribe(event: string, handler: (payload: unknown) => void): () => void;
+    onReconnect(handler: () => void): () => void;
+    close(): void;
+    readonly isAvailable: boolean;
+}
+
+export function createEventStreamClient(
+    url: string,
+    factory?: EventSourceFactory,
+): EventStreamClient {
+    if (!factory) {
+        return {
+            subscribe: () => () => {},
+            onReconnect: () => () => {},
+            close: () => {},
+            isAvailable: false,
+        };
+    }
+
+    let es: EventSourceLike | null = null;
+    let openedOnce = false;
+    const eventListeners = new Map<string, Set<(payload: unknown) => void>>();
+    const reconnectListeners = new Set<() => void>();
+
+    function ensureConnected(): EventSourceLike {
+        if (es !== null) return es;
+        const source = factory!(url);
+        es = source;
+
+        const onOpen = () => {
+            if (openedOnce) {
+                // Reconnect!
+                for (const r of Array.from(reconnectListeners)) {
+                    r();
+                }
+            } else {
+                openedOnce = true;
+            }
+        };
+
+        if (typeof source.addEventListener === 'function') {
+            source.addEventListener('open', onOpen);
+            source.addEventListener('reconnect', () => {
+                for (const r of Array.from(reconnectListeners)) {
+                    r();
+                }
+            });
+        } else {
+            source.onopen = onOpen;
+        }
+
+        const handleIncoming = (eventName: string, rawData: unknown) => {
+            let data = rawData;
+            if (typeof rawData === 'string') {
+                try {
+                    data = JSON.parse(rawData);
+                } catch {
+                    return;
+                }
+            }
+            const listeners = eventListeners.get(eventName);
+            if (listeners) {
+                for (const listener of Array.from(listeners)) {
+                    listener(data);
+                }
+            }
+        };
+
+        source.onmessage = (event: any) => {
+            const evType = event?.type || 'message';
+            if (evType !== 'message') {
+                handleIncoming(evType, event?.data);
+            } else {
+                let parsed = event?.data;
+                if (typeof event?.data === 'string') {
+                    try {
+                        parsed = JSON.parse(event.data);
+                    } catch {}
+                }
+                if (parsed && typeof parsed === 'object' && 'event' in parsed) {
+                    handleIncoming((parsed as any).event, (parsed as any).data ?? parsed);
+                }
+            }
+        };
+
+        return source;
+    }
+
+    return {
+        isAvailable: true,
+        subscribe(eventName: string, handler: (payload: unknown) => void) {
+            let listeners = eventListeners.get(eventName);
+            if (!listeners) {
+                listeners = new Set();
+                eventListeners.set(eventName, listeners);
+                const source = ensureConnected();
+                if (typeof source.addEventListener === 'function') {
+                    source.addEventListener(eventName, (event: any) => {
+                        let data = event?.data;
+                        if (typeof event?.data === 'string') {
+                            try {
+                                data = JSON.parse(event.data);
+                            } catch {
+                                return;
+                            }
+                        }
+                        const cur = eventListeners.get(eventName);
+                        if (cur) {
+                            for (const l of Array.from(cur)) {
+                                l(data);
+                            }
+                        }
+                    });
+                }
+            }
+            listeners.add(handler);
+
+            return () => {
+                const current = eventListeners.get(eventName);
+                if (current) {
+                    current.delete(handler);
+                    if (current.size === 0) {
+                        eventListeners.delete(eventName);
+                    }
+                }
+            };
+        },
+        onReconnect(handler: () => void) {
+            reconnectListeners.add(handler);
+            ensureConnected();
+            return () => {
+                reconnectListeners.delete(handler);
+            };
+        },
+        close() {
+            if (es) {
+                es.close();
+                es = null;
+            }
+            eventListeners.clear();
+            reconnectListeners.clear();
+            openedOnce = false;
+        },
+    };
+}
+
 export interface MeshCaller {
     call(action: string, input?: unknown): Promise<Result<unknown, CallError<string>>>;
     readonly descriptor?: unknown;
+    readonly eventSource?: EventSourceFactory;
+    readonly origin?: string;
 }
 
 function isTypedResult<T, E extends string>(
@@ -81,6 +246,7 @@ function attachQueryAccessors<T, TItem, TQuery>(
     readonly error: ReadonlySignal<CallError<string> | null>;
     readonly empty: ReadonlySignal<boolean>;
     readonly status: ReadonlySignal<CollectionStatus>;
+    readonly live: ReadonlySignal<boolean>;
 } {
     Object.defineProperties(target, {
         data: { get: () => getQuery().data, enumerable: true, configurable: true },
@@ -89,6 +255,7 @@ function attachQueryAccessors<T, TItem, TQuery>(
         error: { get: () => getQuery().error, enumerable: true, configurable: true },
         empty: { get: () => getQuery().empty, enumerable: true, configurable: true },
         status: { get: () => getQuery().status, enumerable: true, configurable: true },
+        live: { get: () => getQuery().live, enumerable: true, configurable: true },
     });
     if (hasQueryAccessors<T, TItem, TQuery>(target)) {
         return target;
@@ -105,6 +272,7 @@ function hasQueryAccessors<T, TItem, TQuery>(
     readonly error: ReadonlySignal<CallError<string> | null>;
     readonly empty: ReadonlySignal<boolean>;
     readonly status: ReadonlySignal<CollectionStatus>;
+    readonly live: ReadonlySignal<boolean>;
 } {
     return true;
 }
@@ -114,6 +282,7 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
     mesh: MeshCaller,
     session?: SessionSource,
     api?: unknown,
+    streamClient?: EventStreamClient,
 ): CollectionHandle<TCalls, C> {
     type TItem = ItemOf<TCalls, C>;
     type TQuery = QueryOf<TCalls, C>;
@@ -123,6 +292,34 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
     const apiObj = (api ?? mesh.descriptor) as Api<Record<string, AnyApiCall & { readonly gate?: Gate }>> | undefined;
     const findCall = apiObj?.calls?.[`${name}.find`];
     const gate: Gate | undefined = findCall?.gate;
+
+    const isStreamed = isCollectionStreamed(name, apiObj?.events) && (streamClient?.isAvailable ?? false);
+
+    const streamCleanups: (() => void)[] = [];
+    if (isStreamed && streamClient) {
+        streamCleanups.push(
+            streamClient.subscribe(`${name}.created`, (payload) => {
+                for (const q of activeQueries) {
+                    q.applyCreated(payload);
+                }
+            }),
+            streamClient.subscribe(`${name}.updated`, (payload) => {
+                for (const q of activeQueries) {
+                    q.applyUpdated(payload);
+                }
+            }),
+            streamClient.subscribe(`${name}.deleted`, (payload) => {
+                for (const q of activeQueries) {
+                    q.applyDeleted(payload);
+                }
+            }),
+            streamClient.onReconnect(() => {
+                for (const q of activeQueries) {
+                    void q.refetch();
+                }
+            }),
+        );
+    }
 
     const fetcher: QueryFetcher<TItem, TQuery> = async (queryInput) => {
         const action = `${name}.find`;
@@ -140,7 +337,7 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
         qInput?: TQuery | (() => TQuery),
         bindScope = true,
     ): CollectionQuery<TItem, TQuery> {
-        const queryImpl = new CollectionQueryImpl<TItem, TQuery>(fetcher, qInput, bindScope, session, gate);
+        const queryImpl = new CollectionQueryImpl<TItem, TQuery>(fetcher, qInput, bindScope, session, gate, isStreamed);
         activeQueries.add(queryImpl);
         queryImpl.onDispose(() => {
             activeQueries.delete(queryImpl);
@@ -154,6 +351,7 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
             error: queryImpl.error,
             empty: queryImpl.empty,
             status: queryImpl.status,
+            live: queryImpl.live,
             refetch: () => queryImpl.refetch(),
             dispose: () => queryImpl.dispose(),
         });
@@ -180,6 +378,10 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
     const handle: CollectionHandle<TCalls, C> = Object.assign(accessorGetter, {
         refetch: () => getDefaultQuery().refetch(),
         dispose: () => {
+            for (const cleanup of streamCleanups) {
+                cleanup();
+            }
+            streamCleanups.length = 0;
             if (defaultQueryInstance !== null) {
                 defaultQueryInstance.dispose();
                 defaultQueryInstance = null;
@@ -237,9 +439,29 @@ export function createModels<A>(
     onDispose?: (cleanup: () => void) => void,
     session?: SessionSource,
     api?: A,
+    options?: ModelsOptions,
 ): Models<A> {
     type TCalls = CallsOf<A>;
     const collections = new Map<string, { dispose(): void }>();
+
+    const apiObj = (api ?? mesh.descriptor) as Api<Record<string, AnyApiCall & { readonly gate?: Gate }>> | undefined;
+    const base = apiObj?.base ?? '/api';
+    const origin = options?.origin ?? mesh.origin ?? (apiObj as any)?.origin ?? '';
+    const eventsUrl = origin ? `${origin}${base}/events` : `${base}/events`;
+
+    const factory: EventSourceFactory | undefined =
+        options?.eventSource ??
+        mesh.eventSource ??
+        (typeof globalThis !== 'undefined' && typeof (globalThis as any).EventSource !== 'undefined'
+            ? (u: string) => new (globalThis as any).EventSource(u)
+            : undefined);
+
+    const streamClient = createEventStreamClient(eventsUrl, factory);
+    if (onDispose !== undefined) {
+        onDispose(() => {
+            streamClient.close();
+        });
+    }
 
     function isCollectionHandle<K extends CollectionNameOf<A>>(
         _val: unknown,
@@ -253,7 +475,7 @@ export function createModels<A>(
             return existing;
         }
 
-        const created = createCollection<TCalls, K>(name, mesh, session, api);
+        const created = createCollection<TCalls, K>(name, mesh, session, api, streamClient);
         collections.set(name, created);
         return created;
     }

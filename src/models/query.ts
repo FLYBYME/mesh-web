@@ -28,6 +28,41 @@ export type SessionSource =
     | ReadonlySignal<Session | null>
     | (() => ReadonlySignal<Session | null> | undefined);
 
+/**
+ * Does this item match the query filters?
+ * Used to filter live event additions and updates so query views do not receive excluded rows.
+ */
+export function matchesQuery(item: unknown, query: unknown): boolean {
+    if (!query || typeof query !== 'object') return true;
+    if (!item || typeof item !== 'object') return true;
+    const itemRec = item as Record<string, unknown>;
+    const queryRec = query as Record<string, unknown>;
+
+    for (const [key, value] of Object.entries(queryRec)) {
+        if (value === undefined || value === null) continue;
+        if (key === 'limit' || key === 'offset' || key === 'skip' || key === 'page' || key === 'sort' || key === 'order') {
+            continue;
+        }
+        if (key in itemRec) {
+            const itemVal = itemRec[key];
+            if (Array.isArray(value)) {
+                if (!value.includes(itemVal)) return false;
+            } else if (itemVal !== value) {
+                return false;
+            }
+        } else if (key === 'search' && typeof value === 'string') {
+            const term = value.toLowerCase();
+            const matchesAny = Object.values(itemRec).some(
+                (v) => typeof v === 'string' && v.toLowerCase().includes(term),
+            );
+            if (!matchesAny) return false;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer {
     private readonly fetcher: QueryFetcher<TItem, TQuery>;
     private readonly queryFn: (() => TQuery) | undefined;
@@ -41,6 +76,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     private readonly _error: Signal<CallError<string> | null>;
     private readonly _empty: Signal<boolean>;
     private readonly _status: Signal<CollectionStatus>;
+    private readonly _live: Signal<boolean>;
 
     private currentRequestId = 0;
     private currentInFlightPromise: Promise<readonly TItem[] | undefined> | null = null;
@@ -59,6 +95,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         bindScope = true,
         sessionSource?: SessionSource,
         gate?: Gate,
+        live = false,
     ) {
         this.fetcher = fetcher;
         this.sessionSource = sessionSource;
@@ -75,6 +112,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         this._error = signal<CallError<string> | null>(null);
         this._empty = signal<boolean>(false);
         this._status = signal<CollectionStatus>('loading');
+        this._live = signal<boolean>(live);
 
         if (bindScope) {
             this.parentScope = getActiveScopeContext();
@@ -167,6 +205,111 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
 
     get status(): ReadonlySignal<CollectionStatus> {
         return this._status;
+    }
+
+    get live(): ReadonlySignal<boolean> {
+        return this._live;
+    }
+
+    setLive(live: boolean): void {
+        this._live.set(live);
+    }
+
+    applyCreated(payload: unknown): void {
+        const item = (payload && typeof payload === 'object' && 'item' in payload && (payload as Record<string, unknown>).item !== undefined)
+            ? (payload as Record<string, unknown>).item
+            : payload;
+        const currentQuery = this.queryFn ? this.queryFn() : undefined;
+        if (!matchesQuery(item, currentQuery)) {
+            return;
+        }
+
+        const id = (item as Record<string, unknown>)?.id ?? (item as Record<string, unknown>)?._id ?? (payload as Record<string, unknown>)?.id;
+        const currentRows = this._rows() ?? [];
+        if (id !== undefined) {
+            const existingIndex = currentRows.findIndex(
+                (r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id,
+            );
+            if (existingIndex >= 0) {
+                // Deduplicate by ID to prevent double-applying local writes: replace in place
+                const next = [...currentRows];
+                next[existingIndex] = item as TItem;
+                this._data.set(next);
+                this._rows.set(next);
+                this._loading.set(false);
+                this._empty.set(next.length === 0);
+                this._status.set(next.length === 0 ? 'empty' : 'ready');
+                return;
+            }
+        }
+
+        const next = [...currentRows, item as TItem];
+        this._data.set(next);
+        this._rows.set(next);
+        this._loading.set(false);
+        this._empty.set(false);
+        this._status.set('ready');
+    }
+
+    applyUpdated(payload: unknown): void {
+        const item = (payload && typeof payload === 'object' && 'item' in payload && (payload as Record<string, unknown>).item !== undefined)
+            ? (payload as Record<string, unknown>).item
+            : payload;
+        const id = (payload as Record<string, unknown>)?.id ?? (item as Record<string, unknown>)?.id ?? (item as Record<string, unknown>)?._id;
+        const currentQuery = this.queryFn ? this.queryFn() : undefined;
+        const matches = matchesQuery(item, currentQuery);
+        const currentRows = this._rows() ?? [];
+        const existingIndex = id !== undefined
+            ? currentRows.findIndex((r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id)
+            : -1;
+
+        if (existingIndex >= 0) {
+            if (matches) {
+                const next = [...currentRows];
+                next[existingIndex] = item as TItem;
+                this._data.set(next);
+                this._rows.set(next);
+                this._loading.set(false);
+                this._empty.set(next.length === 0);
+                this._status.set(next.length === 0 ? 'empty' : 'ready');
+            } else {
+                // No longer matches query view: remove from view
+                const next = currentRows.filter((_, idx) => idx !== existingIndex);
+                this._data.set(next);
+                this._rows.set(next);
+                this._loading.set(false);
+                this._empty.set(next.length === 0);
+                this._status.set(next.length === 0 ? 'empty' : 'ready');
+            }
+        } else if (matches) {
+            // New item now matches view
+            const next = [...currentRows, item as TItem];
+            this._data.set(next);
+            this._rows.set(next);
+            this._loading.set(false);
+            this._empty.set(false);
+            this._status.set('ready');
+        }
+    }
+
+    applyDeleted(payload: unknown): void {
+        const id = typeof payload === 'string'
+            ? payload
+            : ((payload && typeof payload === 'object') ? ((payload as Record<string, unknown>).id ?? (payload as Record<string, unknown>)._id) : undefined);
+        if (id === undefined) return;
+
+        const currentRows = this._rows() ?? [];
+        const existingIndex = currentRows.findIndex(
+            (r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id,
+        );
+        if (existingIndex >= 0) {
+            const next = currentRows.filter((_, idx) => idx !== existingIndex);
+            this._data.set(next);
+            this._rows.set(next);
+            this._loading.set(false);
+            this._empty.set(next.length === 0);
+            this._status.set(next.length === 0 ? 'empty' : 'ready');
+        }
     }
 
     onDispose(cleanup: () => void): void {
@@ -376,8 +519,9 @@ export function createCollectionQuery<TItem, TQuery>(
     queryInput?: TQuery | (() => TQuery),
     sessionSource?: SessionSource,
     gate?: Gate,
+    live = false,
 ): CollectionQuery<TItem, TQuery> {
-    const impl = new CollectionQueryImpl<TItem, TQuery>(fetcher, queryInput, true, sessionSource, gate);
+    const impl = new CollectionQueryImpl<TItem, TQuery>(fetcher, queryInput, true, sessionSource, gate, live);
     const getter = () => impl.data();
     const query: CollectionQuery<TItem, TQuery> = Object.assign(getter, {
         data: impl.data,
@@ -386,6 +530,7 @@ export function createCollectionQuery<TItem, TQuery>(
         error: impl.error,
         empty: impl.empty,
         status: impl.status,
+        live: impl.live,
         refetch: () => impl.refetch(),
         dispose: () => impl.dispose(),
     });

@@ -1105,4 +1105,254 @@ describe('session-aware collections', () => {
             }
         });
     });
+
+    describe('live collections over SSE event stream (FLYBYME/surfdns#56)', () => {
+        class MockEventSource {
+            static instances: MockEventSource[] = [];
+            public readonly url: string;
+            public listeners = new Map<string, Set<(event: any) => void>>();
+            public onopen: ((e: any) => void) | null = null;
+            public onmessage: ((e: any) => void) | null = null;
+            public onerror: ((e: any) => void) | null = null;
+            public closed = false;
+
+            constructor(url: string) {
+                this.url = url;
+                MockEventSource.instances.push(this);
+            }
+
+            addEventListener(type: string, listener: (event: any) => void) {
+                if (!this.listeners.has(type)) {
+                    this.listeners.set(type, new Set());
+                }
+                this.listeners.get(type)!.add(listener);
+            }
+
+            removeEventListener(type: string, listener: (event: any) => void) {
+                this.listeners.get(type)?.delete(listener);
+            }
+
+            emit(type: string, data: any) {
+                const event = { type, data: typeof data === 'string' ? data : JSON.stringify(data) };
+                const set = this.listeners.get(type);
+                if (set) {
+                    for (const l of Array.from(set)) l(event);
+                }
+                if (this.onmessage && (type === 'message' || !set)) {
+                    this.onmessage(event);
+                }
+            }
+
+            open() {
+                const event = { type: 'open' };
+                this.onopen?.(event);
+                const set = this.listeners.get('open');
+                if (set) {
+                    for (const l of Array.from(set)) l(event);
+                }
+            }
+
+            close() {
+                this.closed = true;
+            }
+        }
+
+        const liveApi = defineApi({
+            id: 'live-models',
+            exposure: 'sha256:live1234',
+            calls: {
+                'part.find': call<PartQuery, readonly Part[]>('GET', '/parts'),
+                'part.get': call<{ id: string }, Part, 'not_found'>('GET', '/parts/get'),
+                'part.create': call<CreatePartInput, Part, 'invalid_name'>('POST', '/parts'),
+                'part.update': call<UpdatePartInput, Part, 'not_found'>('PUT', '/parts'),
+                'part.delete': call<DeletePartInput, void, 'not_found'>('DELETE', '/parts'),
+                'stat.find': call<void, readonly StatRecord[]>('GET', '/stats'),
+            },
+            events: ['part.created', 'part.updated', 'part.deleted'],
+        });
+
+        it('reports live: true for streamed collections and live: false for non-streamed collections', async () => {
+            MockEventSource.instances = [];
+            const fake = createFakeTransport((req) => {
+                if (req.url === '/api/parts') {
+                    return jsonResponse(200, [{ id: 'p1', name: 'Part 1', tag: 't1' }]);
+                }
+                if (req.url === '/api/stats') {
+                    return jsonResponse(200, [{ total: 42 }]);
+                }
+                return jsonResponse(404, {});
+            });
+
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, undefined, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const parts = models('part');
+            const stats = models('stat');
+            expect(parts.loading()).toBe(true);
+            expect(stats.loading()).toBe(true);
+
+            await new Promise((r) => setTimeout(r, 20));
+
+            expect(parts.live()).toBe(true);
+            expect(stats.live()).toBe(false);
+            expect(stats.status()).toBe('ready');
+            expect(stats.rows()).toEqual([{ total: 42 }]);
+        });
+
+        it('applies created, updated, and deleted events live to collection rows', async () => {
+            MockEventSource.instances = [];
+            const fake = createFakeTransport((req) => {
+                if (req.url.startsWith('/api/parts')) {
+                    return jsonResponse(200, [{ id: 'p1', name: 'Initial Part', tag: 't1' }]);
+                }
+                return jsonResponse(404, {});
+            });
+
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, undefined, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const parts = models('part');
+            expect(parts.loading()).toBe(true);
+            await new Promise((r) => setTimeout(r, 20));
+            expect(parts.rows()).toEqual([{ id: 'p1', name: 'Initial Part', tag: 't1' }]);
+
+            const es = MockEventSource.instances[0]!;
+            expect(es).toBeDefined();
+            expect(es.url).toBe('/api/events');
+
+            // 1. Created event
+            es.emit('part.created', { id: 'p2', name: 'Second Part', tag: 't1' });
+            expect(parts.rows()).toEqual([
+                { id: 'p1', name: 'Initial Part', tag: 't1' },
+                { id: 'p2', name: 'Second Part', tag: 't1' },
+            ]);
+            expect(parts.status()).toBe('ready');
+            expect(parts.empty()).toBe(false);
+
+            // 2. Updated event (with { id, item } format)
+            es.emit('part.updated', {
+                id: 'p2',
+                item: { id: 'p2', name: 'Second Part Modified', tag: 't1' },
+            });
+            expect(parts.rows()).toEqual([
+                { id: 'p1', name: 'Initial Part', tag: 't1' },
+                { id: 'p2', name: 'Second Part Modified', tag: 't1' },
+            ]);
+
+            // 3. Deleted event
+            es.emit('part.deleted', { id: 'p1' });
+            expect(parts.rows()).toEqual([
+                { id: 'p2', name: 'Second Part Modified', tag: 't1' },
+            ]);
+
+            // Delete last item -> empty
+            es.emit('part.deleted', { id: 'p2' });
+            expect(parts.rows()).toEqual([]);
+            expect(parts.empty()).toBe(true);
+            expect(parts.status()).toBe('empty');
+        });
+
+        it('filters live events by query view and removes rows that no longer match', async () => {
+            MockEventSource.instances = [];
+            const fake = createFakeTransport((_req) => jsonResponse(200, []));
+
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, undefined, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const parts = models('part');
+            const tag1Query = parts.find({ tag: 't1' });
+            const tag2Query = parts.find({ tag: 't2' });
+            await new Promise((r) => setTimeout(r, 20));
+
+            const es = MockEventSource.instances[0]!;
+
+            // Created with tag: 't1' -> only tag1Query receives it
+            es.emit('part.created', { id: 'p1', name: 'Widget 1', tag: 't1' });
+            expect(tag1Query.rows()).toEqual([{ id: 'p1', name: 'Widget 1', tag: 't1' }]);
+            expect(tag2Query.rows()).toEqual([]);
+
+            // Created with tag: 't2' -> only tag2Query receives it
+            es.emit('part.created', { id: 'p2', name: 'Widget 2', tag: 't2' });
+            expect(tag1Query.rows()).toEqual([{ id: 'p1', name: 'Widget 1', tag: 't1' }]);
+            expect(tag2Query.rows()).toEqual([{ id: 'p2', name: 'Widget 2', tag: 't2' }]);
+
+            // Updated: p1 moves from tag 't1' to 't2'
+            es.emit('part.updated', {
+                id: 'p1',
+                item: { id: 'p1', name: 'Widget 1', tag: 't2' },
+            });
+            // tag1Query dropped it; tag2Query gained it
+            expect(tag1Query.rows()).toEqual([]);
+            expect(tag2Query.rows()).toEqual([
+                { id: 'p2', name: 'Widget 2', tag: 't2' },
+                { id: 'p1', name: 'Widget 1', tag: 't2' },
+            ]);
+        });
+
+        it('deduplicates by ID so duplicate created events or local writes do not create duplicates', async () => {
+            MockEventSource.instances = [];
+            const fake = createFakeTransport((_req) =>
+                jsonResponse(200, [{ id: 'p1', name: 'Original', tag: 't1' }]),
+            );
+
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, undefined, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const parts = models('part');
+            expect(parts.loading()).toBe(true);
+            await new Promise((r) => setTimeout(r, 20));
+            expect(parts.rows().length).toBe(1);
+
+            const es = MockEventSource.instances[0]!;
+
+            // Emit duplicate created event for already existing p1
+            es.emit('part.created', { id: 'p1', name: 'Updated in place', tag: 't1' });
+            expect(parts.rows().length).toBe(1);
+            expect(parts.rows()[0]?.name).toBe('Updated in place');
+        });
+
+        it('resyncs active queries via refetch() on stream reconnect', async () => {
+            MockEventSource.instances = [];
+            let fetchCount = 0;
+            const fake = createFakeTransport((_req) => {
+                fetchCount++;
+                return jsonResponse(200, [{ id: 'p1', name: `Fetch ${fetchCount}`, tag: 't1' }]);
+            });
+
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, undefined, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const parts = models('part');
+            expect(parts.loading()).toBe(true);
+            await new Promise((r) => setTimeout(r, 20));
+            expect(fetchCount).toBe(1);
+            expect(parts.rows()[0]?.name).toBe('Fetch 1');
+
+            const es = MockEventSource.instances[0]!;
+            // Initial connection open
+            es.open();
+            expect(fetchCount).toBe(1);
+
+            // Reconnection: open fires again
+            es.open();
+            await new Promise((r) => setTimeout(r, 20));
+            expect(fetchCount).toBe(2);
+            expect(parts.rows()[0]?.name).toBe('Fetch 2');
+        });
+    });
 });
