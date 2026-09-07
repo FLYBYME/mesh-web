@@ -159,6 +159,37 @@ describe('the types are the feature', () => {
 // ---------------------------------------------------------------------------- requests
 
 describe('a call becomes a request', () => {
+    /**
+     * The generated client emits a third argument now, and this kernel has to accept it.
+     *
+     * mesh-serve started writing the gate as a runtime literal — `call<I, O>("GET", "/parts",
+     * { kind: 'auth', level: 'user' })` — while `call()` took two parameters. Every regenerated
+     * client in every repository stopped compiling with "Expected 2 arguments, but got 3", and the
+     * failure was in generated code, which is the last place anybody looks for a kernel change.
+     *
+     * Optional, and a client generated before this existed still compiles: an older client against
+     * a newer kernel is the ordinary case during a rolling upgrade.
+     */
+    it('accepts a gate from a generated client, and carries it as data', () => {
+        const gated = defineApi({
+            id: 'surfdns',
+            exposure: 'sha256:gate',
+            shapeHash: 'sha256:shape',
+            calls: {
+                'part.find': call<void, unknown>('GET', '/parts', { kind: 'auth', level: 'user' }),
+                'zone.delete': call<void, unknown>('DELETE', '/zones/:id',
+                    { kind: 'permission', permission: 'domains.delete' }),
+                // No gate: what a client generated before this existed looks like.
+                'session.whoami': call<void, unknown>('GET', '/session/whoami'),
+            },
+        });
+
+        expect(gated.calls['part.find'].gate).toEqual({ kind: 'auth', level: 'user' });
+        expect(gated.calls['zone.delete'].gate)
+            .toEqual({ kind: 'permission', permission: 'domains.delete' });
+        expect(gated.calls['session.whoami'].gate).toBeUndefined();
+    });
+
     it('puts a GET input in the query string', async () => {
         const fake = fakeTransport(() => json(200, {}));
         await createClient(siteApi, { transport: fake.transport }).call('credential.resolve', { id: 'c1' });

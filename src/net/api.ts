@@ -29,9 +29,29 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
  * table — lets the two drift, and a generator that emits two things which must agree will eventually
  * emit two things that do not.
  */
+/**
+ * Who may call this, as data rather than as a comment.
+ *
+ * The generated client used to record the gate only inside a JSDoc line — `GET /parts — auth:
+ * public` — and that text was **wrong**: the console's site declares `auth: 'user'` for every one
+ * of its contracts and the server answers 401. Nothing could detect the drift, because the value was
+ * not a value.
+ *
+ * mesh-serve's emitter now writes it as a literal, so a page can ask *does this need a session?*
+ * before firing a request that is certain to fail — which is the whole point of
+ * [schema-driven-ui §1](../../spec/schema-driven-ui.md).
+ *
+ * Optional, because a client generated before this existed carries none, and an older client must
+ * keep compiling against a newer kernel.
+ */
+export type Gate =
+    | { readonly kind: 'auth'; readonly level: 'public' | 'user' | 'admin' | 'operator' }
+    | { readonly kind: 'permission'; readonly permission: string };
+
 export interface ApiCall<TInput, TOutput, TErrors extends string = never> {
     readonly method: HttpMethod;
     readonly path: string;
+    readonly gate?: Gate;
     /** Never assigned. Present only so the compiler carries the shapes. */
     readonly types?: {
         readonly input: TInput;
@@ -118,8 +138,9 @@ export type CallOf<A, K extends string> = A extends Api<infer C> ? (K extends ke
 export function call<TInput, TOutput, TErrors extends string = never>(
     method: HttpMethod,
     path: string,
+    gate?: Gate,
 ): ApiCall<TInput, TOutput, TErrors> {
-    return { method, path };
+    return gate === undefined ? { method, path } : { method, path, gate };
 }
 
 /**
