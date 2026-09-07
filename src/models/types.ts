@@ -25,6 +25,7 @@ export interface CollectionQuery<TItem, TQuery = unknown> {
     readonly error: ReadonlySignal<CallError<string> | null>;
     readonly empty: ReadonlySignal<boolean>;
     readonly status: ReadonlySignal<CollectionStatus>;
+    readonly live: ReadonlySignal<boolean>;
     refetch(): Promise<readonly TItem[] | undefined>;
     dispose(): void;
 }

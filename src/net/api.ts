@@ -48,6 +48,22 @@ export type Gate =
     | { readonly kind: 'auth'; readonly level: 'public' | 'user' | 'admin' | 'operator' }
     | { readonly kind: 'permission'; readonly permission: string };
 
+/**
+ * Does this gate require an active authenticated session?
+ *
+ * Public auth gates do not; all other auth levels and permission gates do.
+ */
+export function requiresAuth(gate?: Gate): boolean {
+    if (gate === undefined) return false;
+    if (gate.kind === 'auth') {
+        return gate.level !== 'public';
+    }
+    if (gate.kind === 'permission') {
+        return true;
+    }
+    return false;
+}
+
 export interface ApiCall<TInput, TOutput, TErrors extends string = never> {
     readonly method: HttpMethod;
     readonly path: string;
@@ -86,6 +102,13 @@ export type NoInput = void;
 
 // ---------------------------------------------------------------------------- the descriptor
 
+export interface DescribedEvent {
+    readonly name: string;
+    readonly gate?: Gate;
+}
+
+export type ApiEventDeclaration = string | DescribedEvent;
+
 export interface ApiSpec<TCalls extends Record<string, AnyApiCall>> {
     /** Names the API a call is scoped to. Appears in errors and in the manifest. */
     readonly id: string;
@@ -114,6 +137,30 @@ export interface ApiSpec<TCalls extends Record<string, AnyApiCall>> {
     /** Prefix for every path, so a descriptor is portable between environments. */
     readonly base?: string;
     readonly calls: TCalls;
+    /** Events this site streams over /events, with optional gate data. */
+    readonly events?: readonly ApiEventDeclaration[];
+}
+
+/**
+ * Does this API declare streamed events for the named collection domain?
+ */
+export function isCollectionStreamed(
+    name: string,
+    events?: readonly ApiEventDeclaration[],
+): boolean {
+    if (!events || !Array.isArray(events)) return false;
+    const prefix = `${name}.`;
+    return events.some((e) => {
+        const eventName = typeof e === 'string' ? e : e?.name;
+        if (typeof eventName !== 'string') return false;
+        return (
+            eventName === `${name}.created` ||
+            eventName === `${name}.updated` ||
+            eventName === `${name}.deleted` ||
+            eventName.startsWith(prefix) ||
+            eventName === name
+        );
+    });
 }
 
 export interface Api<TCalls extends Record<string, AnyApiCall>> extends ApiSpec<TCalls> {

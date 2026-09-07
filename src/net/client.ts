@@ -86,6 +86,8 @@ export function withHeaders(inner: Transport, headers: () => Readonly<Record<str
 export interface MeshClient<A> {
     /** The API this client is scoped to. Present so a log line can say which one failed. */
     readonly api: string;
+    /** The API descriptor this client was created from, if available at runtime. */
+    readonly descriptor?: unknown;
 
     call<K extends ActionOf<A>>(
         action: K,
@@ -115,6 +117,7 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
 
     return {
         api: api.id,
+        descriptor: api,
 
         async call(action, ...rest): Promise<Result<never, CallError<string>>> {
             const decl = api.calls[action];
