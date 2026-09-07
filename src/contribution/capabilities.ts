@@ -288,6 +288,47 @@ export interface Dom {
     surface(options: SurfaceOptions): Node;
 }
 
+// ---------------------------------------------------------------------------- confirmation
+
+/**
+ * What the person is being asked.
+ *
+ * `destructive` is a hint about presentation, not a second gate — the kernel does not decide
+ * anything from it. It exists so a shell can make "delete this site" look different from "reload",
+ * which is the one distinction a person actually needs at the moment of deciding.
+ */
+export interface ConfirmOptions {
+    readonly title?: string;
+    readonly message: string;
+    readonly confirmLabel?: string;
+    readonly cancelLabel?: string;
+    readonly destructive?: boolean;
+}
+
+/**
+ * Ask the person a yes-or-no question and wait for the answer.
+ *
+ * **The missing reader for `destructive`.** Every contract that writes declares `destructive: true`,
+ * it travels in the exposure descriptor, it now reaches the browser — and until this existed there
+ * was nothing that could act on it, because there was no way to ask a question and wait. `Dialog` is
+ * a primitive that renders a `<dialog>`; `notifications` is a one-way array. Neither is a decision.
+ *
+ * **One method, not a callable object.** An earlier draft made this callable *and* gave it `.ask`,
+ * and registered it under both `confirmation` and `confirm`. Four ways to write one call is four
+ * things to keep in step and four things a reader has to check are the same thing.
+ *
+ * **The answer cannot be forged by the asker.** The promise is resolved inside the kernel by the
+ * prompter the *page* installed, never by the contribution that called `ask`. A capability whose
+ * caller can resolve its own question is decoration, and it would be decoration that reads like a
+ * safety property — which is worse than not having it.
+ *
+ * Declared, like everything else: `needs('confirmation')` in a manifest is how a site can see which
+ * parts are able to interrupt the person using it.
+ */
+export interface Confirmation {
+    ask(options: ConfirmOptions | string): Promise<boolean>;
+}
+
 // ---------------------------------------------------------------------------- the map
 
 /**
@@ -309,6 +350,7 @@ export interface CapabilityMap {
     readonly http: Http;
     readonly storage: Storage;
     readonly dom: Dom;
+    readonly confirmation: Confirmation;
 }
 
 /**

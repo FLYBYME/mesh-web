@@ -630,3 +630,65 @@ dialog::backdrop {
 [hidden] {
     display: none !important;
 }
+
+/* ---------------------------------------------------------------------------- confirmation */
+
+/*
+ * A native <dialog>, so `showModal()` supplies the focus trap, the inert background and
+ * Escape-to-close. `::backdrop` is only reachable on a real modal dialog, which is the other
+ * reason not to hand-build this out of a div.
+ */
+.mesh-confirm {
+    max-width: 420px;
+    padding: 16px 20px;
+    border: 1px solid var(--edge, #30363d);
+    border-radius: 8px;
+    background: var(--surface, #161b22);
+    color: var(--ink, #e6edf3);
+    box-shadow: 0 12px 32px var(--shadow, rgba(0, 0, 0, 0.45));
+}
+
+.mesh-confirm::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.mesh-confirm-title {
+    margin: 0 0 8px 0;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.mesh-confirm-message {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* Who is asking. Stamped by the kernel, never by the asker. */
+.mesh-confirm-source {
+    margin: 0 0 16px 0;
+    font-size: 11px;
+    color: var(--ink-dim, #8b949e);
+}
+
+.mesh-confirm-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.mesh-confirm-ok {
+    background: var(--accent, #58a6ff);
+    color: var(--on-accent, #0d1117);
+    border-color: var(--accent, #58a6ff);
+}
+
+/*
+ * A destructive confirmation does not get a friendly-coloured accept button. The colour is the
+ * only part of the dialog a person reliably reads before clicking.
+ */
+.mesh-confirm-destructive .mesh-confirm-ok {
+    background: var(--error, #f85149);
+    border-color: var(--error, #f85149);
+    color: var(--page, #0d1117);
+}

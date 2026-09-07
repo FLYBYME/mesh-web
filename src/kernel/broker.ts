@@ -22,9 +22,9 @@ import type { ReactiveScope, ReadonlySignal, Signal } from '../reactivity/types.
 import type { Session } from '../auth/extension.js';
 import type { Json, Node, Reactive } from '../description/types.js';
 import type {
-    CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Credentials, Dom, Http,
-    HttpRequest, HttpResponse, Log, NotificationHandle, Notifications, State, Storage, SurfaceOptions,
-    WindowHandle, Windows,
+    CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Confirmation,
+    ConfirmOptions, Credentials, Dom, Http, HttpRequest, HttpResponse, Log, NotificationHandle,
+    Notifications, State, Storage, SurfaceOptions, WindowHandle, Windows,
 } from '../contribution/capabilities.js';
 import type { ResizeEdge } from '../window/geometry.js';
 import { windowHost } from '../window/page.js';
@@ -129,7 +129,20 @@ export interface KernelServices {
     readonly credentials: CredentialHolder;
     readonly hives: HiveBindings;
     session?: ReadonlySignal<Session | null>;
+    /**
+     * How the kernel prompts the user for a decision when `cx.confirmation.ask(...)` is called.
+     *
+     * In the browser this mounts a modal `<dialog>`; in tests it defaults to resolving false or
+     * using the prompter supplied in options.
+     */
+    confirm: ConfirmPrompter;
 }
+
+export interface ConfirmRequest extends ConfirmOptions {
+    readonly requester: string;
+}
+
+export type ConfirmPrompter = (request: ConfirmRequest) => Promise<boolean>;
 
 /**
  * Who is attaching what, and where requests go.
@@ -211,6 +224,13 @@ export interface ServiceOptions {
     readonly hives?: HiveBindings;
     readonly session?: ReadonlySignal<Session | null>;
     readonly logCapacity?: number;
+    /**
+     * How the page asks the person a yes-or-no question.
+     *
+     * Supplied by whoever builds the page, not by the contribution that asks — that separation is
+     * the whole property `Confirmation` claims. A test can pass one that answers without a DOM.
+     */
+    readonly confirm?: ConfirmPrompter;
 }
 
 export function defaultHives(): HiveBindings {
@@ -236,6 +256,17 @@ export function createServices(
     return {
         logs: createLogBuffer(options.logCapacity),
         notifications: signal<readonly NotificationRecord[]>([]),
+        /**
+         * **Refusing is the safe default, and it is deliberately not "yes".**
+         *
+         * A kernel booted with no DOM — which is most of this repository's own tests — cannot ask
+         * anybody anything. Answering `true` there would make every unattended run behave as though
+         * a person had agreed to whatever was asked, and the first time that mattered it would be a
+         * destructive call in a test harness.
+         *
+         * `start()` replaces this with a real prompter when there is a page to draw on.
+         */
+        confirm: options.confirm ?? (async () => false),
         windows,
         commands: new Map(),
         declaredCommands: new Map(),
@@ -374,6 +405,12 @@ export function createContext(
             case 'chrome':
                 capabilities.chrome = makeChrome(services);
                 break;
+            case 'confirmation':
+                // `declaredBy`, not `id`. `id` is the running instance — a pid like `p1` — and
+                // "asked by p1" tells the person nothing at the moment they most need to know what
+                // is asking. `declaredBy` is the name in the manifest: `catalog`, `releases`.
+                capabilities.confirmation = makeConfirmation(declaredBy, services);
+                break;
             case 'http':
                 capabilities.http = makeHttp(id, services);
                 break;
@@ -484,6 +521,34 @@ function makeCommands(owner: string, declaredBy: string, services: KernelService
                 );
             }
             await entry.run(...args);
+        },
+    };
+}
+
+/**
+ * The confirmation capability, narrowed to the contribution asking.
+ *
+ * `requester` is stamped by the kernel from the contribution's own id and is **not** a field the
+ * caller supplies. A prompter can therefore say *who* is asking, and a part cannot claim to be
+ * another part — the same rule `notifications` and `commands` follow, and for the same reason.
+ *
+ * The answer comes back from `services.confirm`, which is installed by whoever built the page. The
+ * asker never holds the resolver, so it cannot resolve its own question.
+ */
+function makeConfirmation(owner: string, services: KernelServices): Confirmation {
+    return {
+        ask: async (options) => {
+            const request: ConfirmRequest = typeof options === 'string'
+                ? { message: options, requester: owner }
+                : { ...options, requester: owner };
+
+            // A prompter that throws must not read as agreement. Anything other than an explicit
+            // `true` is a refusal, including a page that has torn its dialog down mid-question.
+            try {
+                return await services.confirm(request) === true;
+            } catch {
+                return false;
+            }
         },
     };
 }

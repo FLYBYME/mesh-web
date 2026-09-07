@@ -52,6 +52,7 @@ import { SettingLocked, createRegistry as createSettings } from '../registry/reg
 import type { Registry } from '../registry/registry.js';
 import type { BuildPolicy, HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
+import { domConfirm } from './confirm.js';
 import { mountPage, PAGE_CHROME } from '../window/page.js';
 import type { Page } from '../window/page.js';
 import { pageWindowMode, windowPersistence } from '../window/persistence.js';
@@ -174,6 +175,9 @@ export function start(composition: Composition): Started {
         apiOrigin: api,
         hives,
         logCapacity: composition.logCapacity,
+        // Installed by the page, never by the part that asks — that separation is the only reason
+        // `confirmation` is worth having.
+        confirm: domConfirm(doc),
     });
     const kernel = new Kernel({ services });
 
