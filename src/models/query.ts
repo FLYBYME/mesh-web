@@ -16,19 +16,21 @@ import { getActiveScopeContext } from '../reactivity/context.js';
 import type { ReadonlySignal, Signal, IDisposableContainer } from '../reactivity/types.js';
 import type { Result, CallError } from '../net/result.js';
 import type { CollectionQuery, CollectionStatus } from './types.js';
+import type { Session } from '../auth/extension.js';
 
 export type QueryFetcher<TItem, TQuery> = (
     query?: TQuery,
 ) => Promise<Result<readonly TItem[], CallError<string>>>;
 
-function isFunction<T>(val: unknown): val is () => T {
-    return typeof val === 'function';
-}
+export type SessionSource =
+    | ReadonlySignal<Session | null>
+    | (() => ReadonlySignal<Session | null> | undefined);
 
 export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer {
     private readonly fetcher: QueryFetcher<TItem, TQuery>;
     private readonly queryFn: (() => TQuery) | undefined;
     private readonly onDisposeCallbacks: Set<() => void> = new Set();
+    private readonly sessionSource?: SessionSource;
 
     private readonly _data: Signal<readonly TItem[] | undefined>;
     private readonly _rows: Signal<readonly TItem[]>;
@@ -41,15 +43,21 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     private currentInFlightPromise: Promise<readonly TItem[] | undefined> | null = null;
     private isDisposed = false;
     private effectDispose: (() => void) | null = null;
+    private sessionEffectDispose: (() => void) | null = null;
     private childDisposables: Set<() => void> = new Set();
     private parentScope: IDisposableContainer | null = null;
+
+    private failedForAuth = false;
+    private loadedWithSession = false;
 
     constructor(
         fetcher: QueryFetcher<TItem, TQuery>,
         queryInput?: TQuery | (() => TQuery),
         bindScope = true,
+        sessionSource?: SessionSource,
     ) {
         this.fetcher = fetcher;
+        this.sessionSource = sessionSource;
         if (typeof queryInput === 'function') {
             this.queryFn = queryInput as () => TQuery;
         } else if (queryInput !== undefined) {
@@ -70,8 +78,66 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
             }
         }
 
+        let initialized = false;
+        let prevSession: Session | null = null;
+
+        this.sessionEffectDispose = effect(() => {
+            const currentSignal = this.getSessionSignal();
+            if (currentSignal === undefined) {
+                return;
+            }
+            const currentSession = currentSignal();
+
+            if (!initialized) {
+                initialized = true;
+                prevSession = currentSession;
+                return;
+            }
+
+            const hadSession = prevSession !== null;
+            const hasSession = currentSession !== null;
+            const userChanged = prevSession !== null && currentSession !== null && prevSession.userId !== currentSession.userId;
+            prevSession = currentSession;
+
+            if (!hadSession && hasSession) {
+                // Session arrived (absent -> present).
+                // When the session changes from absent to present, a collection that failed for
+                // want of one reloads.
+                if (this.failedForAuth) {
+                    void this.triggerFetch(true);
+                }
+            } else if (hadSession && !hasSession) {
+                // Sign-out (present -> absent).
+                // When it changes to absent, it must not keep showing another person's rows.
+                // Signing out and signing back in as somebody else is the case that decides the
+                // design: a collection holding rows from the previous session is a data leak.
+                this.currentRequestId++;
+                this.currentInFlightPromise = null;
+                this._data.set(undefined);
+                this._rows.set([]);
+                this._empty.set(false);
+                this._status.set('idle');
+                this._loading.set(false);
+                this.failedForAuth = true;
+                this.loadedWithSession = false;
+                // A collection must not fire a request that is certain to fail for want of a session.
+            } else if (userChanged) {
+                // Switched user (User A -> User B).
+                // Clear old rows immediately to prevent cross-user leak, then refetch for the new user.
+                this.currentRequestId++;
+                this.currentInFlightPromise = null;
+                this._data.set(undefined);
+                this._rows.set([]);
+                this._empty.set(false);
+                this._loading.set(true);
+                this.failedForAuth = false;
+                this.loadedWithSession = false;
+                void this.triggerFetch(true);
+            }
+        });
+
         this.effectDispose = effect(() => {
-            void this.triggerFetch();
+            void this.triggerFetch(false);
         });
     }
 
@@ -107,13 +173,40 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         this.onDisposeCallbacks.add(cleanup);
     }
 
-    private triggerFetch(): Promise<readonly TItem[] | undefined> {
+    private getSessionSignal(): ReadonlySignal<Session | null> | undefined {
+        if (!this.sessionSource) {
+            return undefined;
+        }
+        if ('peek' in this.sessionSource && typeof this.sessionSource.peek === 'function') {
+            return this.sessionSource as ReadonlySignal<Session | null>;
+        }
+        if (typeof this.sessionSource === 'function') {
+            return (this.sessionSource as () => ReadonlySignal<Session | null> | undefined)();
+        }
+        return undefined;
+    }
+
+    private shouldFetch(): boolean {
+        // Seam for FLYBYME/surfdns#39: when runtime gate data arrives on the descriptor,
+        // this will check whether the contract requires auth before firing the initial request.
+        // Until then, a collection may react to failure (a 401 it actually received) and to
+        // the session signal. It may not guess in advance.
+        const sessionSignal = this.getSessionSignal();
+        const currentSession = sessionSignal ? sessionSignal.peek() : null;
+        if (this.failedForAuth && currentSession === null) {
+            return false;
+        }
+        return true;
+    }
+
+    private triggerFetch(force = false): Promise<readonly TItem[] | undefined> {
         if (this.isDisposed) {
             return Promise.resolve(undefined);
         }
 
         const requestId = ++this.currentRequestId;
-        this._loading.set(true);
+        const sessionSignal = this.getSessionSignal();
+        const sessionAtStart = sessionSignal ? sessionSignal.peek() : null;
 
         let queryParam: TQuery | undefined;
         try {
@@ -130,6 +223,13 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
             }
             return Promise.resolve(undefined);
         }
+
+        if (!force && !this.shouldFetch()) {
+            this._loading.set(false);
+            return Promise.resolve(undefined);
+        }
+
+        this._loading.set(true);
 
         let fetchPromise: Promise<Result<readonly TItem[], CallError<string>>>;
         try {
@@ -154,9 +254,12 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
                 this._loading.set(false);
 
                 if (result.ok) {
+                    const sessionNow = sessionSignal ? sessionSignal.peek() : null;
                     this._data.set(result.value);
                     this._rows.set(result.value);
                     this._error.set(null);
+                    this.failedForAuth = false;
+                    this.loadedWithSession = sessionNow !== null;
                     if (result.value.length === 0) {
                         this._empty.set(true);
                         this._status.set('empty');
@@ -168,6 +271,19 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
                 }
 
                 // Refusal or transport failure: preserve existing data, populate error state
+                if (result.error.kind === 'unauthorized') {
+                    this.failedForAuth = true;
+                    this.loadedWithSession = false;
+                    this._data.set(undefined);
+                    this._rows.set([]);
+                    this._empty.set(false);
+                    const sessionNow = sessionSignal ? sessionSignal.peek() : null;
+                    if (sessionAtStart === null && sessionNow !== null) {
+                        // Session arrived while the unauthenticated request was in flight: reload immediately with the session
+                        void this.triggerFetch(true);
+                        return undefined;
+                    }
+                }
                 this._error.set(result.error);
                 this._status.set('error');
                 return undefined;
@@ -196,7 +312,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         if (this.currentInFlightPromise !== null) {
             return this.currentInFlightPromise;
         }
-        return this.triggerFetch();
+        return this.triggerFetch(true);
     }
 
     addDisposable(dispose: () => void): void {
@@ -212,6 +328,11 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         this.isDisposed = true;
         this.currentRequestId++;
         this.currentInFlightPromise = null;
+
+        if (this.sessionEffectDispose !== null) {
+            this.sessionEffectDispose();
+            this.sessionEffectDispose = null;
+        }
 
         if (this.effectDispose !== null) {
             this.effectDispose();
@@ -249,8 +370,9 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
 export function createCollectionQuery<TItem, TQuery>(
     fetcher: QueryFetcher<TItem, TQuery>,
     queryInput?: TQuery | (() => TQuery),
+    sessionSource?: SessionSource,
 ): CollectionQuery<TItem, TQuery> {
-    const impl = new CollectionQueryImpl<TItem, TQuery>(fetcher, queryInput);
+    const impl = new CollectionQueryImpl<TItem, TQuery>(fetcher, queryInput, true, sessionSource);
     const getter = () => impl.data();
     const query: CollectionQuery<TItem, TQuery> = Object.assign(getter, {
         data: impl.data,

@@ -55,6 +55,7 @@ export interface Manifest {
     /** Keyed `<contributor>/<view id>`; view ids are scoped, so two Applications may both have `main`. */
     readonly views: ReadonlyMap<string, Contributed<ViewDecl>>;
     readonly components: ReadonlyMap<string, Contributed<ComponentDefinition>>;
+    readonly sessions: ReadonlyMap<string, 'required' | 'optional'>;
     readonly conflicts: readonly Conflict[];
 }
 
@@ -79,6 +80,7 @@ export function mergeManifests(
     const stores = new Map<string, Contributed<StoreDecl>>();
     const views = new Map<string, Contributed<ViewDecl>>();
     const components = new Map<string, Contributed<ComponentDefinition>>();
+    const sessions = new Map<string, 'required' | 'optional'>();
     const conflicts: Conflict[] = [];
 
     const claim = <T>(
@@ -181,6 +183,10 @@ export function mergeManifests(
             claim(components, decl.name, id, decl, 'component', (key, first, second) =>
                 `Component "${key}" is declared by both ${first} and ${second}. Component names are global per page.`);
         }
+
+        if (declarations.session !== undefined) {
+            sessions.set(id, declarations.session);
+        }
     }
 
     // A menu item pointing at a command nobody declared is a dangling reference, and finding it
@@ -209,7 +215,7 @@ export function mergeManifests(
         }
     }
 
-    return { commands, bindings, menus, apis, layouts, settings, stores, views, components, conflicts };
+    return { commands, bindings, menus, apis, layouts, settings, stores, views, components, sessions, conflicts };
 }
 
 /**

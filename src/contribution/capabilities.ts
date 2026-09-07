@@ -10,9 +10,10 @@
  * *of an IDE*. A blog written against it still received a docking system.
  */
 
-import type { Signal } from '../reactivity/types.js';
+import type { ReadonlySignal, Signal } from '../reactivity/types.js';
 import type { Json, Node, Props, Reactive } from '../description/types.js';
 import type { WindowMode } from '../window/manager.js';
+import type { Session } from '../auth/extension.js';
 
 // ---------------------------------------------------------------------------- state
 
@@ -186,7 +187,10 @@ export interface Credentials {
      * two things claiming the page's credential seam is a site that will send the wrong ticket
      * somewhere, and a boot failure is a much better way to find that out.
      */
-    attach(headers: () => Readonly<Record<string, string>>): void;
+    attach(
+        headers: () => Readonly<Record<string, string>>,
+        session?: ReadonlySignal<Session | null>,
+    ): void;
     /** Stop attaching. Signing out, not tearing down — an Extension is never deactivated. */
     clear(): void;
     /** Where `mesh` sends requests. From the deployment descriptor's `api`; `''` means same origin. */
