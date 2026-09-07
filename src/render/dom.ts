@@ -69,6 +69,8 @@ export interface Dispatcher {
 export interface RenderOptions {
     readonly components: ComponentRegistry;
     readonly dispatch: Dispatcher;
+    /** The part or contributor currently rendering, if known. Used in error messages. */
+    readonly part?: string;
 }
 
 export interface Mounted {
@@ -166,8 +168,9 @@ function buildElement(node: ElementNode, options: RenderOptions, scope: Reactive
 
     const definition = options.components.get(node.component);
     if (definition === undefined) {
+        const who = options.part !== undefined ? ` wanted by "${options.part}"` : '';
         throw new Error(
-            `Unknown component "${node.component}". ` +
+            `Unknown component "${node.component}"${who}. ` +
             `Known: ${options.components.names.join(', ') || '(none registered)'}.`,
         );
     }

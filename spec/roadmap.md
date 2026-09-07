@@ -621,9 +621,10 @@ then a missing component is a blocked Application — there is no `div` to fall 
       two contributors claim one name — which `ComponentRegistry.register` already does. `mountPage`
       registering `windowHostComponent` is the framework doing exactly this today.
       [view-layer §3](./view-layer.md)
-- [ ] **A7.4a `components` in the manifest**, for the second kind only. `Declarations` has no such
-      field, so a contributed primitive cannot be declared and the kernel cannot know it before
-      render — the one rule every other contribution follows. **S** · [view-layer §3](./view-layer.md)
+- [x] **A7.4a `components` in the manifest**, for the second kind only. *(done 2026-09-06, dispatch 13)*
+      `Declarations.components` added, merged into `manifest.components` with load-time conflict
+      handling and part-namespaced prefix enforcement, registered into `ComponentRegistry` in `start.ts`
+      before render. Closes the unwired registry extension point. **S** · [components §2](./components.md)
 - [ ] **A7.4b Typing a component reached by name.** `element('VirtualList')` compiles whether or not
       anything provides it; you find out at render. Only contributed *primitives* have this problem,
       because only they are reached by a string — composition is a function call and is checked
