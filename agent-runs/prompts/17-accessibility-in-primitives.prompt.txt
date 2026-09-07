@@ -1,0 +1,105 @@
+You are **frank**. Sign every GitHub post with a last line of exactly:
+
+— frank
+
+Tracking issue: FLYBYME/surfdns#49
+Code lives in:  FLYBYME/mesh-web  — this worktree.
+
+================================================================================
+BEFORE YOU WRITE ANY CODE
+================================================================================
+
+1. gh issue view 49 --repo FLYBYME/surfdns --comments
+2. Read AGENTS.md, then `spec/view-layer.md` §3 and `spec/input.md`, then
+   `src/render/component.ts` end to end — `PRIMITIVES` is the whole subject.
+3. POST YOUR PLAN as an issue comment, signed, before touching a file. Short.
+   Nobody answers on GitHub: choose, say you chose, keep going.
+
+================================================================================
+THE TASK
+================================================================================
+
+Roadmap **A7.7**: accessibility lives in the primitives, or it does not exist.
+
+An Application never writes an element. It writes `Stack`, `Text`, `Button`,
+`Input` — *"if nobody writes `div`, nobody writes `HTMLElement` either."* So the
+library owns every role, label and focus order, and **an Application cannot patch
+around a mistake the library makes.** Nineteen primitives get this right once, or
+six hundred call sites get it wrong separately and no review finds them.
+
+**Why now, and not as a later audit:** a schema-driven form vocabulary is being
+built in mesh-core against these primitives, in parallel with you. Forms are
+where accessibility is least optional — a field with no programmatic label is not
+a style problem, it is a field that cannot be filled in — and a *generated* form
+reproduces whatever the primitives do across every collection on the platform.
+Right underneath, and the generated forms inherit it. Wrong, and the generator
+faithfully repeats the defect about a hundred and fifty times.
+
+Audit `PRIMITIVES` and give each one what it owes. `Dialog`, `Input`, `TextArea`,
+`Button`, `List`/`ListItem` and `DropZone` are where the real decisions are.
+
+Two that are known to matter:
+
+  * **`spaceIsTextInput`** already exists because Space must activate a `Button`
+    and type a space in an `Input`. That is the shape of this whole task: the
+    primitive knows what it is, the call site does not. Look for what else is
+    the same kind of fact.
+  * **A label is a relationship, not a string.** `Input` needs a way to *be*
+    labelled by another node — a `label` prop that renders text nearby and
+    associates nothing is worse than none, because it looks done.
+
+Report plainly which primitives you changed, which were already correct, and
+which need an API change you should not make unilaterally. **A primitive that
+cannot be made accessible without a new prop is a finding worth reporting before
+it is worth fixing** — say so and stop there for that one.
+
+Do not add a dependency. Do not build a linting layer that inspects descriptions
+at run time; the point is that the primitive is correct, not that a checker
+complains.
+
+--- Version discipline ------------------------------------------------------
+
+**A kernel change is a PATCH.** At 0.x a minor invalidates every part: `^0.15`
+excludes `0.16.0`. The kernel is at **0.15.8**. Bump BOTH `package.json` and
+`mesh.json` — they have drifted before because a dispatch bumped one.
+
+DO NOT:
+  - widen scope — a second problem gets a NEW issue on FLYBYME/surfdns
+  - edit any sibling repository
+  - delete, skip, or `.only` past a failing test
+  - push to master
+  - run npm test or tsc in the background and end your turn. Foreground, wait.
+    THREE dispatches have died that way.
+  - commit only at the end. **Commit each piece as it works** — two dispatches
+    ran out of quota mid-change and only committed work survived.
+
+A NOTE ON TESTS. Five times in these repositories a test has encoded a known bug
+as intent, with a comment explaining the bug and an assertion demanding it. If a
+test needs a comment explaining why the behaviour is wrong, fix the behaviour.
+
+================================================================================
+FINISHING
+================================================================================
+
+In the foreground:  npm run typecheck   then   npm test
+
+    git push origin HEAD:frank/49-accessible-primitives
+    gh pr create --repo FLYBYME/mesh-web --head frank/49-accessible-primitives \
+      --title "The primitives own roles, labels and focus" --body "<what and why>
+
+    Refs FLYBYME/surfdns#49
+
+    — frank"
+
+**Commit on the branch this worktree is already on and push THAT.** Two
+dispatches created their own branch, left dispatch/N at the base commit, and the
+merge tooling reported a successful merge that merged nothing.
+
+Then comment, signed: link the PR, and list the primitives in three groups —
+changed, already correct, needs an API decision.
+
+DO NOT MERGE THE PR. The human merges.
+
+Comment at least twice: the plan before any code, and the closing report. If you
+get stuck, finish what you can and post the closing comment anyway with the
+actual error text.
