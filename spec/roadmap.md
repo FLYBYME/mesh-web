@@ -648,8 +648,47 @@ then a missing component is a blocked Application — there is no `div` to fall 
 - [ ] **A7.6 List virtualisation as a component** the renderer understands. Ten thousand rows cannot
       be ten thousand nodes, and an Application cannot implement windowing if it cannot measure.
       **M** · [view-layer §11](./view-layer.md)
+- [x] **A7.11 ★ The kernel stylesheet must not lay out a part's children.** *(fixed 2026-09-07,
+      kernel 0.15.2)* `kernel.css` carried `form { display: flex; flex-direction: column; gap: 8px }`
+      — the one rule in the file that set *layout* rather than a default *appearance*. `chrome`'s
+      sign-in form declared `display: flex` inline and, having no reason to name a direction it was
+      already getting by default, did not declare `flex-direction`. **An inline style only wins the
+      properties it names**, so the kernel kept the direction and stacked email, password and the
+      button into a column; signing in swapped the `<form>` for a `<div>`, which the rule does not
+      match, and the row appeared. Reported as *"the email, password and button are one above each
+      other, then i login and it shrinks to one line."*
+
+      The part's source said `flex` and the screen said `column`, with nothing in the part to explain
+      it. That is the whole hazard of styling a bare element the parts also style: an appearance
+      default is a look a part overrides in one property, a **layout default is a second author for a
+      box the part believes it owns**. Every other `Form` in both repos happened to wrap its contents
+      in a styled `Row`, which is why one view found this and eleven did not. Audit-of-one done;
+      `button`, `input`, `textarea` set appearance only and stay.
 - [ ] **A7.7 Accessibility lives in the primitives.** If apps never write elements, the library owns
       every role, label and focus order — and an Application cannot patch around a mistake. **M**
+- [ ] **A7.9 ★★ A form vocabulary in `ui`, generated from the input schema.**
+      [schema-driven-ui.md](./schema-driven-ui.md). `ui@0.1.0` answered the *display* half —
+      `entityList`, `detailSurface`, `propertyGrid`, `table` — and has **no way to enter a record**:
+      no field, no label, no select, no button row, no dialog. So the first console that needs a
+      create form re-opens the hole `ui` was built to close, and the second one re-opens it
+      differently.
+
+      Written against the JSON Schema rather than against twelve screens, because **the description
+      already exists and is thrown away**: `describeExposure` builds `input` and `output` per exposed
+      call and it is consumed at build time to emit the typed client, then dropped. ~154 addressable
+      CRUD contracts in mesh-serve today, every one with both schemas, and zero hand-written UI.
+
+      Must not invent conventions the framework already settled: A7.8's dispatcher rules (`input`,
+      not `change`; an empty number field is `undefined`) and `Props = Reactive<Json> | undefined`.
+      **The override seam is not optional and ships in the first commit** — generic by default,
+      refined per contract, refining *fields* rather than replacing the form. Without it the first
+      screen with real requirements hand-writes its form and then every screen does. **L** ·
+      [schema-driven-ui §3.2, §4](./schema-driven-ui.md)
+- [ ] **A7.10 `ui.collection` — a CRUD collection as one component.** `find` is the table, `get` the
+      detail surface, `create`/`update` the form, `delete` the destructive action, all determined by
+      the descriptor. This is the *"some crud collections drive state"* case: the user writes the row,
+      the scoped event fires, something acts on it, and the UI never needed to know what the row
+      **meant** — only its shape, which it was told. **M** · ⛔ A7.9, B13
 - [x] **A7.8 ★ An intent carries its value.** *(done 2026-09-04)* **A form was impossible to write.**
       `change` fired an action carrying nothing, so what a person typed never reached the
       Application — no field, no sign-in, no search box, nothing that takes input at all. Every other
@@ -1006,6 +1045,19 @@ mesh-web's server half. **None of it exists** — no server, no builder, no `web
       [hosting §3](./hosting.md)
 - [ ] **B12 `web` module operational surface** — what this node is serving, which builds are current,
       what failed. **S**
+- [ ] **B13 ★ Serve the exposure descriptor.** `GET /api/_describe`, gated, returning the
+      `ExposureDescriptor` the site already computes. **The only genuinely missing piece** of
+      [schema-driven-ui.md](./schema-driven-ui.md): the descriptor carries `input`, `output`, `gate`,
+      `destructive`, `errors` and `stream` for every exposed call, is built on every boot, is used
+      once to emit the typed client, and is then discarded. The browser gets method and path and
+      nothing else, because `ApiCall.types` is a phantom by design.
+
+      Carries the **`shapeHash`, not the exposure hash** — a client asking whether its rendering is
+      stale is asking a site-independent question, which is the distinction the 2026-09-06 staleness
+      fix turned on. Deny-by-default is inherited rather than re-implemented: `describeExposure`
+      already refuses to publish a contract mesh marks `internal`, so **the dynamic UI's menu is the
+      site's exposure list** and tightening policy narrows the console by construction. **S** ·
+      [schema-driven-ui §1, §3.1, §5](./schema-driven-ui.md)
 
 ---
 
@@ -1294,6 +1346,25 @@ A3 (the remaining capabilities) · A6.1 · A6.2 · A6.6 · A7 (all) · A0.6
       rather than requiring a declared one.
       Probably: `Chrome.canTile()`, a thrown or logged refusal, and a default grid. Decide the three
       together. **M** · [application §6](./application.md)
+
+      > **The default grid is done (2026-09-07, kernel 0.15.2); the other two are still open.**
+      > This item called it correctly and the fix went in the wrong order anyway, which is the part
+      > worth recording. The blanking was fixed first by falling back to *what windowed mode shows* —
+      > which stopped the blank screen and left the mode a **no-op**: every window listed as visible,
+      > none of them positioned, because `rectOf` still had no tile to answer with. A test was then
+      > written asserting `rectOf` stayed `undefined`, so the suite encoded "tiled mode does nothing"
+      > as intent. Reported a day later as *"i go to tiled mode and the windows are stacked like when
+      > you first open the app"* — true on every console we ship, since **nothing in mesh-core
+      > declares a tile.**
+      >
+      > `gridLayout()` now generates a layout whose tiles are named by **window id**, built from open
+      > order rather than stack order so focusing a window does not rearrange every pane. A declared
+      > layout still wins outright. **That is the fourth time a test has encoded a known bug as
+      > intent** — each time the comment explained the bug clearly and asserted it anyway.
+      >
+      > Still open: `Chrome.canTile()` is unnecessary now that tiling always works, but the *silent
+      > refusal* is not — a declared layout whose tiles no view targets still shows nothing, and says
+      > nothing.
 
       **Worse than the above — found 2026-09-05 when the same button worked in the harness and did
       nothing in the console.** `setLayout` has exactly one caller outside the tests, and it is

@@ -232,20 +232,21 @@ describe('the manager in tiled mode', () => {
         expect(m.visible()).toHaveLength(2);
     });
 
-    it('falls back to windowed when the Application declared no layout', () => {
+    it('generates a grid when the Application declared no layout', () => {
         /**
-         * This asserted `toHaveLength(0)` — nothing visible — and that was defensible while nothing
-         * could reach tiled mode: a site pinning `window-manager/mode: tiled` would also have
-         * declared a layout.
+         * This assertion has now been wrong twice, in opposite directions, and both times because
+         * "the Application declared no layout" was treated as a degenerate case rather than the
+         * common one.
          *
-         * Then `alt+t` made the mode reachable from the keyboard on any site, and pressing it on a
-         * composition whose Applications declare no layout **blanked the page**: ten windows to
-         * zero, no error, no way to tell what had happened. A mode switch that can empty the screen
-         * is worse than one that does nothing.
+         * It first asserted `toHaveLength(0)` — nothing visible — which **blanked the page** once
+         * `alt+t` made the mode reachable from the keyboard. That was fixed by falling back to what
+         * windowed mode shows, and this line then asserted `rectOf` stayed `undefined`: every window
+         * shown, none of them moved. Which is to say the test asserted that tiled mode does nothing,
+         * and it was reported as exactly that — *"I go to tiled mode and the windows are stacked
+         * like when you first open the app."* Nothing in mesh-core declares a tile, so that was
+         * every console we ship.
          *
-         * So the assertion is inverted deliberately. The mode is still *set* — an Application that
-         * declares a layout later tiles immediately — there is simply nothing to tile yet, and
-         * "nothing to tile" is not "nothing to show".
+         * A single window's grid is the whole viewport. The mode means something now.
          */
         const m = new WindowManager(screen);
         m.setMode('tiled');
@@ -253,8 +254,60 @@ describe('the manager in tiled mode', () => {
 
         expect(m.mode()).toBe('tiled');
         expect(m.visible()).toHaveLength(1);
-        // Still no *tile* rect: there is no layout to take one from, so the window keeps its own.
-        expect(m.rectOf(m.windows()[0]!.id)).toBeUndefined();
+        expect(m.rectOf(m.windows()[0]!.id)).toEqual({
+            x: 0, y: 0, width: screen.width, height: screen.height,
+        });
+    });
+
+    it('grids several untiled windows without overlapping them', () => {
+        const m = new WindowManager(screen);
+        m.setMode('tiled');
+        for (const view of ['a', 'b', 'c', 'd']) open(m, view, undefined);
+
+        const rects = m.windows().map((w) => m.rectOf(w.id)!);
+        expect(rects.every((r) => r !== undefined)).toBe(true);
+
+        // Two columns of two, for four windows: each pane is about a quarter of the screen.
+        for (const r of rects) {
+            expect(r.width).toBeLessThan(screen.width);
+            expect(r.height).toBeLessThan(screen.height);
+        }
+
+        // The point of tiling: no two panes cover the same pixel.
+        for (const [i, a] of rects.entries()) {
+            for (const b of rects.slice(i + 1)) {
+                const overlaps = a.x < b.x + b.width && b.x < a.x + a.width
+                    && a.y < b.y + b.height && b.y < a.y + a.height;
+                expect(overlaps).toBe(false);
+            }
+        }
+    });
+
+    it('keeps grid positions stable when focus moves', () => {
+        // Built from open order, not stack order — a grid keyed on focus would rearrange every pane
+        // whenever somebody clicked one.
+        const m = new WindowManager(screen);
+        m.setMode('tiled');
+        for (const view of ['a', 'b', 'c']) open(m, view, undefined);
+
+        const before = m.windows().map((w) => m.rectOf(w.id));
+        m.focus(m.windows()[2]!.id);
+        expect(m.windows().map((w) => m.rectOf(w.id))).toEqual(before);
+    });
+
+    it('regrids when a window is minimized, and does not tile it', () => {
+        const m = new WindowManager(screen);
+        m.setMode('tiled');
+        for (const view of ['a', 'b']) open(m, view, undefined);
+
+        const [a, b] = m.windows();
+        m.minimize(b!.id);
+
+        // One window left to show, so it takes the whole viewport.
+        expect(m.rectOf(a!.id)).toEqual({
+            x: 0, y: 0, width: screen.width, height: screen.height,
+        });
+        expect(m.rectOf(b!.id)).toBeUndefined();
     });
 
     it('follows the viewport, because a tile is a fraction of it', () => {

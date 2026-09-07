@@ -271,17 +271,48 @@ export function start(composition: Composition): Started {
     // In single mode there is nothing to re-measure.
     const host = composition.window ?? globalThis.window;
     let lastMode = manager.mode();
+
+    /**
+     * **Measure the window host, not the mount root.**
+     *
+     * Windows are positioned absolutely inside `[data-mesh-window-host]`, which in a page with
+     * chrome sits *below* the bar inside a flex column. Measuring `root` gave the full page height,
+     * so `maximize()` produced a rect taller than the area it was applied to and every maximised
+     * window ran off the bottom by exactly the bar's height.
+     *
+     * It also went unnoticed because it is invisible without chrome: with no bar the host and the
+     * root are the same box, which is every test in this repository and the demo sites. It appeared
+     * the moment a real shell was on the page.
+     *
+     * Falls back to `root` when there is no host yet — during boot, before the page is built.
+     */
+    const measured = (): { width: number; height: number } => {
+        const area = root.querySelector('[data-mesh-window-host]') ?? root;
+        return { width: area.clientWidth, height: area.clientHeight };
+    };
+
     const onResize = () => {
         if (manager.mode() === 'single') return;
-        manager.setViewport({ width: root.clientWidth, height: root.clientHeight });
+        manager.setViewport(measured());
     };
     host?.addEventListener('resize', onResize);
+
+    /**
+     * The bar's own height changes — a sign-in form opening, a window title growing, tabs wrapping —
+     * and none of that fires a window `resize`. A `ResizeObserver` on the host is the only thing
+     * that sees it, and without one a maximised window stays sized to a layout that has moved.
+     */
+    const observed = root.querySelector('[data-mesh-window-host]');
+    const areaObserver = observed !== null && typeof ResizeObserver === 'function'
+        ? new ResizeObserver(() => { if (manager.mode() !== 'single') manager.setViewport(measured()); })
+        : undefined;
+    if (observed !== null) areaObserver?.observe(observed);
 
     const stopTracking = effect(() => {
         const currentMode = manager.mode();
         if (lastMode === 'single' && currentMode !== 'single') {
             // Leaving single mode: re-measure viewport to restore windowed / tiled layout
-            manager.setViewport({ width: root.clientWidth, height: root.clientHeight });
+            manager.setViewport(measured());
         }
         lastMode = currentMode;
     });

@@ -15,6 +15,8 @@ it loads; **[Extensions](./extension.md)** and **[Applications](./application.md
 two things it loads. Where they and this document overlap, they are the more specific and they win.
 
 Also: [Storage and the registry](./storage-and-registry.md) ·
+[Components and styling](./components.md) ·
+[Schema-driven UI](./schema-driven-ui.md) ·
 [Hosting: the builder, the CDN, and how a site is found](./hosting.md) ·
 [Authentication](./auth.md) · [Service modules](./service-modules.md) ·
 [HTML5 and web platform capabilities](./html5.md) ·

@@ -18,7 +18,7 @@ import {
     cascade, clampSize, constrainToViewport, DEFAULT_MIN, maximize, move, raise, resize,
     type Rect, type ResizeEdge, type Size, type WindowState,
 } from './geometry.js';
-import { tileNames, tileRects, type LayoutNode } from './layout.js';
+import { tileNames, tileRects, type LayoutChild, type LayoutNode } from './layout.js';
 
 /** Windowed, tiled, or single. The same views serve all three (spec/application.md §6). */
 export type WindowMode = 'windowed' | 'tiled' | 'single';
@@ -62,6 +62,47 @@ export interface OpenOptions {
 }
 
 const DEFAULT_SIZE: Size = { width: 480, height: 320 };
+
+/**
+ * A grid over windows that have no declared tile — the layout for an Application that declared none.
+ *
+ * **Tiled mode used to be a no-op on most sites, and this is the repair.** Tiling ran off the
+ * Application's split tree, so a composition whose Applications declared no `layout` reached tiled
+ * mode, set it, flipped the button's label, and moved not one window — reported exactly that way,
+ * and true of every console we ship: nothing in mesh-core declares a tile.
+ *
+ * The tiles are named by **window id**, because there is no declared name to use. That is the whole
+ * difference between this and a declared layout: a declared tile is an address several views may
+ * occupy over time, and one of these is a slot that exists because a window does.
+ *
+ * Ordered by the caller, and the caller passes open order rather than stack order on purpose — a
+ * grid keyed on focus would rearrange every pane each time somebody clicked one.
+ */
+export function gridLayout(ids: readonly string[]): LayoutNode | undefined {
+    if (ids.length === 0) return undefined;
+    if (ids.length === 1) return { tile: ids[0]! };
+
+    // Columns before rows: screens are wider than they are tall, so a 2-window grid should be two
+    // columns rather than two stacked strips.
+    const columns = Math.ceil(Math.sqrt(ids.length));
+    const children: LayoutChild[] = [];
+
+    let at = 0;
+    for (let column = 0; column < columns && at < ids.length; column++) {
+        // The remainder spreads over the leftmost columns, so five windows are 3+2 and not 2+2+1.
+        const take = Math.ceil((ids.length - at) / (columns - column));
+        const slice = ids.slice(at, at + take);
+        at += take;
+
+        children.push({
+            node: slice.length === 1
+                ? { tile: slice[0]! }
+                : { split: 'column', children: slice.map((id) => ({ node: { tile: id } })) },
+        });
+    }
+
+    return { split: 'row', children };
+}
 
 export class WindowManager {
     readonly windows: Signal<readonly WindowRecord[]>;
@@ -113,8 +154,29 @@ export class WindowManager {
         if (this.mode() === 'windowed') return record.rect;
 
         const layout = this.layout();
-        if (layout === undefined || record.tile === undefined) return undefined;
+
+        // No declared tree: the generated grid, whose tiles are named by window id.
+        if (layout === undefined) {
+            const auto = this.autoLayout();
+            if (auto === undefined) return undefined;
+            return tileRects(auto, this.viewport(), { gap: TILE_GAP }).get(id);
+        }
+
+        if (record.tile === undefined) return undefined;
         return tileRects(layout, this.viewport(), { gap: TILE_GAP }).get(record.tile);
+    }
+
+    /**
+     * The grid used when the Application declared no layout.
+     *
+     * Built from `windows()` rather than `stacked()`: open order is stable, and stack order changes
+     * on every focus — a grid keyed on it would shuffle every pane whenever the user clicked one.
+     */
+    autoLayout(): LayoutNode | undefined {
+        if (this.layout() !== undefined) return undefined;
+        return gridLayout(
+            this.windows().filter((w) => w.state !== 'minimized').map((w) => w.id),
+        );
     }
 
     /**
@@ -137,17 +199,16 @@ export class WindowManager {
         if (this.mode() === 'windowed') return stacked.filter((w) => w.state !== 'minimized');
 
         /**
-         * **No layout means no tiling to do, not nothing to show.**
+         * **No declared layout means a generated one, not nothing to tile.**
          *
-         * This returned `[]`, which was defensible while nothing could reach tiled mode: a site that
-         * deliberately pinned `window-manager/mode: tiled` would also have declared a layout. Then
-         * `alt+t` made the mode reachable from the keyboard on any site, and pressing it on a
-         * composition whose Applications declare no `layout` blanked the screen — ten windows to
-         * zero, with no error and no way to tell what had happened.
+         * This returned `[]` first, which blanked the screen; then it fell back to showing what
+         * windowed mode would, which stopped the blanking and left the mode a no-op — every window
+         * shown, none of them positioned, because `rectOf` had no tile to answer with. That is the
+         * "I go to tiled mode and the windows are stacked" report.
          *
-         * A mode switch that can empty the page is worse than one that does nothing, so an absent
-         * layout falls back to showing what windowed mode would. The mode is still *set*, so an
-         * Application that declares a layout later tiles immediately.
+         * Every non-minimized window is shown, and `autoLayout` gives each one its own tile, so the
+         * two agree by construction. An Application that declares a layout still governs: this whole
+         * branch is skipped the moment `layout()` is set.
          */
         const layout = this.layout();
         if (layout === undefined) return stacked.filter((w) => w.state !== 'minimized');

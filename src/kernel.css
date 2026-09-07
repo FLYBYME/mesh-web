@@ -301,10 +301,29 @@ h4 { font-size: 13px; }
 h5 { font-size: 12px; }
 h6 { font-size: 11px; }
 
+/**
+ * A form is given no layout, and that is the rule the rest of this block follows too.
+ *
+ * This was `display: flex; flex-direction: column; gap: 8px`, and it is the only rule in this file
+ * that laid a part's children out rather than giving an element a default *appearance*. The
+ * difference is not academic. `chrome`'s sign-in form declared `display: flex` inline and — having
+ * no reason to name a direction it was already getting by default — did not declare
+ * `flex-direction`. An inline style only wins the properties it actually sets, so this rule kept
+ * the direction and stacked email, password and the button into a column. Signing in swapped the
+ * `<form>` for a `<div>`, which nothing here matches, and the row appeared. Reported as exactly
+ * that: *"the email, password and button are one above each other, then i login and it shrinks to
+ * one line."*
+ *
+ * The part's source said `flex` and the screen said `column`, with nothing in the part to explain
+ * it — which is the whole problem with styling a bare element the parts also style. Appearance
+ * defaults (`button`, `input`, `textarea` above) are a look a part can override in one property.
+ * A layout default is a second author for a box the part believes it owns.
+ *
+ * `margin: 0` stays, because a user-agent margin on a form is not a layout choice, it is a
+ * difference between browsers.
+ */
 form {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    margin: 0;
 }
 
 ul {
