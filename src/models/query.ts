@@ -15,6 +15,8 @@ import { signal, effect } from '../reactivity/index.js';
 import { getActiveScopeContext } from '../reactivity/context.js';
 import type { ReadonlySignal, Signal, IDisposableContainer } from '../reactivity/types.js';
 import type { Result, CallError } from '../net/result.js';
+import type { Gate } from '../net/api.js';
+import { requiresAuth } from '../net/api.js';
 import type { CollectionQuery, CollectionStatus } from './types.js';
 import type { Session } from '../auth/extension.js';
 
@@ -31,6 +33,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     private readonly queryFn: (() => TQuery) | undefined;
     private readonly onDisposeCallbacks: Set<() => void> = new Set();
     private readonly sessionSource?: SessionSource;
+    private readonly gate?: Gate;
 
     private readonly _data: Signal<readonly TItem[] | undefined>;
     private readonly _rows: Signal<readonly TItem[]>;
@@ -55,9 +58,11 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         queryInput?: TQuery | (() => TQuery),
         bindScope = true,
         sessionSource?: SessionSource,
+        gate?: Gate,
     ) {
         this.fetcher = fetcher;
         this.sessionSource = sessionSource;
+        this.gate = gate;
         if (typeof queryInput === 'function') {
             this.queryFn = queryInput as () => TQuery;
         } else if (queryInput !== undefined) {
@@ -101,9 +106,8 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
 
             if (!hadSession && hasSession) {
                 // Session arrived (absent -> present).
-                // When the session changes from absent to present, a collection that failed for
-                // want of one reloads.
-                if (this.failedForAuth) {
+                // A session arriving must load every collection with no data, however it came to have none.
+                if (this._data() === undefined || this.failedForAuth) {
                     void this.triggerFetch(true);
                 }
             } else if (hadSession && !hasSession) {
@@ -187,13 +191,12 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     }
 
     private shouldFetch(): boolean {
-        // Seam for FLYBYME/surfdns#39: when runtime gate data arrives on the descriptor,
-        // this will check whether the contract requires auth before firing the initial request.
-        // Until then, a collection may react to failure (a 401 it actually received) and to
-        // the session signal. It may not guess in advance.
         const sessionSignal = this.getSessionSignal();
         const currentSession = sessionSignal ? sessionSignal.peek() : null;
         if (this.failedForAuth && currentSession === null) {
+            return false;
+        }
+        if (this.gate !== undefined && requiresAuth(this.gate) && currentSession === null) {
             return false;
         }
         return true;
@@ -226,6 +229,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
 
         if (!force && !this.shouldFetch()) {
             this._loading.set(false);
+            this._status.set('idle');
             return Promise.resolve(undefined);
         }
 
@@ -371,8 +375,9 @@ export function createCollectionQuery<TItem, TQuery>(
     fetcher: QueryFetcher<TItem, TQuery>,
     queryInput?: TQuery | (() => TQuery),
     sessionSource?: SessionSource,
+    gate?: Gate,
 ): CollectionQuery<TItem, TQuery> {
-    const impl = new CollectionQueryImpl<TItem, TQuery>(fetcher, queryInput, true, sessionSource);
+    const impl = new CollectionQueryImpl<TItem, TQuery>(fetcher, queryInput, true, sessionSource, gate);
     const getter = () => impl.data();
     const query: CollectionQuery<TItem, TQuery> = Object.assign(getter, {
         data: impl.data,

@@ -979,4 +979,130 @@ describe('session-aware collections', () => {
             globalThis.fetch = origFetch;
         }
     });
+
+    describe('gate and session reactivity (FLYBYME/surfdns#56)', () => {
+        const gatedApi = defineApi({
+            id: 'gated-models',
+            exposure: 'sha256:gated1234',
+            calls: {
+                'part.find': call<PartQuery, readonly Part[]>('GET', '/parts', { kind: 'auth', level: 'user' }),
+                'part.get': call<{ id: string }, Part, 'not_found'>('GET', '/parts/get'),
+                'part.create': call<CreatePartInput, Part, 'invalid_name'>('POST', '/parts'),
+                'part.update': call<UpdatePartInput, Part, 'not_found'>('PUT', '/parts'),
+                'part.delete': call<DeletePartInput, void, 'not_found'>('DELETE', '/parts'),
+            },
+        });
+
+        it('does not fire blind fetch when collection gate requires auth and session is absent', async () => {
+            let requestsCount = 0;
+            const fake = createFakeTransport((_req) => {
+                requestsCount++;
+                return jsonResponse(200, [{ id: 'p1', name: 'Gated Part', tag: 't1' }]);
+            });
+
+            const client = createClient(gatedApi, { transport: fake.transport });
+            const sessionSignal = signal<Session | null>(null);
+
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof gatedApi>(client, undefined, sessionSignal, gatedApi);
+
+            const parts = models('part');
+            expect(parts.status()).toBe('idle');
+            expect(parts.loading()).toBe(false);
+            expect(requestsCount).toBe(0);
+
+            // When session arrives, it automatically fetches
+            sessionSignal.set({
+                userId: 'alice',
+                displayName: 'Alice',
+                roles: ['user'],
+                expiresAt: Date.now() + 10000,
+            });
+            flushSync();
+            await new Promise((r) => setTimeout(r, 15));
+
+            expect(requestsCount).toBe(1);
+            expect(parts.status()).toBe('ready');
+            expect(parts.rows()).toEqual([{ id: 'p1', name: 'Gated Part', tag: 't1' }]);
+        });
+
+        it('binds reactive session effect at construction time before session is published by AuthExtension', async () => {
+            let requestsCount = 0;
+            const origFetch = globalThis.fetch;
+            globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+                const url = String(input);
+                if (url.endsWith('/api/identity/ticket') && init?.method === 'POST') {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ token: 'tk-bob', userId: 'bob', expiresAt: Date.now() + 3600000 }),
+                    } as unknown as Response;
+                }
+                if (url.endsWith('/api/identity/whoami')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ userId: 'bob', displayName: 'Bob', roles: ['user'] }),
+                    } as unknown as Response;
+                }
+                return { ok: false, status: 404 } as unknown as Response;
+            }) as typeof globalThis.fetch;
+
+            try {
+                const fake = createFakeTransport((_req) => {
+                    requestsCount++;
+                    return jsonResponse(200, [{ id: 'p1', name: 'Bob Part', tag: 't1' }]);
+                });
+
+                const services = createServices(recordingWindows(), { apiOrigin: 'https://test.local' });
+                services.meshClient = (api) => createClient(api, {
+                    transport: withHeaders(fake.transport, () => services.credentials.headers?.() ?? {}),
+                });
+
+                const kernel = new Kernel({ services });
+                const authExt = new AuthExtension();
+
+                const APP_NEEDS = needs('models');
+                const APP_CONSUMES = consumes(AUTH);
+
+                let appCx!: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof gatedApi>;
+                class GatedApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES, undefined, typeof gatedApi> {
+                    readonly needs = APP_NEEDS;
+                    readonly consumes = APP_CONSUMES;
+                    readonly api = gatedApi;
+                    readonly session = 'required' as const;
+
+                    async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof gatedApi>): Promise<void> {
+                        appCx = cx;
+                    }
+                }
+
+                kernel.boot([
+                    { id: 'auth', contribution: authExt },
+                    { id: 'app', contribution: new GatedApp() },
+                ]);
+                await kernel.start('app');
+
+                // App creates collection query before sign-in:
+                const parts = appCx.models('part');
+                // Should not have fired blind request!
+                expect(requestsCount).toBe(0);
+                expect(parts.status()).toBe('idle');
+                expect(parts.loading()).toBe(false);
+
+                // Now sign in
+                const authApi = appCx.use(AUTH);
+                await authApi.signIn({ email: 'bob@test.local', password: 'secret' });
+                flushSync();
+                await new Promise((r) => setTimeout(r, 15));
+
+                // Should have reacted to session arrival and loaded data
+                expect(requestsCount).toBe(1);
+                expect(parts.status()).toBe('ready');
+                expect(parts.rows()).toEqual([{ id: 'p1', name: 'Bob Part', tag: 't1' }]);
+            } finally {
+                globalThis.fetch = origFetch;
+            }
+        });
+    });
 });

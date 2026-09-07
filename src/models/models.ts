@@ -8,7 +8,7 @@
  * - Zero type parameters at the call site
  */
 
-import type { AnyApiCall } from '../net/api.js';
+import type { AnyApiCall, Api, Gate } from '../net/api.js';
 import type { Result, CallError } from '../net/result.js';
 import type { ReadonlySignal } from '../reactivity/types.js';
 import { CollectionQueryImpl, type QueryFetcher, type SessionSource } from './query.js';
@@ -37,6 +37,7 @@ import type {
 
 export interface MeshCaller {
     call(action: string, input?: unknown): Promise<Result<unknown, CallError<string>>>;
+    readonly descriptor?: unknown;
 }
 
 function isTypedResult<T, E extends string>(
@@ -112,11 +113,16 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
     name: C,
     mesh: MeshCaller,
     session?: SessionSource,
+    api?: unknown,
 ): CollectionHandle<TCalls, C> {
     type TItem = ItemOf<TCalls, C>;
     type TQuery = QueryOf<TCalls, C>;
 
     const activeQueries = new Set<CollectionQueryImpl<TItem, TQuery>>();
+
+    const apiObj = (api ?? mesh.descriptor) as Api<Record<string, AnyApiCall & { readonly gate?: Gate }>> | undefined;
+    const findCall = apiObj?.calls?.[`${name}.find`];
+    const gate: Gate | undefined = findCall?.gate;
 
     const fetcher: QueryFetcher<TItem, TQuery> = async (queryInput) => {
         const action = `${name}.find`;
@@ -134,7 +140,7 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
         qInput?: TQuery | (() => TQuery),
         bindScope = true,
     ): CollectionQuery<TItem, TQuery> {
-        const queryImpl = new CollectionQueryImpl<TItem, TQuery>(fetcher, qInput, bindScope, session);
+        const queryImpl = new CollectionQueryImpl<TItem, TQuery>(fetcher, qInput, bindScope, session, gate);
         activeQueries.add(queryImpl);
         queryImpl.onDispose(() => {
             activeQueries.delete(queryImpl);
@@ -230,6 +236,7 @@ export function createModels<A>(
     mesh: MeshCaller,
     onDispose?: (cleanup: () => void) => void,
     session?: SessionSource,
+    api?: A,
 ): Models<A> {
     type TCalls = CallsOf<A>;
     const collections = new Map<string, { dispose(): void }>();
@@ -246,7 +253,7 @@ export function createModels<A>(
             return existing;
         }
 
-        const created = createCollection<TCalls, K>(name, mesh, session);
+        const created = createCollection<TCalls, K>(name, mesh, session, api);
         collections.set(name, created);
         return created;
     }

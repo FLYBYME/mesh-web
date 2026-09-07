@@ -246,11 +246,22 @@ export function createServices(
     windows: WindowSink = recordingWindows(),
     options: ServiceOptions = {},
 ): KernelServices {
+    const sessionHolder = signal<ReadonlySignal<Session | null> | undefined>(options.session);
+    const kernelSession = computed<Session | null>(() => {
+        const s = sessionHolder();
+        return s ? s() : null;
+    });
+
     const credentials: CredentialHolder = {
         origin: options.apiOrigin ?? '',
         owner: undefined,
         headers: undefined,
-        session: options.session,
+        get session(): ReadonlySignal<Session | null> | undefined {
+            return sessionHolder();
+        },
+        set session(next: ReadonlySignal<Session | null> | undefined) {
+            sessionHolder.set(next);
+        },
     };
 
     return {
@@ -282,7 +293,12 @@ export function createServices(
             ),
         }) as MeshClient<unknown>,
         hives: options.hives ?? defaultHives(),
-        session: options.session,
+        get session(): ReadonlySignal<Session | null> {
+            return kernelSession;
+        },
+        set session(next: ReadonlySignal<Session | null> | undefined) {
+            sessionHolder.set(next);
+        },
     };
 }
 
@@ -381,7 +397,8 @@ export function createContext(
                 models = createModels(
                     services.meshClient(declaredApi, id),
                     (fn) => cleanups.push(fn),
-                    () => services.session ?? services.credentials.session,
+                    () => services.session,
+                    declaredApi,
                 );
                 break;
             case 'state':
@@ -709,15 +726,15 @@ function makeCredentials(owner: string, services: KernelServices): Credentials {
             held.headers = headers;
             if (sessionSignal !== undefined) {
                 held.session = sessionSignal;
-                if (services.session === undefined) {
-                    services.session = sessionSignal;
-                }
+                services.session = sessionSignal;
             }
         },
 
         clear() {
             if (held.owner !== owner) return;
             held.headers = undefined;
+            held.session = undefined;
+            services.session = undefined;
         },
     };
 }

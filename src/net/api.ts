@@ -48,6 +48,22 @@ export type Gate =
     | { readonly kind: 'auth'; readonly level: 'public' | 'user' | 'admin' | 'operator' }
     | { readonly kind: 'permission'; readonly permission: string };
 
+/**
+ * Does this gate require an active authenticated session?
+ *
+ * Public auth gates do not; all other auth levels and permission gates do.
+ */
+export function requiresAuth(gate?: Gate): boolean {
+    if (gate === undefined) return false;
+    if (gate.kind === 'auth') {
+        return gate.level !== 'public';
+    }
+    if (gate.kind === 'permission') {
+        return true;
+    }
+    return false;
+}
+
 export interface ApiCall<TInput, TOutput, TErrors extends string = never> {
     readonly method: HttpMethod;
     readonly path: string;
