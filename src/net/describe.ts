@@ -12,7 +12,9 @@
 import type { AnyApiCall, ApiSpec, HttpMethod } from './api.js';
 import type { NetResponse, Transport } from './client.js';
 import { fetchTransport } from './client.js';
-import { err, ok, type CallError, type Result } from './result.js';
+import { err, ok, type CallError, type ExposureDifference, type Result } from './result.js';
+
+export type { ExposureDifference } from './result.js';
 
 /**
  * One exposed call as reported by `GET /api/_describe`.
@@ -225,3 +227,144 @@ export async function fetchApiSpec(
 
     return interpretError(response);
 }
+
+// ---------------------------------------------------------------------------- diffing
+
+/** JSON with every object's keys sorted, so equal values serialise equally. */
+export function canonical(value: unknown): string {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+
+    const entries = Object.entries(value as Record<string, unknown>)
+        .filter(([, v]) => v !== undefined)
+        .sort(([a], [b]) => a.localeCompare(b));
+
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`;
+}
+
+function formatGate(gate: unknown): string | undefined {
+    if (gate === undefined || gate === null) return undefined;
+    if (typeof gate === 'string') return gate;
+    if (typeof gate === 'object') {
+        const g = gate as Record<string, unknown>;
+        if (g['kind'] === 'auth' && typeof g['level'] === 'string') return g['level'];
+        if (g['kind'] === 'permission' && typeof g['permission'] === 'string') return `permission:${g['permission']}`;
+    }
+    return undefined;
+}
+
+interface DiffCallShape {
+    readonly key: string;
+    readonly method: string;
+    readonly path: string;
+    readonly input?: unknown;
+    readonly output?: unknown;
+    readonly gate?: unknown;
+}
+
+function toDiffCallMap(
+    target: ApiSpec<Record<string, AnyApiCall>> | ExposureDescriptor,
+): Map<string, DiffCallShape> {
+    const map = new Map<string, DiffCallShape>();
+    if ('calls' in target && Array.isArray(target.calls)) {
+        for (const c of target.calls) {
+            map.set(c.key, {
+                key: c.key,
+                method: c.method,
+                path: c.path,
+                input: c.input,
+                output: c.output,
+                gate: c.gate,
+            });
+        }
+    } else if ('calls' in target && target.calls && typeof target.calls === 'object') {
+        for (const [key, c] of Object.entries(target.calls)) {
+            const anyCall = c as AnyApiCall & { input?: unknown; output?: unknown; gate?: unknown };
+            map.set(key, {
+                key,
+                method: anyCall.method,
+                path: anyCall.path,
+                input: anyCall.input,
+                output: anyCall.output,
+                gate: anyCall.gate,
+            });
+        }
+    }
+    return map;
+}
+
+/**
+ * Compute differences between a client ApiSpec and the API's exposure descriptor.
+ *
+ * mesh-serve vocabulary: checks for missing calls, changed methods, paths, schemas, or gates.
+ */
+export function diffExposure(
+    client: ApiSpec<Record<string, AnyApiCall>> | ExposureDescriptor,
+    api: ApiSpec<Record<string, AnyApiCall>> | ExposureDescriptor,
+): readonly ExposureDifference[] {
+    const differences: ExposureDifference[] = [];
+    const clientMap = toDiffCallMap(client);
+    const apiMap = toDiffCallMap(api);
+
+    for (const [key, clientCall] of clientMap) {
+        const apiCall = apiMap.get(key);
+        if (apiCall === undefined) {
+            differences.push({
+                contract: key,
+                kind: 'missing',
+                message: `Contract "${key}" is not exposed by the API.`,
+            });
+            continue;
+        }
+
+        if (clientCall.method.toUpperCase() !== apiCall.method.toUpperCase()) {
+            differences.push({
+                contract: key,
+                kind: 'method',
+                message: `Contract "${key}" method changed from ${clientCall.method} to ${apiCall.method}.`,
+            });
+        }
+
+        if (clientCall.path !== apiCall.path) {
+            differences.push({
+                contract: key,
+                kind: 'path',
+                message: `Contract "${key}" path changed from ${clientCall.path} to ${apiCall.path}.`,
+            });
+        }
+
+        if (clientCall.input !== undefined && apiCall.input !== undefined
+            && canonical(clientCall.input) !== canonical(apiCall.input)) {
+            differences.push({
+                contract: key,
+                kind: 'input',
+                message: `Contract "${key}" input schema changed.`,
+            });
+        }
+
+        if (clientCall.output !== undefined && apiCall.output !== undefined
+            && canonical(clientCall.output) !== canonical(apiCall.output)) {
+            differences.push({
+                contract: key,
+                kind: 'output',
+                message: `Contract "${key}" output schema changed.`,
+            });
+        }
+
+        const clientGate = formatGate(clientCall.gate);
+        const apiGate = formatGate(apiCall.gate);
+        if (clientGate !== undefined && apiGate !== undefined && clientGate !== apiGate) {
+            differences.push({
+                contract: key,
+                kind: 'gate',
+                message: `Contract "${key}" gate changed from ${clientGate} to ${apiGate}.`,
+            });
+        }
+    }
+
+    differences.sort((a, b) => a.contract.localeCompare(b.contract));
+    return differences;
+}
+
+export const exposureDifference = diffExposure;
+

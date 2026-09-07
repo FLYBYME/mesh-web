@@ -11,7 +11,8 @@
 
 import type { AnyApiCall, Api, ActionOf, CallOf, InputOf, OutputOf, ErrorsOf } from './api.js';
 import { toRequest } from './api.js';
-import { err, ok, type CallError, type Result } from './result.js';
+import { diffExposure, fetchApiSpec, type FetchApiSpecOutcome } from './describe.js';
+import { err, ok, type CallError, type ExposureDifference, type Result } from './result.js';
 
 // ---------------------------------------------------------------------------- transport
 
@@ -109,6 +110,8 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
     options: ClientOptions,
 ): MeshClient<Api<TCalls>> {
     const check = options.checkExposure ?? true;
+    let describePromise: Promise<Result<FetchApiSpecOutcome, CallError<string>>> | undefined;
+    const diffCache = new Map<string, readonly ExposureDifference[]>();
 
     return {
         api: api.id,
@@ -154,7 +157,46 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
             const reported = response.headers['x-exposure-shape'];
             if (check && reported !== undefined && api.shapeHash !== undefined
                 && reported !== api.shapeHash) {
-                return err({ kind: 'stale', expected: api.shapeHash, actual: reported });
+                let differences = diffCache.get(reported);
+                if (differences === undefined) {
+                    if (describePromise === undefined) {
+                        const describePath = `${api.base.replace(/\/+$/, '')}/_describe`;
+                        // Discovery request must NEVER send x-exposure-shape to prevent 409 deadlock
+                        const discoveryTransport: Transport = {
+                            send: (req) => {
+                                const headers: Record<string, string> = {};
+                                for (const [k, v] of Object.entries(req.headers)) {
+                                    if (k.toLowerCase() !== 'x-exposure-shape') {
+                                        headers[k] = v;
+                                    }
+                                }
+                                return options.transport.send({ ...req, headers });
+                            },
+                        };
+                        describePromise = fetchApiSpec({
+                            transport: discoveryTransport,
+                            path: describePath,
+                        });
+                    }
+                    try {
+                        const describeResult = await describePromise;
+                        if (describeResult.ok && !describeResult.value.notModified) {
+                            differences = diffExposure(api, describeResult.value.spec);
+                            diffCache.set(reported, differences);
+                        }
+                    } catch {
+                        // ignore discovery failures; differences remains undefined
+                    } finally {
+                        describePromise = undefined;
+                    }
+                }
+
+                return err({
+                    kind: 'stale',
+                    expected: api.shapeHash,
+                    actual: reported,
+                    ...(differences !== undefined ? { differences } : {}),
+                });
             }
 
             return interpret(response) as Result<never, CallError<string>>;

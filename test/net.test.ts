@@ -10,9 +10,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    Kernel, call, createClient, createServices, defineApi, describe as describeError, fetchApiSpec,
+    Kernel, call, createClient, createServices, defineApi, describe as describeError, diffExposure, exposureDifference, fetchApiSpec,
     needs, provider, toApiSpec, withHeaders,
-    type Api, type Application, type Context, type ExposureDescriptor, type NetRequest, type NetResponse, type Transport,
+    type Api, type Application, type Context, type ExposureDescriptor, type ExposureDifference, type NetRequest, type NetResponse, type Transport,
 } from '../src/index.js';
 
 // ---------------------------------------------------------------------------- a generated API
@@ -628,3 +628,246 @@ describe('runtime exposure descriptor discovery (GET /api/_describe)', () => {
         expect(Object.keys(spec.calls)).toEqual(['zone.list', 'zone.destroy']);
     });
 });
+
+// ---------------------------------------------------------------------------- stale recovery and diffing
+
+describe('stale client recovery and exposure difference reporting', () => {
+    const baseClientApi = defineApi({
+        id: 'surfdns',
+        exposure: 'sha256:gate-v1',
+        shapeHash: 'sha256:shape-v1',
+        calls: {
+            'domain.get': call<{ id: string }, { id: string; name: string }>('GET', '/domains/:id', { kind: 'auth', level: 'user' }),
+            'domain.create': call<{ name: string }, { id: string }>('POST', '/domains', { kind: 'auth', level: 'admin' }),
+            'domain.delete': call<{ id: string }, void>('DELETE', '/domains/:id', { kind: 'permission', permission: 'domain.delete' }),
+        },
+    });
+
+    it('diffExposure detects missing, method, path, input, output, and gate differences', () => {
+        const movedDescriptor: ExposureDescriptor = {
+            application: 'surfdns',
+            base: '/api',
+            exposure: 'sha256:gate-v2',
+            shapeHash: 'sha256:shape-v2',
+            calls: [
+                // domain.get path and gate changed
+                {
+                    key: 'domain.get',
+                    method: 'GET',
+                    path: '/v2/domains/:id',
+                    gate: 'operator',
+                },
+                // domain.create method changed to PUT
+                {
+                    key: 'domain.create',
+                    method: 'PUT',
+                    path: '/domains',
+                    gate: 'admin',
+                },
+                // domain.delete is missing from API
+                // and a new call exists in API (which should not be a client difference)
+                {
+                    key: 'domain.list',
+                    method: 'GET',
+                    path: '/domains',
+                },
+            ],
+        };
+
+        const diffs = diffExposure(baseClientApi, movedDescriptor);
+
+        expect(diffs).toEqual([
+            {
+                contract: 'domain.create',
+                kind: 'method',
+                message: 'Contract "domain.create" method changed from POST to PUT.',
+            },
+            {
+                contract: 'domain.delete',
+                kind: 'missing',
+                message: 'Contract "domain.delete" is not exposed by the API.',
+            },
+            {
+                contract: 'domain.get',
+                kind: 'path',
+                message: 'Contract "domain.get" path changed from /domains/:id to /v2/domains/:id.',
+            },
+            {
+                contract: 'domain.get',
+                kind: 'gate',
+                message: 'Contract "domain.get" gate changed from user to operator.',
+            },
+        ]);
+
+        // exposureDifference is an alias of diffExposure
+        expect(exposureDifference(baseClientApi, movedDescriptor)).toEqual(diffs);
+    });
+
+    it('diffExposure compares input and output schema differences when present', () => {
+        const clientWithSchemas = defineApi({
+            id: 'schemas',
+            exposure: 'sha256:g1',
+            calls: {
+                'item.get': {
+                    method: 'GET',
+                    path: '/items/:id',
+                    input: { type: 'object', properties: { id: { type: 'string' } } },
+                    output: { type: 'object', properties: { count: { type: 'number' } } },
+                },
+            },
+        });
+
+        const apiWithChangedSchemas: ExposureDescriptor = {
+            calls: [
+                {
+                    key: 'item.get',
+                    method: 'GET',
+                    path: '/items/:id',
+                    input: { type: 'object', properties: { id: { type: 'string' }, filter: { type: 'string' } } },
+                    output: { type: 'object', properties: { count: { type: 'string' } } },
+                },
+            ],
+        };
+
+        const diffs = diffExposure(clientWithSchemas, apiWithChangedSchemas);
+        expect(diffs).toEqual([
+            {
+                contract: 'item.get',
+                kind: 'input',
+                message: 'Contract "item.get" input schema changed.',
+            },
+            {
+                contract: 'item.get',
+                kind: 'output',
+                message: 'Contract "item.get" output schema changed.',
+            },
+        ]);
+    });
+
+    it('stale client fetches GET /api/_describe, avoids x-exposure-shape on discovery, and returns differences', async () => {
+        const updatedDescriptor: ExposureDescriptor = {
+            application: 'surfdns',
+            base: '/api',
+            exposure: 'sha256:gate-v2',
+            shapeHash: 'sha256:shape-v2',
+            calls: [
+                {
+                    key: 'domain.get',
+                    method: 'GET',
+                    path: '/v2/domains/:id',
+                },
+                {
+                    key: 'domain.create',
+                    method: 'POST',
+                    path: '/domains',
+                },
+                {
+                    key: 'domain.delete',
+                    method: 'DELETE',
+                    path: '/domains/:id',
+                },
+            ],
+        };
+
+        const fake = fakeTransport((req) => {
+            if (req.url === '/api/_describe') {
+                return json(200, updatedDescriptor);
+            }
+            // Normal call returns 200 with new x-exposure-shape
+            return json(200, { id: 'd1', name: 'example.com' }, { 'x-exposure-shape': 'sha256:shape-v2' });
+        });
+
+        // Wrap transport with default headers (like an auth ticket) to ensure headers travel but x-exposure-shape is never sent
+        const wrappedTransport = withHeaders(fake.transport, () => ({ authorization: 'Bearer ticket-123' }));
+        const client = createClient(baseClientApi, { transport: wrappedTransport });
+
+        const result = await client.call('domain.get', { id: 'd1' });
+        expect(result.ok).toBe(false);
+        if (result.ok) throw new Error('expected err');
+
+        expect(result.error.kind).toBe('stale');
+        if (result.error.kind !== 'stale') throw new Error('expected stale');
+
+        expect(result.error.expected).toBe('sha256:shape-v1');
+        expect(result.error.actual).toBe('sha256:shape-v2');
+        expect(result.error.differences).toEqual([
+            {
+                contract: 'domain.get',
+                kind: 'path',
+                message: 'Contract "domain.get" path changed from /domains/:id to /v2/domains/:id.',
+            },
+        ]);
+
+        // Formatted description contains the exact change
+        expect(describeError(result.error)).toBe(
+            'This page is out of date with the API: Contract "domain.get" path changed from /domains/:id to /v2/domains/:id.',
+        );
+
+        // Discovery request was sent and did NOT include x-exposure-shape, but carries auth headers
+        const describeReq = fake.sent.find((r) => r.url === '/api/_describe');
+        expect(describeReq).toBeDefined();
+        expect(describeReq!.headers['x-exposure-shape']).toBeUndefined();
+        expect(describeReq!.headers['authorization']).toBe('Bearer ticket-123');
+    });
+
+    it('caches differences and deduplicates concurrent descriptor fetches on stale client', async () => {
+        const updatedDescriptor: ExposureDescriptor = {
+            calls: [
+                {
+                    key: 'domain.get',
+                    method: 'POST',
+                    path: '/domains/:id',
+                },
+            ],
+        };
+
+        let describeCalls = 0;
+        const fake = fakeTransport((req) => {
+            if (req.url === '/api/_describe') {
+                describeCalls++;
+                return json(200, updatedDescriptor);
+            }
+            return json(200, {}, { 'x-exposure-shape': 'sha256:shape-v2' });
+        });
+
+        const client = createClient(baseClientApi, { transport: fake.transport });
+
+        // Two concurrent calls
+        const [res1, res2] = await Promise.all([
+            client.call('domain.get', { id: 'd1' }),
+            client.call('domain.delete', { id: 'd2' }),
+        ]);
+
+        expect(res1.ok).toBe(false);
+        expect(res2.ok).toBe(false);
+        // Only one fetch to /api/_describe occurred
+        expect(describeCalls).toBe(1);
+
+        // A third sequential call also uses the cached differences
+        const res3 = await client.call('domain.create', { name: 'test' });
+        expect(res3.ok).toBe(false);
+        expect(describeCalls).toBe(1);
+    });
+
+    it('gracefully returns stale error if descriptor fetch fails', async () => {
+        const fake = fakeTransport((req) => {
+            if (req.url === '/api/_describe') {
+                return json(500, 'internal server error');
+            }
+            return json(200, {}, { 'x-exposure-shape': 'sha256:shape-v2' });
+        });
+
+        const client = createClient(baseClientApi, { transport: fake.transport });
+        const result = await client.call('domain.get', { id: 'd1' });
+
+        expect(result.ok).toBe(false);
+        if (result.ok) throw new Error('expected err');
+        expect(result.error.kind).toBe('stale');
+        if (result.error.kind !== 'stale') throw new Error('expected stale');
+        expect(result.error.expected).toBe('sha256:shape-v1');
+        expect(result.error.actual).toBe('sha256:shape-v2');
+        expect(result.error.differences).toBeUndefined();
+        expect(describeError(result.error)).toBe('This page is out of date with the API. Reload.');
+    });
+});
+
