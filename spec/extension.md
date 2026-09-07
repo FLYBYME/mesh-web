@@ -131,6 +131,49 @@ tiles, as floating windows, or as a single maximised page.
 
 ## 3. What an Extension contributes — **Decided in shape, Proposed in detail**
 
+### An Extension is a vertical slice — **Decided 2026-09-06**
+
+> A good extension owns the ui components that it would provide, alongside its reads and writes and
+> state. — the project owner
+
+**An Extension owns a service relationship end to end: the calls, the state, and the components that
+present it.** Not a provider of data that some Application then has to render.
+
+This is what `auth` already is and nobody named it. It owns the credential seam — it calls
+`identity.ticket_issue`, holds the session, and provides `AUTH`. `chrome` and `whoami` consume it
+and neither talks to identity directly. One Extension owns the relationship; many Applications use
+it.
+
+Generalised, and now expressible because [components are contributable](./components.md) and the
+kernel enforces the `${id}.` prefix:
+
+| layer | provides | example |
+| --- | --- | --- |
+| the kernel | 19 primitives | `Stack`, `Button`, `Input` |
+| a **design system** Extension | generic composites | `ui.EntityList`, `ui.Table`, `ui.PropertyGrid` |
+| a **domain** Extension | domain components, **plus the reads, writes and state behind them** | `platform.PartList`, `platform.ReleaseDetail`, `platform.DeployAction` |
+| an Application | composes them into screens | `catalog`, `releases` |
+
+**Writes included.** An Extension that only reads is a cache with extra steps; the interesting ones
+own the mutation too — `auth` issues tickets, a `platform` Extension composes and deploys. What that
+costs is a real question and it is the right one to ask *about a specific Extension*: handing
+`consumes(PLATFORM)` to an Application hands it the ability to deploy, and that is a decision per
+consumer, not a rule.
+
+### Why this is the answer to two other problems
+
+**It removes the duplication between sibling Applications.** `catalog` and `releases` were measured
+duplicating four structures — the entity sidebar, the detail surface, the property grid and a table
+neither had. They are two views of one service, and the service had no owner, so each rebuilt it.
+
+**And it will tell us what per-view state actually needs to be.** Today an Application's `start()`
+holds every signal for every one of its views in one flat bag, which is why a view's state outlives
+its window and why two instances of one view share it. The instinct is to give a view its own state
+— but move the *shared* state into the Extension where it belongs, and whatever is left in a view is
+genuinely view-local: a draft, a scroll position, a selection. **That residue is the requirement.**
+Designing per-view state before seeing it means designing for a need nobody has measured, which is
+the mistake this project has a name for.
+
 An Extension is a manifest with code attached, exactly as an Application is
 ([Applications §2](./application.md)). The same rule decides which half a thing belongs in:
 
