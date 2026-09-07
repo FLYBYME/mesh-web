@@ -28,7 +28,7 @@ class AskingApp implements Application<typeof NEEDS, readonly [], typeof ASKER> 
     readonly needs = NEEDS;
     readonly provides = ASKER;
 
-    start(cx: Context<typeof NEEDS, readonly []>): Asker {
+    async start(cx: Context<typeof NEEDS, readonly []>): Promise<Asker> {
         return {
             ask: (message) => cx.confirmation.ask(message),
             askDestructive: () => cx.confirmation.ask({
@@ -41,12 +41,14 @@ class AskingApp implements Application<typeof NEEDS, readonly [], typeof ASKER> 
 
 const kernelWith = async (confirm: Parameters<typeof createServices>[1] extends undefined
     ? never
-    : NonNullable<Parameters<typeof createServices>[1]>['confirm']) => {
+    : NonNullable<Parameters<typeof createServices>[1]>['confirm']): Promise<Asker> => {
     const services = createServices(undefined, { confirm });
     const kernel = new Kernel({ services });
     kernel.boot([{ id: 'asker', contribution: new AskingApp() as never }]);
     await kernel.start('asker');
-    return kernel.provided(ASKER);
+    const asker = kernel.provided(ASKER);
+    if (asker === undefined) throw new Error('expected asker to be provided');
+    return asker;
 };
 
 describe('asking a person', () => {
@@ -85,7 +87,9 @@ describe('asking a person', () => {
         kernel.boot([{ id: 'asker', contribution: new AskingApp() as never }]);
         await kernel.start('asker');
 
-        expect(await kernel.provided(ASKER).ask('proceed?')).toBe(false);
+        const asker = kernel.provided(ASKER);
+        if (asker === undefined) throw new Error('expected asker to be provided');
+        expect(await asker.ask('proceed?')).toBe(false);
     });
 
     it('treats a prompter that throws as a refusal', async () => {
