@@ -75,6 +75,8 @@ export interface ShellOptions {
     viewOf(owner: string, view: string): ViewDecl<never, never> | undefined;
     /** What that window's process provides to its views. */
     apiOf(owner: string): unknown;
+    /** What that window's process provides internally to its own views. */
+    internalOf?(owner: string): unknown;
     /**
      * Whether the process owning a window has reached running and is ready to mount views.
      *
@@ -177,6 +179,7 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
             windowId: record.id,
             decl,
             api: options.apiOf(record.owner),
+            internal: options.internalOf?.(record.owner),
             params: record.params,
             windows: manager,
             render: options.render,

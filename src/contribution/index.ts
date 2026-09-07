@@ -9,8 +9,8 @@ export type { Consumer, Provided, ProviderToken, ProviderTokens } from './provid
 export { consumes, provider } from './provider.js';
 
 export type {
-    ApiOf, Application, CommandDecl, Context, Declarations, ErasedApplication,
-    ErasedContext, ErasedContribution, ErasedExtension, Extension, KeyDecl,
+    ApiOf, Application, ApplicationInstance, ApplicationStartResult, CommandDecl, Context, Declarations,
+    ErasedApplication, ErasedContext, ErasedContribution, ErasedExtension, Extension, KeyDecl,
     MenuDecl, SettingDecl, ViewContext, ViewDecl,
 } from './contract.js';
-export { construct, isApplication, isExtension } from './contract.js';
+export { applicationInstance, construct, isApplication, isApplicationInstance, isExtension } from './contract.js';

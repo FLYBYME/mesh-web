@@ -10,7 +10,7 @@
  */
 
 import type { ErasedApplication, ErasedContribution, ErasedExtension, ViewDecl } from '../contribution/contract.js';
-import { isApplication, isExtension } from '../contribution/contract.js';
+import { isApplication, isApplicationInstance, isExtension } from '../contribution/contract.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import { createContext, createServices, type BrokerHandle, type KernelServices } from './broker.js';
 import { resolveOrder } from './graph.js';
@@ -40,6 +40,7 @@ export interface ProcessEntry {
     readonly startedAt: number;
     error?: Error;
     api?: unknown;
+    internal?: unknown;
 }
 
 export interface ExtensionEntry {
@@ -292,9 +293,16 @@ export class Kernel {
         this.#handles.set(pid, handle);
 
         try {
-            entry.api = await contribution.start(handle.context);
+            const startResult = await contribution.start(handle.context);
+            if (isApplicationInstance(startResult)) {
+                entry.api = startResult.api;
+                entry.internal = startResult.internal;
+            } else {
+                entry.api = startResult;
+                entry.internal = undefined;
+            }
 
-            if (contribution.provides !== undefined) {
+            if (contribution.provides !== undefined && entry.api !== undefined) {
                 this.#providers.set(contribution.provides.id, entry.api);
             }
 
