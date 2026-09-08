@@ -870,6 +870,33 @@ Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned ou
       and A6.8a drops back to being an annoyance about the *framework's* own install rather than
       something load-bearing.
 
+- [ ] **A10 ★ `needs('lifecycle')`, because a part reaching `window` makes its manifest a lie.** The
+      capability model's whole claim is in `broker.ts`: *"an undeclared capability is not on the
+      object, matching the compile error rather than contradicting it."* That holds for everything
+      the kernel hands out and fails completely for anything global. `window` is narrowed by nobody,
+      so a part that wants the page's error stream simply takes it.
+      Found in mesh-core's `telem` Extension, which is the honest case rather than a careless one.
+      It declares `needs('http')` — and then attaches to `window.addEventListener('error')`,
+      `'unhandledrejection'`, `'pagehide'` and `document.visibilitychange`. Its manifest says *I
+      make requests*. What it does is *observe every unhandled error on this page and every time the
+      tab is hidden*, which is a far larger thing to know about a part, and there is nowhere for it
+      to say so. Every access is guarded with `typeof window !== 'undefined'`, so this is a part
+      reaching for something the kernel never offered rather than one being careless.
+      **What it is not: a driver.** A driver is one of many implementations chosen by a record, and
+      there are not two competing implementations of *the page's error events* — there is one
+      browser. The driver shape does appear one level down, and `telem` already found it:
+      `transport.ts` takes an injectable sender, so `sendBeacon` and `fetch` are swappable. That is
+      the driver idea arriving on its own, in the place it actually fits.
+      **The shape:** page-level events a part subscribes to — `error`, `unhandledrejection`,
+      `visibilitychange`, `pagehide` — with the kernel owning the listeners and removing them on
+      dispose, which it already does for every other capability and which `telem` currently has to
+      do by hand.
+      Decide one thing first, in the capability's own comment: whether the kernel **filters** the
+      error stream per part. Handing every part every unhandled error on the page is a real
+      disclosure — one part's stack traces reaching another — and narrowing it to *your own* errors
+      may not be determinable at all. Saying which, and why, is the deliverable as much as the code.
+      **M**
+
 ---
 
 ## Track B — The CDN and the builder
