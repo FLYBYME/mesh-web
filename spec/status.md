@@ -18,6 +18,7 @@ This one is the index and the state of play.
 | **[testing](./testing.md)** | **What is pure, what needs fakes, what needs a browser** |
 | **[type-safety](./type-safety.md)** | **The standard the rest complies with. Read before writing an interface.** |
 | [storage-and-registry](./storage-and-registry.md) | Providers, hives, settings, policy |
+| [composite-components](./composite-components.md) | Composite components of primitives and encapsulated forms |
 | [hosting](./hosting.md) | The builder, the CDN, hostnames, multi-tenancy, the proxy |
 | [auth](./auth.md) | Tickets, validation, passkeys, roles, organizations |
 | [service-modules](./service-modules.md) | How the three server halves are structured |

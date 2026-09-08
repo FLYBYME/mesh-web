@@ -15,6 +15,7 @@ import type { Consumer, ProviderToken, ProviderTokens } from './provider.js';
 import type { Json } from '../description/types.js';
 import type { Models } from '../models/types.js';
 import type { ComponentDefinition } from '../render/component.js';
+import type { ApiDecl } from './api.js';
 
 /**
  * Capabilities, resolved providers, and the declared API. One type parameter per declaration, each
@@ -92,14 +93,33 @@ export interface StoreDecl {
  * types and enforced at runtime by holding view mounting until `start()` finishes, instead of by a
  * definite-assignment assertion papering over a gap (spec/application.md section 6, roadmap A5.7b).
  */
+/**
+ * What a view is handed.
+ *
+ * Three slots, and they are **input, state and output** in that order — the same three every part
+ * has. `params` is what it was addressed with, `internal` is what its own part knows, `app` is what
+ * that part publishes to everyone else.
+ *
+ * **A view reads `internal`. It should almost never read `app`.** `app` is here because a view may
+ * legitimately render something its own part publishes, and because a composite published by an
+ * extension is rendered against that extension's published surface. But a view reaching for `app` to
+ * find its own state is the mistake this ordering exists to make obvious: that state belongs in
+ * `internal`, and putting it in `app` publishes it to every part on the page and to any tool caller.
+ *
+ * `TInternal` no longer defaults to `never`. Defaulting it is what made "publish everything" the
+ * path of least resistance — see `ApplicationInstance`.
+ */
 export interface ViewContext<
     TParams = Record<string, never>,
+    TInternal = unknown,
     TApi = unknown,
-    TInternal = never,
 > {
+    /** What this view was addressed with. Serialisable by construction, so every view is a URL. */
     readonly params: TParams;
-    readonly app: TApi;
+    /** What this part knows and does not share. Where a view's state belongs. */
     readonly internal: TInternal;
+    /** What this part publishes. Read it to render something published; never to find state. */
+    readonly app: TApi;
     setTitle(title: string): void;
     close(): void;
     onDispose(fn: () => void): void;
@@ -115,8 +135,8 @@ export interface ViewContext<
  */
 export interface ViewDecl<
     TParams = Record<string, never>,
+    TInternal = unknown,
     TApi = unknown,
-    TInternal = never,
 > {
     readonly id: string;
     readonly title: string;
@@ -174,7 +194,7 @@ export interface ViewDecl<
     /** @deprecated Use `window.minSize`. */
     readonly minSize?: never;
 
-    render(vx: ViewContext<TParams, TApi, TInternal>): DescriptionNode;
+    render(vx: ViewContext<TParams, TInternal, TApi>): DescriptionNode;
 }
 
 /** Imported as a type alias so this file does not depend on the description layer's runtime. */
@@ -240,13 +260,43 @@ export interface Declarations {
      * properties. As `unknown` it would reject every real view.
      */
     readonly views?: readonly ViewDecl<never, never, never>[];
+
+    /**
+     * **What this part offers other parts, declared before it runs.**
+     *
+     * The static half of `PartApi`: names, descriptions and schemas, with no implementations. It is
+     * here rather than only in `start()`'s return for the same reason `views` is — the kernel reads
+     * a manifest before anything activates, so a site can be told what a page's parts will offer
+     * without running them, and that list is exactly what a review, a generated client or a tool
+     * caller wants.
+     *
+     * `checkBindings` verifies at start that what was declared is what was bound, in both
+     * directions. See `./api.ts`.
+     *
+     * Named `publishes` and not `api`, because `api` above is already this part's **inward** surface
+     * — the API it talks to. The two point in opposite directions and sharing a word would make
+     * every reference ambiguous.
+     */
+    readonly publishes?: ApiDecl;
 }
 
 // ---------------------------------------------------------------------------- the contracts
 
 /**
- * An Application's runtime instance, returning both a public API for use(TOKEN) and an internal
- * context for this part's own views (spec/components.md section 5).
+ * **What `start()` returns: what this part keeps, and what it offers.**
+ *
+ * `internal` is required. It was optional, defaulting to `never`, and the default is what produced
+ * every over-published API in the codebase — opting out was free and opting in cost extra ceremony,
+ * so nobody opted in, so `render` received the *public* API and everything a view touched had to
+ * become public. `PeopleApi` ended with 33 members of which eight were genuinely public, including
+ * `newAccountPassword: Signal<string>` — a password buffer, publicly readable and writable by any
+ * part holding the token.
+ *
+ * A part that keeps nothing writes `internal: {}` and has said so deliberately. That is the whole
+ * cost, and it buys the question being asked once per part instead of never.
+ *
+ * `api` stays optional because publishing nothing is ordinary. When present it is a `PartApi` —
+ * commands, components and readable state — checked against the manifest by `checkBindings`.
  */
 export interface ApplicationInstance<TPublic = unknown, TInternal = unknown> {
     readonly api?: TPublic;
@@ -254,16 +304,15 @@ export interface ApplicationInstance<TPublic = unknown, TInternal = unknown> {
 }
 
 /**
- * What start() may return. When TInternal is never (the default for parts that do not opt in),
- * this collapses to TPublic (ApiOf<TProvides>), preserving complete backwards compatibility.
+ * **Was a three-branch conditional whose only job was backwards compatibility.**
+ *
+ * It read *"when TInternal is never — the default for parts that do not opt in — this collapses to
+ * TPublic, preserving complete backwards compatibility"*, and it is why `ClockApp`'s signature took
+ * five type parameters and could not be read. There is no v1 and nobody outside to stay compatible
+ * with, so the compatibility was with a week of our own code, which has since been deleted.
  */
-export type ApplicationStartResult<TPublic = unknown, TInternal = never> = [TInternal] extends [never]
-    ? TPublic
-    : [TPublic] extends [void]
-      ? { readonly internal: TInternal; readonly api?: void }
-      : unknown extends TPublic
-        ? { readonly internal: TInternal; readonly api?: unknown }
-        : { readonly api: TPublic; readonly internal: TInternal };
+export type ApplicationStartResult<TPublic = unknown, TInternal = unknown> =
+    ApplicationInstance<TPublic, TInternal>;
 
 /** Helper to construct an ApplicationInstance with explicit typing. */
 export function applicationInstance<TPublic, TInternal>(instance: {

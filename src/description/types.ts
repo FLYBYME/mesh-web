@@ -103,6 +103,47 @@ export interface IntentBinding {
  */
 export type IntentValue = Json | undefined;
 
+/**
+ * **Who raised this intent.**
+ *
+ * An intent used to carry what was meant and not who meant it, and absence was read as *a person
+ * did this* — because until something could drive the page, a person always had.
+ *
+ * That default stops being safe the moment anything else can raise an intent, and the failure is
+ * specific rather than theoretical: `spec/ui/rules.md` §7 requires every destructive write to be
+ * confirmed, and a confirmation is itself a control that answers an intent. Something that can raise
+ * `commit` on the dialog defeats the check protecting `cdn.deploy`, `release_repo` and every
+ * `delete` on the platform — using the same mechanism that automates the UI, which is what makes it
+ * hard to notice.
+ *
+ * Three more things need it. A part receiving `change` should be able to tell a typed value from a
+ * supplied one. A site granting automation needs a subject to grant to. And *the page did something
+ * nobody asked for* has to be attributable afterwards.
+ *
+ * **This is the same bug as the server's, one layer up.** An anonymous HTTP request arrived carrying
+ * nothing, `identity` read "no user" as "an internal call", and answered with every organization on
+ * the platform. Absence is never a safe signal — say which, or the reader has to guess and will
+ * guess the permissive one.
+ *
+ * `part` is a part raising an intent on itself, which is neither a person nor an agent and should
+ * not be mistaken for either.
+ */
+export type IntentActor = 'user' | 'agent' | 'part';
+
+/**
+ * What the renderer reports when an intent fires.
+ *
+ * Carries the actor because the decision of whether to honour it belongs to whatever receives it —
+ * a confirmation with `requiresUser` refuses a non-`user` actor, and an ordinary control does not
+ * care. Putting the check at the receiver means a new kind of actor does not need every control
+ * rewritten.
+ */
+export interface RaisedIntent {
+    readonly name: IntentName;
+    readonly value: IntentValue;
+    readonly actor: IntentActor;
+}
+
 export type Intents = { readonly [K in IntentName]?: IntentBinding };
 
 // ---------------------------------------------------------------------------- nodes

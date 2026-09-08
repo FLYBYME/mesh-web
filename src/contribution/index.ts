@@ -14,3 +14,9 @@ export type {
     MenuDecl, SessionRequirement, SettingDecl, ViewContext, ViewDecl,
 } from './contract.js';
 export { applicationInstance, construct, isApplication, isApplicationInstance, isExtension } from './contract.js';
+
+export type {
+    ApiDecl, Availability, BoundCommand, BoundComponent, CommandContract, ComponentContract,
+    CompositeContract, ConfirmDecl, PartApi, Schema, StateContract,
+} from './api.js';
+export { AVAILABLE, checkBindings, schema } from './api.js';
