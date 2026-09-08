@@ -22,8 +22,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-    AUTH,
-    AuthExtension,
+    provider,
     call,
     computed,
     consumes,
@@ -41,6 +40,8 @@ import {
     type Api,
     type Application,
     type Context,
+    type Extension,
+    type ProviderToken,
     type NetRequest,
     type NetResponse,
     type Session,
@@ -77,6 +78,67 @@ interface DeletePartInput {
 
 interface StatRecord {
     readonly total: number;
+}
+
+/**
+ * **A session provider, standing in for whatever a real site loads.**
+ *
+ * These tests used the framework's own `AuthExtension`, which has moved to mesh-core — a part a site
+ * decides about is a part, and the kernel does not ship one. That turned out to make the tests
+ * *better* rather than merely different: what is under test here is that `models` reacts to
+ * `services.session`, and pinning it to one implementation tested the implementation as much as the
+ * seam.
+ *
+ * This fills the same seam the real one does, through the same declared capability:
+ * `credentials.attach(headers, session)`. Nothing about `models` knows which of them it is talking
+ * to, which is the property the move exists to have.
+ *
+ * It also does it without mocking `fetch`. The three identity endpoints the old fixture had to fake
+ * were incidental to every assertion below — the tests care that a ticket appears and requests
+ * reload, not how it was obtained.
+ */
+interface TestSession {
+    readonly session: ReadonlySignal<Session | null>;
+    signIn(): void;
+    signOut(): void;
+}
+
+const TEST_SESSION: ProviderToken<TestSession> = provider<TestSession>('test/session');
+const SESSION_NEEDS = needs('credentials', 'state');
+
+class SessionExtension implements Extension<typeof SESSION_NEEDS, readonly [], typeof TEST_SESSION> {
+    readonly needs = SESSION_NEEDS;
+    readonly provides = TEST_SESSION;
+
+    activate(cx: Context<typeof SESSION_NEEDS>): TestSession {
+        const session = cx.state.signal<Session | null>(null);
+        let ticket: string | undefined;
+
+        // Attached once, before any request can be made — the lookup runs per request, so a ticket
+        // that arrives later rides the next call rather than the next page load.
+        cx.credentials.attach(
+            (): Readonly<Record<string, string>> =>
+                (ticket === undefined ? {} : { authorization: `Bearer ${ticket}` }),
+            session,
+        );
+
+        return {
+            session,
+            signIn: () => {
+                ticket = 'tk-alice';
+                session.set({
+                    userId: 'alice',
+                    displayName: 'Alice',
+                    roles: ['admin'],
+                    expiresAt: Date.now() + 3_600_000,
+                });
+            },
+            signOut: () => {
+                ticket = undefined;
+                session.set(null);
+            },
+        };
+    }
 }
 
 const siteApi = defineApi({
@@ -935,10 +997,10 @@ describe('session-aware collections', () => {
             });
 
             const kernel = new Kernel({ services });
-            const authExt = new AuthExtension();
+            const authExt = new SessionExtension();
 
             const APP_NEEDS = needs('models');
-            const APP_CONSUMES = consumes(AUTH);
+            const APP_CONSUMES = consumes(TEST_SESSION);
 
             let appCx!: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof siteApi>;
             class SecretApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES, undefined, typeof siteApi> {
@@ -969,8 +1031,8 @@ describe('session-aware collections', () => {
             expect(parts.error()?.kind).toBe('unauthorized');
 
             // Sign in
-            const authApi = appCx.use(AUTH);
-            await authApi.signIn({ email: 'alice@test.local', password: 'secret' });
+            const authApi = appCx.use(TEST_SESSION);
+            authApi.signIn();
             flushSync();
             await new Promise((r) => setTimeout(r, 15));
 
@@ -1072,10 +1134,10 @@ describe('session-aware collections', () => {
                 });
 
                 const kernel = new Kernel({ services });
-                const authExt = new AuthExtension();
+                const authExt = new SessionExtension();
 
                 const APP_NEEDS = needs('models');
-                const APP_CONSUMES = consumes(AUTH);
+                const APP_CONSUMES = consumes(TEST_SESSION);
 
                 let appCx!: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof gatedApi>;
                 class GatedApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES, undefined, typeof gatedApi> {
@@ -1104,8 +1166,8 @@ describe('session-aware collections', () => {
                 expect(parts.loading()).toBe(false);
 
                 // Now sign in
-                const authApi = appCx.use(AUTH);
-                await authApi.signIn({ email: 'bob@test.local', password: 'secret' });
+                const authApi = appCx.use(TEST_SESSION);
+                authApi.signIn();
                 flushSync();
                 await new Promise((r) => setTimeout(r, 15));
 

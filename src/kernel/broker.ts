@@ -19,7 +19,7 @@
 import { computed, effect, signal } from '../reactivity/index.js';
 import { createScope } from '../reactivity/scope.js';
 import type { ReactiveScope, ReadonlySignal, Signal } from '../reactivity/types.js';
-import type { Session } from '../auth/extension.js';
+import type { Session } from '../contribution/session.js';
 import type { Json, Node, Reactive } from '../description/types.js';
 import type {
     CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Confirmation,

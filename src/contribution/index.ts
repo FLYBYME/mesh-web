@@ -5,6 +5,8 @@ export type {
 } from './capabilities.js';
 export { needs } from './capabilities.js';
 
+export type { Session } from './session.js';
+
 export type { Consumer, Provided, ProviderToken, ProviderTokens } from './provider.js';
 export { consumes, provider } from './provider.js';
 

@@ -18,17 +18,6 @@ import { resolveOrder } from './graph.js';
 import { mergeManifests, type Manifest } from './manifest.js';
 import { signal } from '../reactivity/signal.js';
 import type { ReadonlySignal, Signal } from '../reactivity/types.js';
-import { AUTH, type Session } from '../auth/extension.js';
-
-function isAuthApi(val: unknown): val is { readonly session: ReadonlySignal<Session | null> } {
-    return (
-        typeof val === 'object' &&
-        val !== null &&
-        'session' in val &&
-        typeof (val as { session: unknown }).session === 'function'
-    );
-}
-
 export interface Loaded {
     readonly id: string;
     readonly contribution: ErasedContribution;
@@ -228,10 +217,27 @@ export class Kernel {
 
             if (contribution.provides !== undefined) {
                 this.#providers.set(contribution.provides.id, api);
-                if (contribution.provides.id === AUTH.id && isAuthApi(api)) {
-                    this.services.session = api.session;
-                }
             }
+            /**
+             * **The kernel used to know one Extension by name here.**
+             *
+             * It read `contribution.provides.id === AUTH.id` and, on a match, published
+             * `api.session` as `services.session` — which meant the kernel imported the auth
+             * Extension, and therefore that the framework contained an implementation of one of its
+             * own seams. That is the coupling that kept `src/auth/` inside a package whose job is to
+             * be the kernel and nothing else.
+             *
+             * It was also **redundant**, which is the part worth writing down. `credentials.attach`
+             * already takes a session signal and sets `services.session` (`broker.ts`), and the auth
+             * Extension already calls it — declaring `needs('credentials')` so a site can see which
+             * contribution holds the seam. So there were two paths to the same field: one declared,
+             * visible in a manifest and refusable; one hard-coded, invisible, and matching on a
+             * string id.
+             *
+             * Deleting the second changes no behaviour and removes the last thing the kernel knew
+             * about auth. A part that wants to publish the session declares `needs('credentials')`
+             * and attaches, like anything else.
+             */
 
             this.#extensions.set(id, { id, state: 'activated', api });
         } catch (cause) {

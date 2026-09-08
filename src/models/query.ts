@@ -18,7 +18,7 @@ import type { Result, CallError } from '../net/result.js';
 import type { Gate } from '../net/api.js';
 import { requiresAuth } from '../net/api.js';
 import type { CollectionQuery, CollectionStatus } from './types.js';
-import type { Session } from '../auth/extension.js';
+import type { Session } from '../contribution/session.js';
 
 export type QueryFetcher<TItem, TQuery> = (
     query?: TQuery,

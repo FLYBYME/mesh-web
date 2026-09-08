@@ -13,7 +13,7 @@
 import type { ReadonlySignal, Signal } from '../reactivity/types.js';
 import type { Json, Node, Props, Reactive } from '../description/types.js';
 import type { WindowMode } from '../window/manager.js';
-import type { Session } from '../auth/extension.js';
+import type { Session } from './session.js';
 
 // ---------------------------------------------------------------------------- state
 
