@@ -11,7 +11,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { Kernel, createServices, needs, provider } from '../src/index.js';
+import { Kernel, createServices, needs, provider, KEEPS_NOTHING } from '../src/index.js';
 import type { Application, Context, ProviderToken } from '../src/index.js';
 import { domConfirm } from '../src/kernel/confirm.js';
 
@@ -28,13 +28,16 @@ class AskingApp implements Application<typeof NEEDS, readonly [], typeof ASKER> 
     readonly needs = NEEDS;
     readonly provides = ASKER;
 
-    async start(cx: Context<typeof NEEDS, readonly []>): Promise<Asker> {
+    async start(cx: Context<typeof NEEDS, readonly []>): Promise<{ api: Asker } & typeof KEEPS_NOTHING> {
         return {
-            ask: (message) => cx.confirmation.ask(message),
-            askDestructive: () => cx.confirmation.ask({
-                message: 'Delete every release?',
-                destructive: true,
-            }),
+            ...KEEPS_NOTHING,
+            api: {
+                ask: (message) => cx.confirmation.ask(message),
+                askDestructive: () => cx.confirmation.ask({
+                    message: 'Delete every release?',
+                    destructive: true,
+                }),
+            },
         };
     }
 }

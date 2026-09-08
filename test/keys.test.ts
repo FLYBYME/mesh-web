@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
     BROWSER_TAB_RESERVED, InvalidBinding, Kernel, bindingTable, chordOf, formatBinding,
     isGamepad, mergeManifests, normalizeBinding, parseBinding, reservedSet,
-    type Application,
+    type Application, KEEPS_NOTHING,
 } from '../src/index.js';
 
 /** A KeyboardEvent's shape, without needing a DOM to make one. */
@@ -177,7 +177,7 @@ describe('the kernel exposes what is bound', () => {
             readonly needs = NEEDS;
             readonly commands = [{ id: 'blog.add', title: 'New post' }];
             readonly keys = [{ command: 'blog.add', keys: 'Alt+N' }];
-            async start(): Promise<void> {}
+            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         const kernel = new Kernel();

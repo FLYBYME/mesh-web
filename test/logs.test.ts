@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     BROWSER_TAB_RESERVED, Kernel, createLogBuffer, normalizeBinding, reservedSet, start,
-    type Application, type Context, needs,
+    type Application, type Context, needs, KEEPS_NOTHING,
 } from '../src/index.js';
 
 const clean = (): void => { document.body.replaceChildren(); };
@@ -74,10 +74,11 @@ describe('mountLogViewer on a page with no chrome', () => {
 
     class LoggingApp implements Application<typeof LOG_NEEDS> {
         readonly needs = LOG_NEEDS;
-        async start(cx: Context<typeof LOG_NEEDS>): Promise<void> {
+        async start(cx: Context<typeof LOG_NEEDS>): Promise<typeof KEEPS_NOTHING> {
             cx.log.info('app started', { version: '1.0' });
             cx.log.warn('warning from app');
             cx.log.error('error from app');
+            return KEEPS_NOTHING;
         }
     }
 

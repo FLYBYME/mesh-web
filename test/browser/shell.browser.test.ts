@@ -23,7 +23,7 @@ import { userEvent } from '@vitest/browser/context';
 import {
     Kernel, WindowManager, createRegistry, element, flushSync, mountShell, needs, text,
     windowSink, PRIMITIVES,
-    type Application, type Context, type FrameChrome, type Shell, type ViewContext,
+    type Application, type Context, type FrameChrome, type Shell, type ViewContext, KEEPS_NOTHING,
 } from '../../src/index.js';
 
 // ---------------------------------------------------------------------------- a minimal site
@@ -56,9 +56,10 @@ class TwoWindowApp implements Application<typeof APP_NEEDS> {
         },
     ];
 
-    async start(cx: Context<typeof APP_NEEDS>): Promise<void> {
+    async start(cx: Context<typeof APP_NEEDS>): Promise<typeof KEEPS_NOTHING> {
         cx.windows.open({ view: 'alpha' });
         cx.windows.open({ view: 'beta' });
+        return KEEPS_NOTHING;
     }
 }
 

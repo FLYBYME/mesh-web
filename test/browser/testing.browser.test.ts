@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
     needs, provider, consumes, element, text, effect, flushSync,
-    type Application, type Context, type Extension, type ProviderToken, type Signal,
+    type Application, type Context, type Extension, type ProviderToken, type Signal, KEEPS_NOTHING,
 } from '@flybyme/mesh-web';
 import { mountPart, cleanup, getFrameworkInstances } from '@flybyme/mesh-web/testing';
 
@@ -43,8 +43,9 @@ class FakeConsoleApp implements Application<typeof APP_NEEDS, typeof APP_CONSUME
         },
     ];
 
-    async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES>): Promise<void> {
+    async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES>): Promise<typeof KEEPS_NOTHING> {
         cx.windows.open({ view: 'main' });
+        return KEEPS_NOTHING;
     }
 }
 

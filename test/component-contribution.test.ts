@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { needs } from '../src/contribution/capabilities.js';
 import type { Application, Context, Extension } from '../src/contribution/contract.js';
+import { KEEPS_NOTHING } from '../src/contribution/contract.js';
 import type { ComponentDefinition } from '../src/render/component.js';
 import { createRegistry, PRIMITIVES } from '../src/render/component.js';
 import { render } from '../src/render/dom.js';
@@ -122,8 +123,9 @@ describe('runtime component registration and rendering', () => {
                 }),
             }];
 
-            async start(cx: Context<typeof WINDOWS_NEEDS, readonly []>): Promise<void> {
+            async start(cx: Context<typeof WINDOWS_NEEDS, readonly []>): Promise<typeof KEEPS_NOTHING> {
                 cx.windows.open({ view: 'main' });
+                return KEEPS_NOTHING;
             }
         }
 
@@ -189,8 +191,9 @@ describe('runtime component registration and rendering', () => {
                 }),
             }];
 
-            async start(cx: Context<typeof WINDOWS_NEEDS, readonly []>): Promise<void> {
+            async start(cx: Context<typeof WINDOWS_NEEDS, readonly []>): Promise<typeof KEEPS_NOTHING> {
                 cx.windows.open({ view: 'main' });
+                return KEEPS_NOTHING;
             }
         }
 

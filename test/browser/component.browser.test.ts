@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
     element, needs, text,
-    type Application, type Context, type Extension, type ComponentDefinition, type Props, type Json,
+    type Application, type Context, type Extension, type ComponentDefinition, type Props, type Json, KEEPS_NOTHING,
 } from '../../src/index.js';
 import { mountPart, cleanup } from '../../src/testing/index.js';
 
@@ -47,8 +47,9 @@ class StoreApp implements Application<typeof APP_NEEDS, readonly []> {
         },
     ];
 
-    async start(cx: Context<typeof APP_NEEDS, readonly []>): Promise<void> {
+    async start(cx: Context<typeof APP_NEEDS, readonly []>): Promise<typeof KEEPS_NOTHING> {
         cx.windows.open({ view: 'store-front' });
+        return KEEPS_NOTHING;
     }
 }
 

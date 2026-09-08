@@ -19,7 +19,7 @@ import '../../src/kernel.css';
 
 import {
     element, flushSync, needs, SettingLocked, text,
-    type Application, type Context, type ViewDecl,
+    type Application, type Context, type ViewDecl, KEEPS_NOTHING,
 } from '../../src/index.js';
 import { cleanup, mountPart, type MountedSite } from '../../src/testing/index.js';
 
@@ -58,8 +58,9 @@ class BlogApp implements Application<typeof NEEDS> {
         },
     ] as unknown as readonly ViewDecl<never, never>[];
 
-    async start(cx: Context<typeof NEEDS>): Promise<void> {
+    async start(cx: Context<typeof NEEDS>): Promise<typeof KEEPS_NOTHING> {
         cx.windows.open({ view: 'post' });
+        return KEEPS_NOTHING;
     }
 }
 
@@ -76,8 +77,9 @@ class SecondApp implements Application<typeof NEEDS> {
         },
     ] as unknown as readonly ViewDecl<never, never>[];
 
-    async start(cx: Context<typeof NEEDS>): Promise<void> {
+    async start(cx: Context<typeof NEEDS>): Promise<typeof KEEPS_NOTHING> {
         cx.windows.open({ view: 'dashboard' });
+        return KEEPS_NOTHING;
     }
 }
 

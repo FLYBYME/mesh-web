@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 
 import { needs } from '../src/contribution/capabilities.js';
 import type { Application, Context } from '../src/contribution/contract.js';
+import { KEEPS_NOTHING } from '../src/contribution/contract.js';
 import { start } from '../src/kernel/start.js';
 
 const NEEDS = needs('display');
@@ -32,9 +33,10 @@ class Watcher implements Application<typeof NEEDS> {
     seen: { width: number; height: number } | undefined;
     display: Context<typeof NEEDS>['display'] | undefined;
 
-    async start(cx: Context<typeof NEEDS>): Promise<void> {
+    async start(cx: Context<typeof NEEDS>): Promise<typeof KEEPS_NOTHING> {
         this.display = cx.display;
         this.seen = cx.display.size();
+        return KEEPS_NOTHING;
     }
 }
 
@@ -124,8 +126,9 @@ describe('the display a part is given', () => {
             readonly needs = [] as const;
             readonly views = [];
             given: unknown;
-            async start(cx: unknown): Promise<void> {
+            async start(cx: unknown): Promise<typeof KEEPS_NOTHING> {
                 this.given = (cx as { display?: unknown }).display;
+                return KEEPS_NOTHING;
             }
         })();
 
