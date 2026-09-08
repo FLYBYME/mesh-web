@@ -66,10 +66,12 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
         {
             id: 'sidebar',
             title: 'Posts',
-            tile: 'sidebar',
+            window: {
+                tile: 'sidebar',
+                defaultSize: { width: 240, height: 400 },
+                minSize: { width: 180, height: 100 },
+            },
             instances: 'one' as const,
-            defaultSize: { width: 240, height: 400 },
-            minSize: { width: 180, height: 100 },
             // A pure function from application state to a description. No element, no DOM.
             render: (vx: ViewContext<Record<string, never>, BlogApi>) =>
                 element('List', {

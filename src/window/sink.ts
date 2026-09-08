@@ -57,14 +57,26 @@ export function windowSink(
                 view,
                 params,
                 title: decl.title,
-                // Read from the declaration at open time, like the sizes beside it — the manager
-                // must not know what a view is.
-                ...(decl.tile === undefined ? {} : { tile: decl.tile }),
-                ...(decl.defaultSize ? { size: decl.defaultSize } : {}),
-                ...(decl.minSize
-                    ? { minSize: { width: decl.minSize.width ?? 0, height: decl.minSize.height ?? 0 } }
+                /**
+                 * Read from the declaration at open time — the manager must not know what a view is.
+                 *
+                 * All of it comes from `decl.window`, which is where window furniture lives now.
+                 * It used to be four fields at the top level of `ViewDecl`, which made a view
+                 * declare pixels and split-tree nodes it has no business knowing about; **this is
+                 * the only code in the kernel that reads them**, which is what made moving them
+                 * cheap and what proves they were in the wrong place.
+                 */
+                ...(decl.window?.tile === undefined ? {} : { tile: decl.window.tile }),
+                ...(decl.window?.defaultSize ? { size: decl.window.defaultSize } : {}),
+                ...(decl.window?.minSize
+                    ? {
+                        minSize: {
+                            width: decl.window.minSize.width ?? 0,
+                            height: decl.window.minSize.height ?? 0,
+                        },
+                    }
                     : {}),
-                closable: decl.closable ?? true,
+                closable: decl.window?.closable ?? true,
             });
 
             return record.id;

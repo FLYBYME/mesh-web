@@ -46,6 +46,7 @@
     "private": true,
     "devDependencies": {
         "@flybyme/mesh": "github:FLYBYME/mesh#v2.4.0",
+        "@flybyme/mesh-web": "github:FLYBYME/mesh-web#v0.15.11",
         "@types/node": "^26.4.1",
         "@vitest/browser": "^2.1.9",
         "jsdom": "^30.0.1",

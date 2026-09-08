@@ -120,12 +120,60 @@ export interface ViewDecl<
 > {
     readonly id: string;
     readonly title: string;
-    /** Which named node of the layout's split tree, in tiled mode. Unused when windowed. */
-    readonly tile?: string;
+
+    /**
+     * How many of this view may exist at once. **Not a window question** — it is a fact about the
+     * view, and a router honours it by replacing rather than stacking.
+     */
     readonly instances?: 'one' | 'many';
-    readonly closable?: boolean;
-    readonly defaultSize?: { readonly width?: number; readonly height?: number };
-    readonly minSize?: { readonly width?: number; readonly height?: number };
+
+    /**
+     * **Hints for a chrome that draws windows. Every field is a suggestion and none is a promise.**
+     *
+     * These were `tile`, `defaultSize`, `minSize` and `closable` at the top level, and having them
+     * there was the mistake: it made a *view* — a pure function from state to a description —
+     * declare pixels and split-tree nodes, so an author writing one was invited to think about
+     * window furniture. Four of the six fields on this interface were about a presentation choice
+     * the view does not make.
+     *
+     * That is not a tidiness complaint. It is why every console here became a window: the type
+     * said windows, so authors wrote windows, and a phone got a desktop it cannot drag. A chrome
+     * that renders one view at a time and navigates between them — which is what a narrow screen
+     * needs — ignores this object entirely and loses nothing.
+     *
+     * Grouped rather than deleted because a windowed chrome genuinely wants them, and a view
+     * *may* know it is unreadable below some width. Optional, so the ordinary view says nothing.
+     */
+    readonly window?: {
+        /** Which named node of the layout's split tree, in tiled mode. Ignored when windowed. */
+        readonly tile?: string;
+        readonly closable?: boolean;
+        readonly defaultSize?: { readonly width?: number; readonly height?: number };
+        readonly minSize?: { readonly width?: number; readonly height?: number };
+    };
+
+    /**
+     * **Moved into `window`, and typed `never` so the move is loud.**
+     *
+     * Grouping them was not enough on its own: a view declared as a class property is inferred and
+     * then checked structurally, and an extra property is *allowed* in that direction — so every
+     * old declaration went on compiling and was silently ignored. Two tests in this repository did
+     * exactly that, and the only symptom was a window 240px wide arriving at 480 and a tiled layout
+     * with nothing in it. Nothing failed; the fields simply stopped being read.
+     *
+     * `?: never` makes the same declaration a type error that names the field. It costs four dead
+     * lines and it is the difference between a migration somebody performs and one they discover
+     * months later from a layout that is subtly wrong.
+     */
+    /** @deprecated Use `window.tile`. */
+    readonly tile?: never;
+    /** @deprecated Use `window.closable`. */
+    readonly closable?: never;
+    /** @deprecated Use `window.defaultSize`. */
+    readonly defaultSize?: never;
+    /** @deprecated Use `window.minSize`. */
+    readonly minSize?: never;
+
     render(vx: ViewContext<TParams, TApi, TInternal>): DescriptionNode;
 }
 

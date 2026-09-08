@@ -48,7 +48,7 @@ class DialogTestApp implements Application<typeof DIALOG_NEEDS, readonly [], typ
             id: 'main',
             title: 'Dialog Test View',
             instances: 'one' as const,
-            defaultSize: { width: 600, height: 500 },
+            window: { defaultSize: { width: 600, height: 500 } },
             render: (vx: ViewContext<Record<string, never>, DialogApi>) =>
                 element('Stack', {
                     props: { class: 'page-content' },

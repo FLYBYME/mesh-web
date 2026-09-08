@@ -43,7 +43,9 @@ class BlogApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES> {
         {
             id: 'editor',
             title: 'Editor',
-            tile: 'content',
+            window: {
+                tile: 'content',
+            },
             instances: 'many' as const,
             render: () => text('editor'),
         },

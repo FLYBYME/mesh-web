@@ -56,10 +56,12 @@ class ListApp implements Application<typeof LIST_NEEDS, readonly [], typeof LIST
         {
             id: 'main',
             title: 'Rows',
-            tile: 'main',
+            window: {
+                tile: 'main',
+                defaultSize: { width: 300, height: 240 },
+                minSize: { width: 200, height: 120 },
+            },
             instances: 'many' as const,
-            defaultSize: { width: 300, height: 240 },
-            minSize: { width: 200, height: 120 },
             render: (vx: ViewContext<Record<string, never>, ListApi>) =>
                 element('Stack', {
                     props: { class: 'pane', style: { display: 'flex', 'flex-direction': 'column' } },

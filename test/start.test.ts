@@ -487,9 +487,17 @@ describe('the layout an Application declared', () => {
                     { node: { tile: 'side' }, size: 1 },
                 ],
             };
+            /**
+             * `as unknown as` hid this from the compiler, and that is worth noting rather than
+             * quietly fixing: `ViewDecl` now types the old `tile` as `never` precisely so a stale
+             * declaration is a type error, and a double assertion defeats exactly that. The cast is
+             * here for the unrelated reason that these views declare no params or api — not to get
+             * past the shape — so the fields inside it still have to be right, and nothing but the
+             * failing assertion said otherwise.
+             */
             readonly views = [
-                { id: 'a', title: 'A', tile: 'main', render: () => text('a') },
-                { id: 'b', title: 'B', tile: 'side', render: () => text('b') },
+                { id: 'a', title: 'A', window: { tile: 'main' }, render: () => text('a') },
+                { id: 'b', title: 'B', window: { tile: 'side' }, render: () => text('b') },
             ] as unknown as readonly ViewDecl<never, never>[];
             async start(_cx: Context<typeof NEEDS, readonly []>): Promise<void> {}
         }

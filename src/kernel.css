@@ -125,6 +125,23 @@ html, body {
     user-select: none;
     font-size: 13px;
     font-weight: 500;
+
+    /**
+     * Without this a window cannot be dragged by touch at all.
+     *
+     * The drag handler is already touch-correct — `pointerdown` plus `setPointerCapture`, which is
+     * exactly the modern shape — but the browser decides *before* the handler runs whether a
+     * gesture belongs to the page or the element. The default lets it claim the gesture for
+     * scrolling, so the first `pointermove` cancels the pointer and the window never moves.
+     *
+     * `.grip` had this from the beginning and the titlebar did not, so resizing worked under a
+     * finger and dragging did not. One property, and it was the whole of "I can't drag a window on
+     * mobile".
+     *
+     * It does not make windows *usable* on a phone — that needs a chrome that does not use windows
+     * — but a control that looks draggable and is not is worse than either.
+     */
+    touch-action: none;
 }
 
 .titlebar .label {

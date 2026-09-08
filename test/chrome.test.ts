@@ -37,7 +37,7 @@ const VIEWS: Record<string, ViewDecl<never, never>> = {
     'mail:inbox': view('inbox'),
     // A view that says it may not be closed. Chrome renders no close affordance for it, and the
     // point of the test below is that saying so is not what stops chrome closing it.
-    'system:status': view('status', { closable: false }),
+    'system:status': view('status', { window: { closable: false } }),
 };
 
 function desktop(): { services: KernelServices; manager: WindowManager } {

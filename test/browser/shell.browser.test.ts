@@ -38,17 +38,20 @@ class TwoWindowApp implements Application<typeof APP_NEEDS> {
             id: 'alpha',
             title: 'Alpha',
             instances: 'one' as const,
-            defaultSize: { width: 300, height: 200 },
+            window: {
+                defaultSize: { width: 300, height: 200 },
+            },
             render: () => element('Text', { children: [text('alpha')] }),
         },
         {
             id: 'beta',
             title: 'Beta',
             instances: 'one' as const,
-            defaultSize: { width: 300, height: 200 },
             // Declared unclosable. A6.3c-i made this mean something; here it is asserted through
             // chrome, which is where it can actually be got wrong.
-            closable: false,
+            window: {
+                closable: false,
+            },
             render: () => element('Text', { children: [text('beta')] }),
         },
     ];
