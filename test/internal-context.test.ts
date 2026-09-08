@@ -55,7 +55,7 @@ describe('internal context (two objects: internal context vs published API)', ()
                 {
                     id: 'cart-view',
                     title: 'Cart View',
-                    render(vx: ViewContext<Record<string, never>, CartApi, CartInternal>) {
+                    render(vx: ViewContext<Record<string, never>, CartInternal, CartApi>) {
                         // The view reads BOTH its own internal state and public API
                         return element('Stack', {
                             children: [
@@ -180,7 +180,7 @@ describe('internal context (two objects: internal context vs published API)', ()
                 {
                     id: 'private-view',
                     title: 'Private Notes',
-                    render(vx: ViewContext<Record<string, never>, unknown, PrivateState>) {
+                    render(vx: ViewContext<Record<string, never>, PrivateState, unknown>) {
                         return element('Text', {
                             props: { id: 'note-title' },
                             children: [text(() => `Title: ${vx.internal.noteTitle()}`)],
