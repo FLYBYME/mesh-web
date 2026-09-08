@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import {
     Kernel, call, createClient, createServices, defineApi, describe as describeError, diffExposure, exposureDifference, fetchApiSpec,
     needs, provider, toApiSpec, withHeaders,
-    type Api, type Application, type Context, type ExposureDescriptor, type ExposureDifference, type NetRequest, type NetResponse, type Transport,
+    type Api, type Application, type Context, type ExposureDescriptor, type ExposureDifference, type NetRequest, type NetResponse, type Transport, KEEPS_NOTHING,
 } from '../src/index.js';
 
 // ---------------------------------------------------------------------------- a generated API
@@ -423,15 +423,18 @@ class ConsoleApp implements Application<typeof CONSOLE_NEEDS, readonly [], typeo
     readonly provides = CONSOLE;
     readonly api = siteApi;
 
-    async start(cx: Context<typeof CONSOLE_NEEDS, readonly [], typeof siteApi>): Promise<ConsoleApi> {
+    async start(cx: Context<typeof CONSOLE_NEEDS, readonly [], typeof siteApi>): Promise<{ api: ConsoleApi } & typeof KEEPS_NOTHING> {
         return {
-            whoami: async () => {
-                const result = await cx.mesh.call('session.whoami');
-                if (!result.ok) {
-                    cx.log.warn(describeError(result.error));
-                    return 'anonymous';
-                }
-                return result.value.userId;
+            ...KEEPS_NOTHING,
+            api: {
+                whoami: async () => {
+                    const result = await cx.mesh.call('session.whoami');
+                    if (!result.ok) {
+                        cx.log.warn(describeError(result.error));
+                        return 'anonymous';
+                    }
+                    return result.value.userId;
+                },
             },
         };
     }
@@ -470,7 +473,7 @@ describe('mesh as a capability', () => {
 
         class Bad implements Application<typeof NEEDS> {
             readonly needs = NEEDS;
-            async start(): Promise<void> { /* never reached */ }
+            async start(): Promise<typeof KEEPS_NOTHING> { /* never reached */ return KEEPS_NOTHING; }
         }
 
         const kernel = new Kernel();

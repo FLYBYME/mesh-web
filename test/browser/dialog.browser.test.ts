@@ -16,7 +16,7 @@ import '../../src/kernel.css';
 
 import {
     command, dialog, element, flushSync, needs, provider, text,
-    type Application, type Context, type ProviderToken, type ViewContext, type ViewDecl,
+    type Application, type Context, type ProviderToken, type ViewContext, type ViewDecl, KEEPS_NOTHING,
 } from '../../src/index.js';
 import { cleanup, mountPart } from '../../src/testing/index.js';
 
@@ -49,7 +49,7 @@ class DialogTestApp implements Application<typeof DIALOG_NEEDS, readonly [], typ
             title: 'Dialog Test View',
             instances: 'one' as const,
             window: { defaultSize: { width: 600, height: 500 } },
-            render: (vx: ViewContext<Record<string, never>, DialogApi>) =>
+            render: (vx: ViewContext<Record<string, never>, Record<string, never>, DialogApi>) =>
                 element('Stack', {
                     props: { class: 'page-content' },
                     children: [
@@ -102,9 +102,9 @@ class DialogTestApp implements Application<typeof DIALOG_NEEDS, readonly [], typ
                     ],
                 }),
         },
-    ] as readonly ViewDecl<Record<string, never>, DialogApi>[];
+    ] as readonly ViewDecl<Record<string, never>, Record<string, never>, DialogApi>[];
 
-    async start(cx: Context<typeof DIALOG_NEEDS>): Promise<DialogApi> {
+    async start(cx: Context<typeof DIALOG_NEEDS>): Promise<{ api: DialogApi } & typeof KEEPS_NOTHING> {
         const d1 = cx.state.signal(false);
         const d2 = cx.state.signal(false);
 
@@ -123,7 +123,7 @@ class DialogTestApp implements Application<typeof DIALOG_NEEDS, readonly [], typ
         cx.commands.implement('dialog.close2', () => api.close2());
 
         cx.windows.open({ view: 'main' });
-        return api;
+        return { ...KEEPS_NOTHING, api };
     }
 }
 

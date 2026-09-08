@@ -22,7 +22,7 @@ import { page, userEvent } from '@vitest/browser/context';
 import {
     Kernel, WindowManager, command, createRegistry, each, effect, element, mountView, needs,
     provider, text, when, windowSink, PRIMITIVES,
-    type Action, type Application, type Context, type ViewContext, type ViewInstance,
+    type Action, type Application, type Context, type ViewContext, type ViewInstance, KEEPS_NOTHING,
 } from '../../src/index.js';
 
 // ---------------------------------------------------------------------------- a minimal site
@@ -62,7 +62,7 @@ class ListApp implements Application<typeof LIST_NEEDS, readonly [], typeof LIST
                 minSize: { width: 200, height: 120 },
             },
             instances: 'many' as const,
-            render: (vx: ViewContext<Record<string, never>, ListApi>) =>
+            render: (vx: ViewContext<Record<string, never>, Record<string, never>, ListApi>) =>
                 element('Stack', {
                     props: { class: 'pane', style: { display: 'flex', 'flex-direction': 'column' } },
                     children: [
@@ -95,7 +95,7 @@ class ListApp implements Application<typeof LIST_NEEDS, readonly [], typeof LIST
         },
     ];
 
-    async start(cx: Context<typeof LIST_NEEDS>): Promise<ListApi> {
+    async start(cx: Context<typeof LIST_NEEDS>): Promise<{ api: ListApi } & typeof KEEPS_NOTHING> {
         const rows = cx.state.signal<readonly Row[]>([
             { id: 'a', label: 'first', done: false },
             { id: 'b', label: 'second', done: false },
@@ -113,7 +113,7 @@ class ListApp implements Application<typeof LIST_NEEDS, readonly [], typeof LIST
         cx.commands.implement('list.add', (label) => add(String(label ?? 'row')));
         cx.commands.implement('list.toggle', (id) => toggle(String(id)));
 
-        return { rows, add, toggle };
+        return { ...KEEPS_NOTHING, api: { rows, add, toggle } };
     }
 }
 

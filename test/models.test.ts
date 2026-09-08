@@ -1084,8 +1084,9 @@ describe('session-aware collections', () => {
                     readonly api = gatedApi;
                     readonly session = 'required' as const;
 
-                    async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof gatedApi>): Promise<void> {
+                    async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof gatedApi>): Promise<typeof KEEPS_NOTHING> {
                         appCx = cx;
+                        return KEEPS_NOTHING;
                     }
                 }
 

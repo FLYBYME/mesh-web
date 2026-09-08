@@ -23,6 +23,7 @@ import {
     type Context,
     type ProviderToken,
     type ViewContext,
+    KEEPS_NOTHING,
 } from '@flybyme/mesh-web';
 import { cleanup, mountPart } from '@flybyme/mesh-web/testing';
 
@@ -61,7 +62,7 @@ class CatalogApp implements Application<typeof APP_NEEDS, readonly [], typeof AP
         {
             id: 'catalog',
             title: 'Catalog',
-            render: (vx: ViewContext<Record<string, never>, AppApi>) => {
+            render: (vx: ViewContext<Record<string, never>, Record<string, never>, AppApi>) => {
                 const parts = vx.app.getParts();
                 return element('Stack', {
                     props: { class: 'catalog-container' },
@@ -97,14 +98,17 @@ class CatalogApp implements Application<typeof APP_NEEDS, readonly [], typeof AP
         },
     ];
 
-    async start(cx: Context<typeof APP_NEEDS, readonly [], typeof catalogApi>): Promise<AppApi> {
+    async start(cx: Context<typeof APP_NEEDS, readonly [], typeof catalogApi>): Promise<{ api: AppApi } & typeof KEEPS_NOTHING> {
         const parts = cx.models('part');
         cx.windows.open({ view: 'catalog' });
 
         return {
-            getParts: () => parts,
-            createPart: async (name: string, tag: string) => {
-                await parts.create({ name, tag });
+            ...KEEPS_NOTHING,
+            api: {
+                getParts: () => parts,
+                createPart: async (name: string, tag: string) => {
+                    await parts.create({ name, tag });
+                },
             },
         };
     }

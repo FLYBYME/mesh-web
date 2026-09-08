@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import {
     Kernel, WindowManager, command, consumes, createRegistry, createServices, each, element,
     flushSync, mountView, needs, provider, text, when, windowSink, PRIMITIVES,
-    type Action, type Application, type Context, type Extension, type ViewContext, type ViewInstance,
+    type Action, type Application, type Context, type Extension, type ViewContext, type ViewInstance, KEEPS_NOTHING,
 } from '../src/index.js';
 
 // ---------------------------------------------------------------------------- a site
@@ -73,7 +73,7 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
             },
             instances: 'one' as const,
             // A pure function from application state to a description. No element, no DOM.
-            render: (vx: ViewContext<Record<string, never>, BlogApi>) =>
+            render: (vx: ViewContext<Record<string, never>, Record<string, never>, BlogApi>) =>
                 element('List', {
                     children: [
                         each(
@@ -93,7 +93,7 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
         },
     ];
 
-    async start(cx: Context<typeof BLOG_NEEDS, typeof BLOG_CONSUMES>): Promise<BlogApi> {
+    async start(cx: Context<typeof BLOG_NEEDS, typeof BLOG_CONSUMES>): Promise<{ api: BlogApi } & typeof KEEPS_NOTHING> {
         const auth = cx.use(AUTH);
         const posts = cx.state.signal<readonly Post[]>([
             { slug: 'a', title: 'First', published: true },
@@ -109,10 +109,13 @@ class BlogApp implements Application<typeof BLOG_NEEDS, typeof BLOG_CONSUMES, ty
         });
 
         return {
-            posts,
-            canWrite: () => auth.signedIn(),
-            publish: (slug) =>
-                posts.set(posts().map((p) => (p.slug === slug ? { ...p, published: true } : p))),
+            ...KEEPS_NOTHING,
+            api: {
+                posts,
+                canWrite: () => auth.signedIn(),
+                publish: (slug) =>
+                    posts.set(posts().map((p) => (p.slug === slug ? { ...p, published: true } : p))),
+            },
         };
     }
 }
