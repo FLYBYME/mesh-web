@@ -19,7 +19,22 @@ import type { Session } from './session.js';
 
 export interface State {
     signal<T>(initial: T): Signal<T>;
-    computed<T>(fn: () => T): () => T;
+    /**
+     * **Returns a `ReadonlySignal`, not a bare function.**
+     *
+     * It was typed `() => T`, which is strictly less than what it has always returned — `computed`
+     * in the reactivity layer answers a `ReadonlySignal<T>`, and this threw `peek` away on the way
+     * out.
+     *
+     * That is not a cosmetic narrowing. `PartApi.state` is `ReadonlySignal`, deliberately: read is
+     * an observable value, write is a command. So a part could not publish a *derived* value as
+     * state — the framework's own capability handed it something that failed the framework's own
+     * published-state type, and the only way to publish anything was to publish a raw writable
+     * signal, which is the hole the type exists to close.
+     *
+     * Found by the first application written against these shapes, which is what it was for.
+     */
+    computed<T>(fn: () => T): ReadonlySignal<T>;
     effect(fn: () => void): void;
 }
 
