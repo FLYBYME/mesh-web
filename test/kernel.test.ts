@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-    Kernel, construct, consumes, createServices, needs, provider, recordingWindows, text,
+    Kernel, construct, consumes, createServices, needs, provider, recordingWindows, text, KEEPS_NOTHING,
     type Application, type Context, type Extension,
 } from '../src/index.js';
 import { flushSync } from '../src/reactivity/index.js';
@@ -54,7 +54,7 @@ class BlogApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES> {
     started = 0;
     stopped = 0;
 
-    async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES>): Promise<void> {
+    async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES>): Promise<typeof KEEPS_NOTHING> {
         this.started++;
         const auth = cx.use(AUTH);
 
@@ -65,6 +65,7 @@ class BlogApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES> {
             }
             cx.windows.open({ view: 'editor', params: { slug: '' } });
         });
+        return KEEPS_NOTHING;
     }
 
     async stop(): Promise<void> {
@@ -166,13 +167,13 @@ describe('manifests merge before anything runs', () => {
         class CatalogApp implements Application<readonly []> {
             readonly needs = [] as const;
             readonly session = 'required' as const;
-            async start(): Promise<void> {}
+            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         class ProfileApp implements Application<readonly []> {
             readonly needs = [] as const;
             readonly session = 'optional' as const;
-            async start(): Promise<void> {}
+            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         kernel.boot([
@@ -194,7 +195,7 @@ describe('manifests merge before anything runs', () => {
             readonly needs = [] as const;
             readonly commands = [{ id: 'other.new', title: 'Other: New' }];
             readonly keys = [{ command: 'other.new', keys: 'alt+n' }];
-            async start(): Promise<void> {}
+            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         kernel.boot([load('auth', new AuthExtension()), load('blog', new BlogApp()), load('other', new Other())]);
@@ -226,7 +227,7 @@ describe('manifests merge before anything runs', () => {
         class Dangling implements Application<readonly []> {
             readonly needs = [] as const;
             readonly keys = [{ command: 'nope.missing', keys: 'ctrl+k' }];
-            async start(): Promise<void> {}
+            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         kernel.boot([load('dangling', new Dangling())]);
@@ -238,8 +239,9 @@ describe('manifests merge before anything runs', () => {
 
         class Undeclared implements Application<readonly ['commands']> {
             readonly needs = needs('commands');
-            async start(cx: Context<readonly ['commands']>): Promise<void> {
+            async start(cx: Context<readonly ['commands']>): Promise<typeof KEEPS_NOTHING> {
                 cx.commands.implement('ghost.command', () => {});
+                return KEEPS_NOTHING;
             }
         }
 
@@ -391,7 +393,7 @@ describe('fault containment', () => {
 
         class Crashy implements Application<readonly []> {
             readonly needs = [] as const;
-            async start(): Promise<void> {
+            async start(): Promise<typeof KEEPS_NOTHING> {
                 throw new Error('nope');
             }
         }
@@ -415,7 +417,7 @@ describe('the process table', () => {
 
         class Multi implements Application<readonly []> {
             readonly needs = [] as const;
-            async start(): Promise<void> {}
+            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         kernel.boot([load('multi', new Multi())]);
@@ -434,7 +436,7 @@ describe('the process table', () => {
         class Only implements Application<readonly []> {
             readonly needs = [] as const;
             readonly singleton = true;
-            async start(): Promise<void> {}
+            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         kernel.boot([load('only', new Only())]);
@@ -461,8 +463,9 @@ describe('the process table', () => {
         class BadStop implements Application<readonly ['commands']> {
             readonly needs = needs('commands');
             readonly commands = [{ id: 'bad.go', title: 'Go' }];
-            async start(cx: Context<readonly ['commands']>): Promise<void> {
+            async start(cx: Context<readonly ['commands']>): Promise<typeof KEEPS_NOTHING> {
                 cx.commands.implement('bad.go', () => {});
+                return KEEPS_NOTHING;
             }
             async stop(): Promise<void> {
                 throw new Error('teardown failed');
@@ -496,10 +499,11 @@ describe('the process table', () => {
 
         class Watcher implements Application<readonly ['state']> {
             readonly needs = needs('state');
-            async start(cx: Context<readonly ['state']>): Promise<void> {
+            async start(cx: Context<readonly ['state']>): Promise<typeof KEEPS_NOTHING> {
                 const n = cx.state.signal(0);
                 cx.state.effect(() => watched(n()));
                 this.bump = () => n.set(n() + 1);
+                return KEEPS_NOTHING;
             }
             bump: () => void = () => {};
         }
