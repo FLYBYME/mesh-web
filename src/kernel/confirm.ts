@@ -23,6 +23,21 @@ export function domConfirm(doc: Document | undefined): (request: ConfirmRequest)
     return async (request) => {
         if (doc === undefined || doc.body === null) return false;
 
+        /**
+         * **A confirmation that requires a person is refused when a person is not answering.**
+         *
+         * Refused rather than drawn. Showing the dialog and letting the agent dismiss it would be
+         * theatre — worse than not asking, because the transcript would record a question that
+         * appeared to be answered.
+         *
+         * This is the one check that makes `IntentActor` worth carrying. A confirmation is itself a
+         * control that answers an intent, so whatever can raise `commit` can answer one; without
+         * this, automating the UI automates past every destructive-write guard on the platform.
+         */
+        if (request.requiresUser === true && (request.actor ?? 'user') !== 'user') {
+            return false;
+        }
+
         // No `<dialog>` — an old browser, or a document implementation that stops short of it.
         // Refusing is the honest answer: the alternative is a question that appears to have been
         // asked and was not.

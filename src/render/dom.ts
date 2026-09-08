@@ -17,7 +17,7 @@ import { createScope } from '../reactivity/scope.js';
 import type { ReactiveScope, Signal } from '../reactivity/types.js';
 import { createFocusTrap, getActiveTrap } from '../input/trap.js';
 import type {
-    Action, DialogNode, EachNode, ElementNode, Intents, IntentValue, Json, Node, Reactive, SurfaceNode,
+    Action, DialogNode, EachNode, ElementNode, IntentActor, Intents, IntentValue, Json, Node, Reactive, SurfaceNode,
 } from '../description/types.js';
 import { isDynamic, read } from '../description/types.js';
 import { applyDefaultProp, type ComponentDefinition, type ComponentRegistry } from './component.js';
@@ -62,8 +62,17 @@ export interface Dispatcher {
      *
      * Optional rather than a second method, so every existing dispatcher keeps working and a
      * dispatcher that does not care about values simply ignores the parameter.
+     *
+     * `actor` says **who raised it**. It is optional and defaults to `'user'` at this seam and only
+     * at this seam: everything reaching `bindIntents` came from a real device event on a real
+     * element, so a person did it by construction. Anything else — an agent driving the page, a
+     * part raising an intent on itself — is not a device event and does not arrive here, so it has
+     * to say what it is.
+     *
+     * The default is therefore a statement of fact rather than a convenience, which is the only
+     * kind of default that is safe for this. See `IntentActor`.
      */
-    dispatch(action: Action, value?: IntentValue): void;
+    dispatch(action: Action, value?: IntentValue, actor?: IntentActor): void;
 }
 
 export interface RenderOptions {
@@ -589,8 +598,11 @@ function bindIntents(
         //
         // The value, never the event: a string, a boolean or a number, with nothing on it that
         // could reach the DOM, which is the property that lets a description cross a boundary.
+        // `'user'`, stated rather than defaulted. `bindIntents` is only reached from a device event
+        // on a rendered element, so a person did this — and saying so here is what lets everything
+        // downstream treat an unstated actor as a bug instead of as a person.
         const intentValue = name === 'change' ? valueOf(el) : value;
-        dispatch.dispatch(binding.action, intentValue);
+        dispatch.dispatch(binding.action, intentValue, 'user');
     };
 
     if (intents.activate) {

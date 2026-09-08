@@ -339,6 +339,25 @@ export interface ConfirmOptions {
     readonly confirmLabel?: string;
     readonly cancelLabel?: string;
     readonly destructive?: boolean;
+
+    /**
+     * **Who is answering, and whether a person has to be.**
+     *
+     * A confirmation is itself a control that answers an intent, so anything able to raise `commit`
+     * can answer one. That is fine while only a person can raise intents, and stops being fine the
+     * moment the page can be driven — at which point the mechanism that automates the UI is the
+     * same mechanism that defeats the check protecting `cdn.deploy`, `release_repo` and every
+     * `delete` on the platform.
+     *
+     * So an irreversible write sets `requiresUser` and the ask is **refused**, not shown, when
+     * `actor` is anything else. Refused rather than shown-and-auto-answered: putting a dialog on
+     * screen that an agent then dismisses is theatre, and worse than not asking.
+     *
+     * `actor` defaults to `'user'` — see `Dispatcher.dispatch`, where that default is a statement
+     * of fact about device events rather than a convenience.
+     */
+    readonly requiresUser?: boolean;
+    readonly actor?: import('../description/types.js').IntentActor;
 }
 
 /**

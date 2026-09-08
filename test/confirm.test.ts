@@ -106,6 +106,72 @@ describe('asking a person', () => {
     });
 });
 
+describe('a confirmation that requires a person', () => {
+    it('refuses an agent without drawing anything', async () => {
+        const answer = await domConfirm(document)({
+            message: 'Delete every release?',
+            requester: 'catalog',
+            destructive: true,
+            requiresUser: true,
+            actor: 'agent',
+        });
+
+        expect(answer).toBe(false);
+
+        // Nothing was drawn. Showing the dialog and letting the agent dismiss it would be theatre,
+        // and would put a question in the transcript that appears to have been answered.
+        expect(document.querySelector('.mesh-confirm')).toBeNull();
+    });
+
+    it('refuses a part raising an intent on itself', async () => {
+        const answer = await domConfirm(document)({
+            message: 'Delete every release?',
+            requester: 'catalog',
+            requiresUser: true,
+            actor: 'part',
+        });
+
+        expect(answer).toBe(false);
+    });
+
+    it('still asks a person', async () => {
+        const answer = domConfirm(document)({
+            message: 'Delete every release?',
+            requester: 'catalog',
+            requiresUser: true,
+            actor: 'user',
+        });
+        await vi.waitFor(() => expect(document.querySelector('.mesh-confirm')).not.toBeNull());
+
+        document.querySelector<HTMLButtonElement>('.mesh-confirm-ok')!.click();
+        expect(await answer).toBe(true);
+    });
+
+    it('asks when no actor is stated, because a device event is a person', async () => {
+        // The default is a statement of fact rather than a convenience: everything that reaches
+        // `bindIntents` came from a real event on a real element. Anything else has to say so.
+        const answer = domConfirm(document)({
+            message: 'proceed?',
+            requester: 'catalog',
+            requiresUser: true,
+        });
+        await vi.waitFor(() => expect(document.querySelector('.mesh-confirm')).not.toBeNull());
+
+        document.querySelector<HTMLButtonElement>('.mesh-confirm-ok')!.click();
+        expect(await answer).toBe(true);
+    });
+
+    it('lets an agent answer a confirmation that does not require a person', async () => {
+        // Not every confirmation guards something irreversible. One that does not is answerable by
+        // whoever is driving, which is what makes `requiresUser` a decision rather than a default.
+        const answer = domConfirm(document)({ message: 'proceed?', requester: 'catalog', actor: 'agent' });
+        await vi.waitFor(() => expect(document.querySelector('.mesh-confirm')).not.toBeNull());
+
+        document.querySelector<HTMLButtonElement>('.mesh-confirm-ok')!.click();
+        expect(await answer).toBe(true);
+    });
+});
+
 describe('the dialog the page draws', () => {
     it('resolves true when the confirm button is pressed', async () => {
         const answer = domConfirm(document)({ message: 'proceed?', requester: 'catalog' });
