@@ -241,9 +241,17 @@ The largest single piece, and the one everything visual waits on. Nothing here e
 
 ### A3 — The capabilities
 
-Ten capabilities, none implemented and none declared any more — the interfaces went with everything
-else. Their shapes are in history (`git show 4cd801d^:src/contribution/capabilities.ts`) and were
-sound; each item below is the interface *and* the implementation behind it.
+Written when there were ten, none implemented and none declared — the interfaces had gone with
+everything else, their shapes surviving only in history
+(`git show 4cd801d^:src/contribution/capabilities.ts`). Each item below is the interface *and* the
+implementation behind it.
+
+**Twelve are declared today** — `state`, `log`, `commands`, `notifications`, `windows`, `display`,
+`credentials`, `chrome`, `http`, `storage`, `dom`, `confirmation` — plus `mesh` and `models`, which
+are capability names deliberately outside the map because they are typed by the manifest's API rather
+than having one type for everybody. `display` arrived 2026-09-07 and is the worked example to copy
+when adding another. Still missing and still items here: **`events`** (A3.2) and **`lifecycle`**
+(A10, tracked as FLYBYME/surfdns#73).
 
 - [x] **A3.1 ★ `net`** — the HTTP abstraction over a site's API. Done 2026-09-04, when the last two
       clauses were built: the base URL comes from the deployment descriptor (`MESH_API` → the build →
@@ -269,7 +277,8 @@ sound; each item below is the interface *and* the implementation behind it.
       Verified by compiling the emitted file against this package's real `defineApi`/`call` together
       with a usage file whose every assertion is a type assertion.
       Declared errors are emitted as a literal union, so a `switch` on `error.name` is checked.
-- [x] **A3.1b Exposure hash checked in CI and reported by the API.** Both halves exist:
+- [x] **A3.1f Exposure hash checked in CI and reported by the API.** *(was a second `A3.1b`; renamed
+      2026-09-08 — `credentials` keeps that id because A9.2 cites it.)* Both halves exist:
       `mesh-api-generate-client --check` fails a build on a stale client, the API reports
       `x-exposure` on every response including refusals, and `createClient` refuses to speak to an
       API serving a different hash. The descriptor verifies its own hash on read, so editing a gate
@@ -870,7 +879,9 @@ Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned ou
       and A6.8a drops back to being an annoyance about the *framework's* own install rather than
       something load-bearing.
 
-- [ ] **A10 ★ `needs('lifecycle')`, because a part reaching `window` makes its manifest a lie.** The
+- [ ] **A10 ★ `needs('lifecycle')`, because a part reaching `window` makes its manifest a lie.**
+      *Tracked as FLYBYME/surfdns#73; a dispatch prompt is written and committed at
+      `agent-runs/prompts/19-lifecycle-capability.prompt.txt`.* The
       capability model's whole claim is in `broker.ts`: *"an undeclared capability is not on the
       object, matching the compile error rather than contradicting it."* That holds for everything
       the kernel hands out and fails completely for anything global. `window` is narrowed by nobody,
