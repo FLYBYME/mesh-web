@@ -189,6 +189,26 @@ export interface CompositeContract<P = void, S = unknown> {
 
 export type BoundComponent<P = void> = ComponentContract<P> | CompositeContract<P, unknown>;
 
+/**
+ * **The erased forms, for the places that hold many contracts of different shapes.**
+ *
+ * `unknown` rather than `never`, and the difference is not cosmetic. `ViewDecl` gets away with
+ * `never` because its only varying member is `render`, a **method** — and methods are bivariant, so
+ * a concrete view stays assignable. A command's `input: Schema<I>` is a **property**, which is
+ * invariant, so `never` there rejects every real command instead of accepting all of them.
+ *
+ * `Schema<T>` carries `T` only in an optional readonly phantom member, so `Schema<Anything>` is
+ * assignable to `Schema<unknown>` and the erasure is sound. `run` is a method and survives on
+ * bivariance the same way `render` does.
+ *
+ * This was found by the type-checker on the first real use, which is the argument for having written
+ * the test before the second one.
+ */
+export type AnyCommand = CommandContract<unknown, unknown>;
+export type AnyBoundCommand = BoundCommand<unknown, unknown>;
+export type AnyComponent = ComponentContract<unknown> | CompositeContract<unknown, unknown>;
+export type AnyBoundComponent = AnyComponent;
+
 // ---------------------------------------------------------------------------- the published api
 
 /**
@@ -202,16 +222,16 @@ export type BoundComponent<P = void> = ComponentContract<P> | CompositeContract<
  * for a part that publishes *some* of the three, which is the ordinary case.
  */
 export interface PartApi {
-    readonly commands: Readonly<Record<string, BoundCommand<never, never>>>;
-    readonly components: Readonly<Record<string, BoundComponent<never>>>;
+    readonly commands: Readonly<Record<string, AnyBoundCommand>>;
+    readonly components: Readonly<Record<string, AnyBoundComponent>>;
     /** Observable, never writable. See the header: anything published is tool-reachable. */
     readonly state: Readonly<Record<string, ReadonlySignal<unknown>>>;
 }
 
 /** The static half, readable before anything starts. Lives on `Declarations`. */
 export interface ApiDecl {
-    readonly commands?: readonly CommandContract<never, never>[];
-    readonly components?: readonly (ComponentContract<never> | CompositeContract<never, unknown>)[];
+    readonly commands?: readonly AnyCommand[];
+    readonly components?: readonly AnyComponent[];
     readonly state?: readonly StateContract<unknown>[];
 }
 

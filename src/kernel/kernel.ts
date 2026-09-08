@@ -11,6 +11,7 @@
 
 import type { ErasedApplication, ErasedContribution, ErasedExtension, ViewDecl } from '../contribution/contract.js';
 import { isApplication, isApplicationInstance, isExtension } from '../contribution/contract.js';
+import { checkBindings, type PartApi } from '../contribution/api.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import { createContext, createServices, type BrokerHandle, type KernelServices } from './broker.js';
 import { resolveOrder } from './graph.js';
@@ -313,6 +314,29 @@ export class Kernel {
             } else {
                 entry.api = startResult;
                 entry.internal = undefined;
+            }
+
+            /**
+             * **What was declared is what was bound, in both directions.**
+             *
+             * A manifest is read before anything runs — that is the whole reason `publishes` is
+             * declared rather than only returned — so a site, a review, a generated client and a
+             * tool caller all learn what a part offers from the declaration. A declaration nothing
+             * implements is therefore not an omission, it is an advertisement for something that is
+             * not there, and it fails at the first call rather than at load.
+             *
+             * The reverse is refused for the same reason from the other side: a surface bound but
+             * never declared is one nobody can discover, review or grant against.
+             *
+             * Only when the part declared something. A part with no `publishes` is the ordinary
+             * case and is not asked to prove a negative.
+             */
+            if (contribution.publishes !== undefined) {
+                checkBindings(
+                    contribution.publishes,
+                    entry.api as PartApi | undefined,
+                    `${applicationId} (${pid})`,
+                );
             }
 
             if (contribution.provides !== undefined && entry.api !== undefined) {
