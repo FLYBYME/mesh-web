@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 
 import { needs } from '../src/contribution/capabilities.js';
 import type { Context, Extension, Application, ViewContext, ViewDecl } from '../src/contribution/contract.js';
+import { KEEPS_NOTHING } from '../src/contribution/contract.js';
 import { provider, type ProviderToken } from '../src/contribution/provider.js';
 import { start } from '../src/kernel/start.js';
 import { PAGE_CHROME, windowHost } from '../src/window/page.js';
@@ -31,8 +32,9 @@ class Widget implements Application<typeof NEEDS, readonly []> {
 
     started = 0;
 
-    async start(_cx: Context<typeof NEEDS, readonly []>): Promise<void> {
+    async start(_cx: Context<typeof NEEDS, readonly []>): Promise<typeof KEEPS_NOTHING> {
         this.started += 1;
+        return KEEPS_NOTHING;
     }
 }
 
@@ -318,9 +320,10 @@ describe('what it returns', () => {
         class Slow implements Application<typeof NEEDS, readonly []> {
             readonly needs = NEEDS;
             readonly views = [] as unknown as readonly ViewDecl<never, never>[];
-            async start(): Promise<void> {
+            async start(): Promise<typeof KEEPS_NOTHING> {
                 await new Promise((done) => setTimeout(done, 5));
                 finished = true;
+                return KEEPS_NOTHING;
             }
         }
 
@@ -350,14 +353,17 @@ describe('what it returns', () => {
             readonly views = [{
                 id: 'main',
                 title: 'Todo',
-                render(vx: ViewContext<Record<string, never>, TodoApi>) {
+                // Reads `vx.app`, and legitimately: this view renders its own part's **published**
+                // API, which is what `app` is for. The state slot stays empty because TodoApp keeps
+                // nothing — the title it renders is published, not private.
+                render(vx: ViewContext<Record<string, never>, Record<string, never>, TodoApi>) {
                     return element('Text', { children: [text(vx.app.title)] });
                 },
             }];
 
-            async start(cx: Context<typeof WINDOWS_NEEDS, readonly []>): Promise<TodoApi> {
+            async start(cx: Context<typeof WINDOWS_NEEDS, readonly []>): Promise<{ api: TodoApi } & typeof KEEPS_NOTHING> {
                 cx.windows.open({ view: 'main' });
-                return { title: 'Todos from start API' };
+                return { ...KEEPS_NOTHING, api: { title: 'Todos from start API' } };
             }
         }
 
@@ -399,8 +405,9 @@ describe('the keyboard', () => {
             readonly commands = [{ id: 'keyed.go', title: 'Go' }];
             readonly keys = [{ command: 'keyed.go', keys: 'ctrl+g' }];
             readonly views = [] as unknown as readonly ViewDecl<never, never>[];
-            async start(cx: Context<typeof KEYED, readonly []>): Promise<void> {
+            async start(cx: Context<typeof KEYED, readonly []>): Promise<typeof KEEPS_NOTHING> {
                 cx.commands.implement('keyed.go', () => { ran += 1; });
+                return KEEPS_NOTHING;
             }
         }
 
@@ -499,7 +506,7 @@ describe('the layout an Application declared', () => {
                 { id: 'a', title: 'A', window: { tile: 'main' }, render: () => text('a') },
                 { id: 'b', title: 'B', window: { tile: 'side' }, render: () => text('b') },
             ] as unknown as readonly ViewDecl<never, never>[];
-            async start(_cx: Context<typeof NEEDS, readonly []>): Promise<void> {}
+            async start(_cx: Context<typeof NEEDS, readonly []>): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         const started = start({
