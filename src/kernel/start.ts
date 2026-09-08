@@ -303,11 +303,38 @@ export function start(composition: Composition): Started {
         return { width: area.clientWidth, height: area.clientHeight };
     };
 
-    const onResize = () => {
-        if (manager.mode() === 'single') return;
-        manager.setViewport(measured());
+    /**
+     * Publish the measurement, then give it to the window manager.
+     *
+     * **The order and the two callers are the point.** This number has been measured since the
+     * beginning and handed to exactly one consumer, so the only thing on the page that could react
+     * to how much room there was, was the thing that draws windows. A chrome deciding whether to
+     * draw windows at all could not see it — which is how a phone ends up with a desktop.
+     *
+     * `services.displaySize` is written unconditionally; `setViewport` keeps its `single` guard,
+     * because a maximised single window deliberately ignores the viewport and re-measuring it there
+     * would fight that. The surface is a fact and should be published in every mode; what the
+     * window manager does with it is the window manager's business.
+     */
+    const publish = () => {
+        const size = measured();
+        services.displaySize.set(size);
+        if (manager.mode() !== 'single') manager.setViewport(size);
     };
+
+    const onResize = () => { publish(); };
     host?.addEventListener('resize', onResize);
+
+    /**
+     * Measure once, now.
+     *
+     * Nothing else does. `resize` fires when the window changes and the `ResizeObserver` fires when
+     * the host box changes — neither is guaranteed on a page that simply loads and sits there, so
+     * without this the surface stays 0×0 until somebody drags something. A chrome asking *how much
+     * room is there* at boot would be told none, and would reasonably draw the narrow layout on a
+     * desktop.
+     */
+    publish();
 
     /**
      * The bar's own height changes — a sign-in form opening, a window title growing, tabs wrapping —
@@ -316,7 +343,7 @@ export function start(composition: Composition): Started {
      */
     const observed = root.querySelector('[data-mesh-window-host]');
     const areaObserver = observed !== null && typeof ResizeObserver === 'function'
-        ? new ResizeObserver(() => { if (manager.mode() !== 'single') manager.setViewport(measured()); })
+        ? new ResizeObserver(() => { publish(); })
         : undefined;
     if (observed !== null) areaObserver?.observe(observed);
 

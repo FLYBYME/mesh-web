@@ -105,6 +105,20 @@ export interface KernelServices {
     /** A signal, so a notification host can render them. See NotificationRecord. */
     readonly notifications: Signal<readonly NotificationRecord[]>;
     windows: WindowSink;
+
+    /**
+     * How much room there is to draw in, as a signal.
+     *
+     * A `Signal` rather than a `ReadonlySignal` because `start()` writes it — it owns the
+     * measurement, the `resize` listener and the `ResizeObserver` — while every consumer receives
+     * the read-only view through `cx.display`. The same split as `notifications` above.
+     *
+     * Defaulted rather than optional, so a kernel booted with no DOM (most of this repository's
+     * tests) still answers a size instead of forcing every reader to handle `undefined`. Zero is
+     * honest there: there genuinely is no room, and a chrome that renders nothing at 0×0 is
+     * behaving correctly.
+     */
+    readonly displaySize: Signal<{ readonly width: number; readonly height: number }>;
     /** Command implementations, by id, with the contributor that supplied each. */
     readonly commands: Map<string, { readonly owner: string; readonly run: CommandImpl }>;
     /** Which command ids each contributor declared. Checked when it tries to implement one. */
@@ -269,6 +283,8 @@ export function createServices(
     return {
         logs: createLogBuffer(options.logCapacity),
         notifications: signal<readonly NotificationRecord[]>([]),
+        // 0×0 until something measures. See `KernelServices.displaySize`.
+        displaySize: signal<{ readonly width: number; readonly height: number }>({ width: 0, height: 0 }),
         /**
          * **Refusing is the safe default, and it is deliberately not "yes".**
          *
@@ -422,6 +438,16 @@ export function createContext(
                 break;
             case 'windows':
                 capabilities.windows = makeWindows(id, services, next);
+                break;
+            case 'display':
+                /**
+                 * Read-only, and shared rather than made per contribution.
+                 *
+                 * There is one display, everybody sees the same number, and there is nothing to
+                 * narrow per caller — unlike `windows`, where `own()` has to mean *this
+                 * contribution's* windows. Handing out the signal directly is the whole capability.
+                 */
+                capabilities.display = { size: services.displaySize };
                 break;
             case 'credentials':
                 capabilities.credentials = makeCredentials(id, services);

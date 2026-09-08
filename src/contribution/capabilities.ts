@@ -66,6 +66,42 @@ export interface Notifications {
     error(message: string, error?: unknown): NotificationHandle;
 }
 
+// ---------------------------------------------------------------------------- display
+
+/**
+ * How much room there is, right now.
+ *
+ * **Named `display` because `Surface` was taken**, by the `dom` capability's escape hatch a hundred
+ * lines below — the thing that hands a contribution a raw `HTMLElement`. Two unrelated ideas with
+ * one word is how a reader ends up believing this is about escaping the view layer, and I did
+ * exactly that: the first version of this capability was called `surface` and silently overwrote
+ * `test/surface.test.ts`, deleting seven tests for the escape hatch that had nothing to do with it.
+ *
+ * **Deliberately a size and not a device.** The obvious version of this was `isMobile: boolean`,
+ * decided once at boot from a user-agent string, and it is wrong three ways at once: it is stale
+ * the moment a phone is rotated or a desktop window is dragged narrow; it invites a *theme* switch
+ * when the real difference is structural; and it puts a breakpoint the kernel guessed at into every
+ * part that reads it.
+ *
+ * A width is a fact. What to do at 380px is a decision, and it belongs to whoever is drawing —
+ * which is the chrome, not the kernel.
+ *
+ * ## Why the kernel has to publish it at all
+ *
+ * CSS already handles everything *inside* a view, and better: a media query needs no JavaScript and
+ * cannot be stale. What CSS cannot do is decide **not to draw windows** — whether the page shows
+ * five draggable frames or one view with navigation is a structural choice made before rendering,
+ * and something has to make it from a number.
+ *
+ * The kernel has measured this all along (`start.ts`, a `resize` listener and a `ResizeObserver`)
+ * and handed it only to the window manager. So the number existed and nothing but windows could see
+ * it, which is exactly why a phone got a desktop.
+ */
+export interface Display {
+    /** The area a chrome has to draw in, in CSS pixels. Updates on resize and on layout change. */
+    readonly size: ReadonlySignal<{ readonly width: number; readonly height: number }>;
+}
+
 // ---------------------------------------------------------------------------- windows
 
 export interface WindowHandle {
@@ -345,6 +381,7 @@ export interface CapabilityMap {
     readonly commands: Commands;
     readonly notifications: Notifications;
     readonly windows: Windows;
+    readonly display: Display;
     readonly credentials: Credentials;
     readonly chrome: Chrome;
     readonly http: Http;
