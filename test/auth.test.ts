@@ -20,6 +20,7 @@ import { createServices } from '../src/kernel/broker.js';
 import { needs } from '../src/contribution/capabilities.js';
 import { consumes } from '../src/contribution/provider.js';
 import type { Application, Context } from '../src/contribution/contract.js';
+import { KEEPS_NOTHING } from '../src/contribution/contract.js';
 
 // ---------------------------------------------------------------------------- a fake network
 
@@ -110,8 +111,10 @@ class BlogApp implements Application<typeof APP_NEEDS> {
     /** What the Application was handed. Captured so a test can look at it rather than at the code. */
     context: Context<typeof APP_NEEDS> | undefined;
 
-    async start(cx: Context<typeof APP_NEEDS>): Promise<void> {
+    async start(cx: Context<typeof APP_NEEDS>): Promise<typeof KEEPS_NOTHING> {
         this.context = cx;
+        // Keeps nothing: this app exists to prove the ticket reaches the request.
+        return KEEPS_NOTHING;
     }
 }
 

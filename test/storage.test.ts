@@ -5,6 +5,7 @@ import {
     Kernel,
     createServices,
     createContext,
+    KEEPS_NOTHING,
     localProvider,
     memoryProvider,
     needs,
@@ -273,8 +274,9 @@ describe('storage capability: reload and remount survival', () => {
             readonly stores = [Drafts];
             public drafts?: ReturnType<Context<typeof STORE_NEEDS>['storage']['open']>;
 
-            async start(cx: Context<typeof STORE_NEEDS>): Promise<void> {
+            async start(cx: Context<typeof STORE_NEEDS>): Promise<typeof KEEPS_NOTHING> {
                 this.drafts = cx.storage.open(Drafts);
+                return KEEPS_NOTHING;
             }
         }
 
@@ -412,7 +414,7 @@ describe('storage capability: reactivity, list, and removal', () => {
         class AppWithStores implements Application<typeof STORE_NEEDS> {
             readonly needs = STORE_NEEDS;
             readonly stores = [Drafts];
-            async start(): Promise<void> {}
+            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         const kernel = new Kernel();
@@ -429,7 +431,7 @@ describe('storage capability: reactivity, list, and removal', () => {
         class AppWithConflict implements Application<typeof STORE_NEEDS> {
             readonly needs = STORE_NEEDS;
             readonly stores = [Drafts, Drafts];
-            async start(): Promise<void> {}
+            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         const kernelConflict = new Kernel();

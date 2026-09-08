@@ -322,6 +322,23 @@ export function applicationInstance<TPublic, TInternal>(instance: {
     return instance;
 }
 
+/**
+ * **What a part that keeps nothing returns.**
+ *
+ * `internal` is required, and a great many parts genuinely hold no state — a part that renders from
+ * what it consumes and publishes a couple of commands has nothing of its own. Writing
+ * `{ internal: {} }` by hand at every one of those is noise that obscures the parts where the answer
+ * is interesting.
+ *
+ * So: `KEEPS_NOTHING` says it once, and says it in a way that reads as a decision rather than a
+ * shrug. `return { ...KEEPS_NOTHING, api }` for a part that publishes; `return KEEPS_NOTHING` for
+ * one that does not.
+ *
+ * It is deliberately not a default. The whole reason `internal` became required is that defaulting
+ * it made *publish everything* the path of least resistance.
+ */
+export const KEEPS_NOTHING: { readonly internal: Record<string, never> } = { internal: {} };
+
 /** Check whether a value returned by start() is an ApplicationInstance. */
 export function isApplicationInstance(
     value: unknown,
@@ -366,7 +383,7 @@ export interface Application<
     TConsumes extends ProviderTokens = readonly [],
     TProvides extends ProviderToken<unknown> | undefined = undefined,
     TApi = Api<Record<string, never>>,
-    TInternal = never,
+    TInternal = unknown,
 > extends Declarations {
     readonly needs: TNeeds;
     readonly consumes?: TConsumes;
