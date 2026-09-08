@@ -45,6 +45,7 @@ import {
     type NetResponse,
     type Session,
     type Transport,
+    KEEPS_NOTHING,
 } from '../src/index.js';
 
 // ---------------------------------------------------------------------------- API descriptor
@@ -179,8 +180,9 @@ describe('models capability in Kernel', () => {
 
         startResult: Context<typeof APP_NEEDS, readonly [], typeof siteApi> | null = null;
 
-        async start(cx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<void> {
+        async start(cx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
             this.startResult = cx;
+            return KEEPS_NOTHING;
         }
     }
 
@@ -216,7 +218,7 @@ describe('models capability in Kernel', () => {
         const BAD_NEEDS = needs('models');
         class BadApp implements Application<typeof BAD_NEEDS> {
             readonly needs = BAD_NEEDS;
-            async start(): Promise<void> {}
+            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
         }
 
         const kernel = new Kernel();
@@ -245,8 +247,9 @@ describe('status tracking and query behavior', () => {
         class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
             readonly needs = APP_NEEDS;
             readonly api = siteApi;
-            async start(cx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<void> {
+            async start(cx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
                 capturedCx = cx;
+                return KEEPS_NOTHING;
             }
         }
 
@@ -306,8 +309,9 @@ describe('status tracking and query behavior', () => {
         class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
             readonly needs = APP_NEEDS;
             readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<void> {
+            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
                 cx = startCx;
+                return KEEPS_NOTHING;
             }
         }
 
@@ -347,8 +351,9 @@ describe('status tracking and query behavior', () => {
         class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
             readonly needs = APP_NEEDS;
             readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<void> {
+            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
                 cx = startCx;
+                return KEEPS_NOTHING;
             }
         }
 
@@ -391,8 +396,9 @@ describe('status tracking and query behavior', () => {
         class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
             readonly needs = APP_NEEDS;
             readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<void> {
+            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
                 cx = startCx;
+                return KEEPS_NOTHING;
             }
         }
 
@@ -480,8 +486,9 @@ describe('mutation invalidation', () => {
         class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
             readonly needs = APP_NEEDS;
             readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<void> {
+            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
                 cx = startCx;
+                return KEEPS_NOTHING;
             }
         }
 
@@ -544,8 +551,9 @@ describe('mutation invalidation', () => {
         class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
             readonly needs = APP_NEEDS;
             readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<void> {
+            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
                 cx = startCx;
+                return KEEPS_NOTHING;
             }
         }
 
@@ -813,8 +821,9 @@ describe('session-aware collections', () => {
         class PublicApp implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
             readonly needs = APP_NEEDS;
             readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<void> {
+            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
                 cx = startCx;
+                return KEEPS_NOTHING;
             }
         }
 
@@ -938,8 +947,9 @@ describe('session-aware collections', () => {
                 readonly api = siteApi;
                 readonly session = 'required' as const;
 
-                async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof siteApi>): Promise<void> {
+                async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
                     appCx = cx;
+                    return KEEPS_NOTHING;
                 }
             }
 
