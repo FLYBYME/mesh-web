@@ -779,6 +779,36 @@ none of this is speculative.
       to register into — and it should land before anything else is written against composites. **M**
       · [view-layer §5](./view-layer.md)
 
+- [ ] **A8.11 ★★ `Row` and `Stack` do not lay out, so a window folded into regions loses its layout
+      silently.** Found 2026-09-08 finishing flowboard's port. `PRIMITIVES` defines both as
+      `tag('Stack', 'div')` and `tag('Row', 'div')` — bare divs with no `display`, no `flex`, no
+      direction. `Stack` reads a `gap` prop, which is the tell: it sets `gap` on an element that is
+      not a flex container, where `gap` does nothing.
+
+      This is the direct cost of [application.md, *How many windows an Application opens*](./application.md).
+      That rule is right, and following it means moving regions **out** of windows — where the window
+      manager sized and framed them — into `Row`/`Stack` inside one view. flowboard did exactly that,
+      and its detail region laid out as a block *below* the board, inside a container that is
+      `height: 100%; overflow-y: hidden`, and was clipped away. Clicking a card set the signal,
+      rendered the panel and showed nothing: from the outside, indistinguishable from a click that
+      never registered. The two overlays had the mirror problem — both still carried the `height: 100%`
+      their windows had given meaning to, and drew full-bleed inside a centred backdrop.
+
+      Nothing is wrong in the kernel; every rule the app needed was one it should have written. What
+      is wrong is that **the vocabulary promises an arrangement it does not make.** An author reads
+      `Row` and gets a block element, and finds out at the moment somebody clicks. A part that never
+      styles a thing is not the risk — a part that names `Row` and reasonably expects a row is.
+
+      Two candidate fixes, and the second is the one to argue about: give `Row` and `Stack` a default
+      `display: flex` with a direction in the kernel stylesheet (cheap, and makes `gap` mean what it
+      says), or accept that they are semantic containers and rename them so nobody reads layout into
+      them. Doing neither leaves the trap set for every app that follows the one-window rule.
+
+      flowboard's `test/source/styles.test.ts` catches the app-side half — a class a view names with
+      no rule behind it — and is the sibling of the vocabulary scan that caught `Label`. Both exist
+      because the failures are invisible until a branch is mounted. **S** ·
+      [application.md](./application.md)
+
 ### A9 — Composition and the marketplace
 
 Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned out to be one question.
