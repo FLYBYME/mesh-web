@@ -46,6 +46,7 @@ import { effect } from '../reactivity/index.js';
 import { createRegistry as createComponents, PRIMITIVES } from '../render/component.js';
 import type { ComponentRegistry } from '../render/component.js';
 import { createClient, fetchTransport, withHeaders } from '../net/client.js';
+import { createFetchEventSource } from '../net/eventsource.js';
 import type { MeshClient } from '../net/client.js';
 import type { AnyApiCall, Api } from '../net/api.js';
 import { SettingLocked, createRegistry as createSettings } from '../registry/registry.js';
@@ -178,6 +179,25 @@ export function start(composition: Composition): Started {
         // Installed by the page, never by the part that asks — that separation is the only reason
         // `confirmation` is worth having.
         confirm: domConfirm(doc),
+        /**
+         * **Live collections, which until now were switched off on every real page.**
+         *
+         * `createModels` takes an `eventSource` factory and passes it to `createEventStreamClient`,
+         * which returns `{ isAvailable: false }` when there is none — and a collection is only
+         * streamed when `isAvailable`. Nothing in this file ever supplied one. So the whole
+         * mechanism — `<name>.created|updated|deleted`, refetch on reconnect, the reason
+         * `models.ts` has 40 lines of subscription code — was dead in every deployed site, silently,
+         * because a list that never updates looks exactly like a list nothing changed.
+         *
+         * It is `createFetchEventSource` rather than the browser's `EventSource` because `/events`
+         * is gated and the native class **cannot send a header**. A gated stream needs the ticket,
+         * and the alternative — the ticket in the query string — writes a live credential into
+         * every access log between here and the server. The headers are read per attempt, not
+         * captured once, so a reconnect after a sign-in uses the ticket that exists then.
+         */
+        eventSource: (url) => createFetchEventSource(url, {
+            headers: () => kernel.services.credentials.headers?.() ?? {},
+        }),
     });
     const kernel = new Kernel({ services });
 
