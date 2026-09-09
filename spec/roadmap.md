@@ -809,6 +809,37 @@ none of this is speculative.
       because the failures are invisible until a branch is mounted. **S** ·
       [application.md](./application.md)
 
+- [x] **A8.12 ★★★ Live collections were switched off on every real page.** *(fixed 2026-09-09)*
+      Found asking why a board did not notice ten rows created through its own API.
+
+      `models.ts` has the whole mechanism: each query subscribes to `<name>.created|updated|deleted`
+      and refetches on reconnect, forty lines of it. It runs only when
+      `isCollectionStreamed(name, api.events) && streamClient.isAvailable`, and `isAvailable` is
+      false whenever `createEventStreamClient` was given no `eventSource` factory. **`start.ts` never
+      supplied one.** `createServices` accepts it, `broker.ts` passes it through, nothing filled it
+      in — so the mechanism was inert in every deployed site, and inert in a way that reads as
+      *nothing changed* rather than as a failure.
+
+      It could not simply be the browser's `EventSource`. `/events` is gated like every other call
+      and mesh-serve reads `Authorization: Bearer`; the DOM class **cannot send a header**, so it can
+      only connect anonymously and be refused. The common workaround — the ticket in the query string
+      — writes a live credential into every access log, proxy and `Referer` between the page and the
+      server, which [auth.md](./auth.md) rules out.
+
+      `EventSourceLike` is duck-typed rather than the DOM class, and that was the opening.
+      `net/eventsource.ts` implements the same protocol over `fetch`, with the headers the rest of
+      the kernel already sends, read per attempt so a reconnect after signing in uses the ticket that
+      exists then. No `Last-Event-ID` replay and no `retry:` — the models layer refetches the
+      collection on reconnect, which is stronger than trusting a cursor.
+
+      **This was four of five links in one chain**, and the other three are outside this repository:
+      a collection with no `scopedBy` is delivered to nobody (right, but there was no way for an app
+      to say it is global — mesh-serve D10), a client that declares no `events` never subscribes
+      (flowboard's hand-written stand-in declared none), and `grantsFor` derives events per site
+      without checking any of it can be delivered (mesh-serve D11). Fixing any one alone changes
+      nothing observable, which is why this sat unnoticed through every demo. **M** ·
+      [network.md](./network.md)
+
 ### A9 — Composition and the marketplace
 
 Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned out to be one question.
