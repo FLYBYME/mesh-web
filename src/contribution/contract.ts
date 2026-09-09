@@ -12,7 +12,7 @@ import type { AnyApiCall, Api } from '../net/api.js';
 import type { LayoutNode } from '../window/layout.js';
 import type { MeshClient } from '../net/client.js';
 import type { Consumer, ProviderToken, ProviderTokens } from './provider.js';
-import type { Json } from '../description/types.js';
+import type { Action, IntentValue, Json } from '../description/types.js';
 import type { Models } from '../models/types.js';
 import type { ComponentDefinition } from '../render/component.js';
 import type { ApiDecl } from './api.js';
@@ -120,6 +120,36 @@ export interface ViewContext<
     readonly internal: TInternal;
     /** What this part publishes. Read it to render something published; never to find state. */
     readonly app: TApi;
+
+    /**
+     * **Register a closure and get back the action that refers to it.**
+     *
+     * The incidental half of input. A declared `command` is a verb the whole system knows — it is in
+     * the palette, bindable to a key, callable by a tool — and most of what a screen does is not
+     * that: *this row is now selected*, *this dialog is closed*, *this filter changed*. Minting a
+     * palette command per row is how a command list becomes noise.
+     *
+     * ```ts
+     * element('Button', { intents: { activate: { action: vx.on(() => selected.set(row.id)) } } })
+     * ```
+     *
+     * The function stays here; only an id crosses into the description, which is what lets a
+     * description be serialisable while an author writes an ordinary closure
+     * (spec/view-layer.md §5).
+     *
+     * **This is roadmap A8.10, and its absence was not a gap but a silence.** `createHandlerTable`
+     * existed, `mountView` created one per window, and the dispatcher resolved handler actions
+     * against it — but nothing gave a view a way to *put* a function in it, so every
+     * `{ kind: 'handler' }` intent resolved to nothing and the click did nothing. Silently: an
+     * unresolved handler is *"a stale event, not a crash"*. `ui.ActionButton`, `ui.ActionCard` and
+     * mesh-core's `EntityItem` selection were all inert, and their tests passed because each called
+     * the composite's `run()` directly — a test that calls a piece never presses it.
+     *
+     * Scoped to this view instance and disposed with it, so a handler cannot outlive the screen
+     * that owns it.
+     */
+    on(fn: (value?: IntentValue) => void): Action;
+
     setTitle(title: string): void;
     close(): void;
     onDispose(fn: () => void): void;

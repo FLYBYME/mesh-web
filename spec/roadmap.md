@@ -753,8 +753,8 @@ none of this is speculative.
       renderer-side and the Application receives committed text. **M** · [input §8](./input.md)
 - [ ] **A8.9 The gamepad poll loop** — only while connected, stopped when hidden, dead zones and
       repeat shaping. It is battery on a handheld. **M** · [input §9](./input.md)
-- [ ] **A8.10 ★★ A view cannot register a handler, so every `{ kind: 'handler' }` intent is dead.**
-      Found 2026-09-08 porting flowboard. `createHandlerTable` exists, `mountView` creates one per
+- [x] **A8.10 ★★ A view cannot register a handler, so every `{ kind: 'handler' }` intent is dead.**
+      *(fixed 2026-09-09)* Found 2026-09-08 porting flowboard. `createHandlerTable` exists, `mountView` creates one per
       window, and `Dispatcher.dispatch` resolves handler actions against it — but **nothing gives a
       view a way to put a function in it.** `ViewContext` is `params`, `internal`, `app`, `setTitle`,
       `close`, `onDispose`: no `on`, no `handlers`. `handlers.on(fn)` is called nowhere in `src/`.
@@ -775,9 +775,19 @@ none of this is speculative.
       assumption that it works: a composite that owns state has to respond to its own input, and it
       cannot be asked to declare a palette command per instance.
 
-      The fix is small — expose the table's `on` through `ViewContext`, and give a composite a scope
-      to register into — and it should land before anything else is written against composites. **M**
-      · [view-layer §5](./view-layer.md)
+      **Fixed 2026-09-09, and it was as small as it looked**: `ViewContext.on(fn)` returns the
+      action, bound to the window's own table in `mountView`. Nothing else moved — the table, the
+      dispatcher and the disposal were all already there and already correct.
+
+      What the fix needed beside it was **tests that press**. The four in `test/render.test.ts`
+      mount a view, click the button and assert the closure ran; assert the description carries an
+      id and never a function; assert a disposed view forgets its handlers; and assert two views do
+      not collide. The old tests called each composite's `run()` directly, which is exactly why a
+      feature that resolved to nothing passed all of them. **M** · [view-layer §5](./view-layer.md)
+
+      Still open beside it: a **composite** has no scope of its own to register into, so a composite
+      that owns state still cannot respond to its own input without the view handing it something.
+      That is the second half of this entry and it is what the ui vocabulary will need.
 
 - [ ] **A8.11 ★★ `Row` and `Stack` do not lay out, so a window folded into regions loses its layout
       silently.** Found 2026-09-08 finishing flowboard's port. `PRIMITIVES` defines both as

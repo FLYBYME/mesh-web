@@ -1195,3 +1195,92 @@ describe('accessibility lives in the primitives (roadmap A7.7)', () => {
 });
 
 
+
+/**
+ * **A view can register a handler, and pressing the control runs it** — roadmap A8.10.
+ *
+ * Every piece of this existed except the one that connects them: `createHandlerTable` was created
+ * per window, the dispatcher resolved `{ kind: 'handler' }` against it, and it was disposed with the
+ * view — but a view had no way to *put* a function in, so every handler intent resolved to nothing.
+ * Silently, because `invoke` returning `false` is *"a stale event, not a crash"*.
+ *
+ * `ui.ActionButton`, `ui.ActionCard` and mesh-core's `EntityItem` selection were all inert on that,
+ * and their tests passed because each called the composite's `run()` directly. **A test that calls a
+ * piece never presses it**, which is why these press.
+ */
+describe('a view registers its own handlers', () => {
+    /** Mount a view whose only control is bound to a closure, and return a way to press it. */
+    function mountWithHandler(onPress: (value?: IntentValue) => void, windowId = 'w1') {
+        const { host, components, dispatch } = setup();
+
+        const view = mountView(host, {
+            windowId,
+            decl: {
+                id: 'main',
+                title: 'Handler',
+                render: (vx: { on(fn: (value?: IntentValue) => void): Action }) => element('Button', {
+                    intents: { activate: { action: vx.on(onPress) } },
+                    children: [text('press')],
+                }),
+            } as never,
+            api: undefined,
+            params: {},
+            windows: { setTitle: () => {}, close: () => {} } as never,
+            render: { components, dispatch },
+            onCommand: () => {},
+        });
+
+        return {
+            view,
+            press: () => (host.querySelector('button'))?.click(),
+        };
+    }
+
+    it('runs the closure when the control is pressed', () => {
+        let pressed = 0;
+        const { press } = mountWithHandler(() => { pressed += 1; });
+        tick();
+
+        press();
+        expect(pressed).toBe(1);
+    });
+
+    /**
+     * The action is data. A closure never crosses into the description — only an id does, which is
+     * what lets a description be serialisable while an author writes an ordinary function.
+     */
+    it('puts an id in the description and never the function', () => {
+        const { view } = mountWithHandler(() => {});
+        tick();
+        expect(view.handlers.size).toBe(1);
+    });
+
+    /**
+     * **A handler dies with the view that owns it**, so a stale description cannot reach into a
+     * screen that is gone. Ids are scoped `${windowId}:${n}` for the same reason.
+     */
+    it('forgets its handlers when the view is disposed', () => {
+        let pressed = 0;
+        const { view, press } = mountWithHandler(() => { pressed += 1; });
+        tick();
+
+        view.dispose();
+        press();
+        expect(pressed).toBe(0);
+    });
+
+    /** Two instances of one view must not collide, which the window-scoped id already ensures. */
+    it('keeps two views apart', () => {
+        let a = 0;
+        let b = 0;
+        const first = mountWithHandler(() => { a += 1; }, 'w1');
+        const second = mountWithHandler(() => { b += 1; }, 'w2');
+        tick();
+
+        first.press();
+        expect([a, b]).toEqual([1, 0]);
+
+        second.press();
+        expect([a, b]).toEqual([1, 1]);
+    });
+});

@@ -86,6 +86,20 @@ export function mountView(host: Element, options: ViewHostOptions): ViewInstance
         params: options.params as never,
         app: options.api as never,
         internal: options.internal as never,
+        /**
+         * The table has always been here; nothing could reach it (roadmap A8.10).
+         *
+         * `handlers` is created above, the dispatcher below resolves `{ kind: 'handler' }` against
+         * it, and it is disposed with the view — every part of the mechanism existed except the one
+         * that lets an author put a function in. So handler intents resolved to nothing, silently,
+         * because `invoke` returning `false` is a stale event rather than a crash.
+         *
+         * Bound to this window's table rather than a shared one, which is what makes a handler die
+         * with the screen that owns it and what keeps two instances of one view from colliding —
+         * ids are already `${windowId}:${n}`.
+         */
+        on: (fn) => handlers.on(fn),
+
         setTitle: (title) => options.windows.setTitle(options.windowId, title),
         close: () => options.windows.close(options.windowId),
         onDispose: (fn) => void cleanups.push(fn),
