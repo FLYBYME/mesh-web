@@ -275,3 +275,92 @@ export function checkBindings(declared: ApiDecl, bound: PartApi | undefined, sou
         throw new Error(`${source}: published API does not match its manifest.\n  ${problems.join('\n  ')}`);
     }
 }
+
+// ---------------------------------------------------------------------------- authoring
+
+/**
+ * **Callable contracts, and the two functions that build them.**
+ *
+ * These lived in mesh-core's `ui/contract.ts`. They construct `ComponentContract` and
+ * `CompositeContract` — types declared right here — so the helper for building one of the kernel's
+ * own shapes was in a package the kernel does not depend on, and, more to the point, in a package
+ * **no part can import**: the builder marks exactly one specifier external
+ * (`@flybyme/mesh-web`) and bundles everything else from the part's own tree.
+ *
+ * So any part wanting to publish a component of its own — which is one of the three slots every
+ * part has — had to either import mesh-core, which does not resolve, or hand-roll the
+ * `Object.assign` below. flowboard did the first, typechecked against a hand-made symlink, and the
+ * builder answered `Could not resolve "@flybyme/mesh-core"`.
+ *
+ * What stays in mesh-core is the **vocabulary** — `ui.EntityList`, `ui.Table`, `ui.ActionButton`
+ * and the rest. That is a design system, it is a real thing to choose or not choose, and a part
+ * uses it by *name* through the component registry rather than by import.
+ */
+export interface Component<P> extends ComponentContract<P> {
+    (props: P): DescriptionNode;
+}
+
+export interface Composite<P, S> extends CompositeContract<P, S> {
+    (props: P): S & { view(): DescriptionNode };
+}
+
+/**
+ * **`name` is defined, not assigned.**
+ *
+ * Every function already has an own `name` property, and it is non-writable — so `Object.assign`
+ * throws `Cannot assign to read only property 'name'` in strict mode, which every ES module is.
+ * `defineProperty` overwrites it because it is configurable, which is the whole difference.
+ *
+ * The throw happens at module load, so the file importing a component fails before any test in it
+ * runs, and the error names the arrow function rather than the component.
+ */
+const named = <T extends object>(fn: T, name: string): T => {
+    Object.defineProperty(fn, 'name', { value: name, configurable: true });
+    return fn;
+};
+
+/** A component: props in, description out, no state and no logic. */
+export function defineComponent<P>(
+    name: string,
+    description: string,
+    render: (props: P) => DescriptionNode,
+): Component<P> {
+    const fn = (props: P): DescriptionNode => render(props);
+    return named(Object.assign(fn, {
+        description,
+        props: schema<P>(),
+        render,
+    }), name) as Component<P>;
+}
+
+/** A composite: created per use, owns state while mounted, renders itself. */
+export function defineComposite<P, S>(
+    name: string,
+    description: string,
+    create: (props: P) => S & { view(): DescriptionNode },
+): Composite<P, S> {
+    const fn = (props: P): S & { view(): DescriptionNode } => create(props);
+    return named(Object.assign(fn, {
+        description,
+        props: schema<P>(),
+        create,
+    }), name) as Composite<P, S>;
+}
+
+/**
+ * An `Availability` refusal as a phrase a control can wear.
+ *
+ * Here rather than in a design system because `Availability` is declared here and `spec/ui/states.md`
+ * §4 — *a refused control stays visible, disabled, labelled with what is missing* — is a rule about
+ * every control, not about one vocabulary's controls.
+ */
+export function formatRefusal(availability: Availability): string {
+    if (availability.can) return '';
+    if (availability.detail !== undefined) return availability.detail;
+    switch (availability.why) {
+        case 'needs_operator': return 'needs operator';
+        case 'needs_session': return 'sign in required';
+        case 'not_exposed': return 'not exposed by this server';
+        case 'not_ready': return 'not ready';
+    }
+}

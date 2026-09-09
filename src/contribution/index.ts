@@ -5,7 +5,8 @@ export type {
 } from './capabilities.js';
 export { needs } from './capabilities.js';
 
-export type { Session } from './session.js';
+export type { AuthApi, Credentialed, Session } from './session.js';
+export { AUTH } from './session.js';
 
 export type { Consumer, Provided, ProviderToken, ProviderTokens } from './provider.js';
 export { consumes, provider } from './provider.js';
@@ -18,7 +19,9 @@ export type {
 export { applicationInstance, construct, isApplication, isApplicationInstance, isExtension, KEEPS_NOTHING } from './contract.js';
 
 export type {
-    ApiDecl, Availability, BoundCommand, BoundComponent, CommandContract, ComponentContract,
-    CompositeContract, ConfirmDecl, PartApi, Schema, StateContract,
+    ApiDecl, Availability, BoundCommand, BoundComponent, CommandContract, Component,
+    ComponentContract, Composite, CompositeContract, ConfirmDecl, PartApi, Schema, StateContract,
 } from './api.js';
-export { AVAILABLE, checkBindings, schema } from './api.js';
+export {
+    AVAILABLE, checkBindings, defineComponent, defineComposite, formatRefusal, schema,
+} from './api.js';
