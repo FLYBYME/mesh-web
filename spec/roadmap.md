@@ -753,6 +753,31 @@ none of this is speculative.
       renderer-side and the Application receives committed text. **M** · [input §8](./input.md)
 - [ ] **A8.9 The gamepad poll loop** — only while connected, stopped when hidden, dead zones and
       repeat shaping. It is battery on a handheld. **M** · [input §9](./input.md)
+- [ ] **A8.10 ★★ A view cannot register a handler, so every `{ kind: 'handler' }` intent is dead.**
+      Found 2026-09-08 porting flowboard. `createHandlerTable` exists, `mountView` creates one per
+      window, and `Dispatcher.dispatch` resolves handler actions against it — but **nothing gives a
+      view a way to put a function in it.** `ViewContext` is `params`, `internal`, `app`, `setTitle`,
+      `close`, `onDispose`: no `on`, no `handlers`. `handlers.on(fn)` is called nowhere in `src/`.
+      So an author who writes a handler intent gets an id `invoke` will never find, and the click
+      does nothing — silently, because `invoke` returning `false` is *"a stale event, not a crash"*.
+
+      This is not theoretical and it is not only ours. Every one of these is currently inert:
+      `ui.ActionButton` and `ui.ActionCard` (`id: \`ui.ActionButton:${command.action}\``), the
+      `EntityItem` selection intent in mesh-core's identity app (`identity.select:${id}`), and
+      anything else that reached for a closure instead of a declared command. **The identity app —
+      the worked example for the rebuilt shapes — has no working controls.** Tests pass because each
+      calls the composite's `run()` directly, which is exactly the gap that hid the `emptyAction`
+      bug: a test that calls a piece never presses it.
+
+      The declared-command path (`command('some.id', args)`) works and is what everything shipping
+      should use meanwhile — flowboard's port does. But `spec/view-layer.md` §5 describes the handler
+      table as the way *"a closure never needs to cross a boundary"*, and composites are built on the
+      assumption that it works: a composite that owns state has to respond to its own input, and it
+      cannot be asked to declare a palette command per instance.
+
+      The fix is small — expose the table's `on` through `ViewContext`, and give a composite a scope
+      to register into — and it should land before anything else is written against composites. **M**
+      · [view-layer §5](./view-layer.md)
 
 ### A9 — Composition and the marketplace
 
