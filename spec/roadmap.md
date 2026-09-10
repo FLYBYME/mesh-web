@@ -894,6 +894,30 @@ none of this is speculative.
       nothing observable, which is why this sat unnoticed through every demo. **M** ·
       [network.md](./network.md)
 
+- [ ] **A8.14 ★★ Commands are declared for a palette that is not built, so a second view is
+      unreachable.** *(found 2026-09-10, adding the operator console's `people` view)*
+
+      `manifest.ts` registers every declared command *"so the palette and the keymap know"*, and
+      `broker.ts` refuses a bound command nobody declared with a message naming the palette. Both are
+      right about where a command should be reachable from. **Nothing renders one.** There is no
+      palette surface in this repository — no component, no overlay, no shortcut that opens a list of
+      what a part declared.
+
+      The consequence is not cosmetic and it took a second view to notice. A part opens its first
+      window in `start()`; every window after that comes from a command, and a command with no
+      palette and no keybinding has no route a person can take. mesh-operator declared
+      `console.people`, implemented it, tested it, and shipped a view that could only be opened by a
+      composition or a tool caller — so the console grew a **`People` button in its own header**,
+      which is furniture the palette exists to make unnecessary and which every multi-view app will
+      now write for itself, slightly differently.
+
+      Same family as A8.10: everything declared, wired, checked, and unreachable. The difference is
+      that A8.10 was a handler nothing registered and this is a registration nothing renders.
+
+      Not `chrome`'s job by default — `chrome` is a part a site may compose, and a palette that only
+      exists when somebody remembered to include one is the same gap with an extra step. **M** ·
+      [input.md](./input.md)
+
 ### A9 — Composition and the marketplace
 
 Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned out to be one question.
