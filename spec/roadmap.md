@@ -1002,6 +1002,31 @@ none of this is speculative.
       (1) is the one that matches how `AUTH` is already shaped — a seam every app consumes and no app
       owns. **M** · [auth.md](./auth.md) · mesh-core
 
+- [ ] **A8.17 ★★ The kernel has a log panel and writes nothing to it.** *(reported 2026-09-10:
+      "ctrl+alt+q shows on every site the logs but the framework does not really log anything")*
+
+      Measured: **zero** `log.` calls in `src/` outside tests. None in `kernel.ts`, none in
+      `start.ts`, none on any path the framework takes. The panel is real, the `log` capability is
+      real and scoped per contributor, and the only lines that ever reach it come from parts —
+      `cx.log.info('console started')` in mesh-operator, and one `cx.log.debug('Attach')` in
+      mesh-core's auth Extension that reads like it was left behind.
+
+      So the panel is a window onto whatever the apps happened to say, opened by a person who wanted
+      to know what the framework did. Every failure this repository has spent a week on would have
+      been a line: a part refused at `checkBindings`, a capability declared and not granted, a
+      contribution whose constructor threw, a release whose `requires` narrowed a site's exposure, a
+      collection fetch that came back 401. All of it is known at the moment it happens and none of it
+      is written down.
+
+      **Not "add logging".** Decide what the kernel promises to record, because that set is interface
+      the moment a person or a part relies on it: the lifecycle of every contribution, every refused
+      capability, every failed call, and nothing that is merely interesting. A boot that logs one
+      line per part and one per refusal is a boot somebody can read.
+
+      Interface-relevant, so it belongs before the freeze: `log` is in `needs(...)` and **A3.10** is
+      open, which means what a part may write is unsettled at the same time as what the kernel
+      writes. **M** · surfdns freeze gate V6
+
 ### A9 — Composition and the marketplace
 
 Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned out to be one question.
