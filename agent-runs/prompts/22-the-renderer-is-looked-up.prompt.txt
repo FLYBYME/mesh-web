@@ -1,0 +1,91 @@
+A8.18 part (1): the renderer becomes a driver that is **looked up**, not imported.
+
+Dispatch 21 did part (4) of A8.18 — `ComponentDefinition` is now
+`PrimitiveDefinition`, merged, 472 tests green. That dispatch was killed mid-run
+before it started this half. **Read `spec/roadmap.md` A8.18 in full first**, and
+read the commit `V5 / A8.18(4)` for what has already changed.
+
+--------------------------------------------------------------------------------
+WHAT IS TRUE RIGHT NOW — verify each before changing it
+
+- `src/window/page.ts:36` reads `import { render, type RenderOptions } from
+  '../render/dom.js';`. **That is the hard import.** There is no renderer
+  interface, no injection point, and nothing for a second renderer to implement.
+  The one true driver in the system is a static import.
+- `PRIMITIVES` is a `const` array in `src/render/component.ts`, registered once
+  at `src/kernel/start.ts:265`. `PrimitiveDefinition` is now correctly documented
+  as internal to the DOM driver — it stays that way.
+- `StorageProvider` **is** a proper driver and is the only one: an ops table,
+  several implementations, bound per hive, with `RESOLUTION_ORDER` as the search
+  path. It is a VFS borrowed from NT deliberately, and `src/kernel/hives.ts` says
+  so. **Read it. It is the shape to copy.**
+- The kernel already has an object registry with tokens
+  (`src/contribution/provider.ts`) and a configuration manager with hives. What
+  it lacks is the I/O manager: one place a driver registers, one interface per
+  subsystem, resolved at load.
+
+--------------------------------------------------------------------------------
+THE TASK
+
+Define the interface a renderer implements. Register the DOM renderer as the
+default. Make `window/page.ts` — and anything else that imports `render`
+directly, check `shell.ts` and `host.ts` — resolve it instead.
+
+**Use the mechanism that already exists.** If the object registry with tokens can
+carry this, use it. Do not invent a second registration mechanism beside
+`StorageProvider`; if anything, this is the moment those two start looking like
+one thing, and saying so in the report is worth more than a clever new file.
+
+Keep the seam narrow. The interface is what a renderer must implement, and
+`PrimitiveDefinition` is **not** part of it — a terminal or canvas renderer would
+not have a table of DOM elements, it would have whatever its platform needs.
+Getting this boundary wrong is the whole risk in this dispatch: an interface that
+mentions `Element` anywhere has not separated anything.
+
+--------------------------------------------------------------------------------
+THE SWAP TEST IS THE DELIVERABLE
+
+**A renderer interface with one implementation has not been shown to be an
+interface.** Write a test that:
+
+1. registers a second renderer that touches **no `document`** — one that records
+   the description nodes it was asked to realise, in memory;
+2. mounts a part against it;
+3. asserts the part rendered correctly, **with no part changing**.
+
+If you cannot write that test, the seam is in the wrong place. **Move the seam;
+do not weaken the test.** A test that asserts a token was registered proves the
+registry works, not that the renderer is swappable.
+
+--------------------------------------------------------------------------------
+WHAT NOT TO DO
+
+- Do not do A8.18 parts (2) or (3) — one registration point covering storage as
+  well, and the missing drivers (window, online/offline). They are the next
+  dispatch. Stopping cleanly at one seam is the task.
+- Do not touch `@flybyme/mesh` (frozen).
+- Do not edit mesh-core or mesh-serve. Different repositories, and a dispatch is
+  running against mesh-core right now.
+- `as any` and `as never` are bugs here, not style nits. This repository exists
+  because full type safety was worth rewriting a framework for. If you need one,
+  you have the wrong shape — say so in the report instead of writing it.
+
+--------------------------------------------------------------------------------
+COMMIT AS YOU GO — THIS IS NOT ADVICE
+
+Dispatch 21 was killed mid-run and left 8 modified files uncommitted in its
+worktree. The work was good and survived only because a person went and looked.
+**A commit survives the process ending; an unstaged edit does not.** Commit each
+coherent step. Never run a command in the background; run `npm test` in the
+foreground and wait for it.
+
+--------------------------------------------------------------------------------
+DONE MEANS
+
+- `npm test` green — 472 tests before you start, and it must not go down.
+- `npm run typecheck` clean.
+- The swap test exists, mounts against a non-DOM renderer, and passes.
+- `spec/roadmap.md` A8.18 updated: part (1) marked done with what was built,
+  parts (2) and (3) left open and still accurate.
+- Any structural gap you find goes into `spec/roadmap.md` as its own item.
+- No `Co-Authored-By` or `Claude-Session` trailers on commits in this repository.
