@@ -1,3 +1,4 @@
+import { createDomRenderer } from '../../src/render/index.js';
 /**
  * Window mechanics in a real browser — spec/testing.md section 4, roadmap A0.5a.
  *
@@ -205,7 +206,7 @@ async function bootSite(): Promise<Site> {
                     api: process.api,
                     params: record.params,
                     windows: manager,
-                    render: { components, dispatch: { dispatch: () => {} } },
+                    resolve: (() => createDomRenderer(typeof components !== 'undefined' ? components : createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => { } } },
                     onCommand: (action) => {
                         dispatched.push(action);
                         if (action.kind === 'command') {

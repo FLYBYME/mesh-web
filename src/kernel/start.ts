@@ -42,9 +42,11 @@
  */
 
 import type { ErasedContribution } from '../contribution/contract.js';
+import type { ProviderToken } from '../contribution/provider.js';
 import { effect } from '../reactivity/index.js';
 import { createRegistry as createComponents, PRIMITIVES } from '../render/component.js';
 import type { ComponentRegistry } from '../render/component.js';
+import { createDomRenderer, RENDERER } from '../render/index.js';
 import { createClient, fetchTransport, withHeaders } from '../net/client.js';
 import { createFetchEventSource } from '../net/eventsource.js';
 import type { MeshClient } from '../net/client.js';
@@ -54,7 +56,7 @@ import type { Registry } from '../registry/registry.js';
 import type { BuildPolicy, HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
 import { domConfirm } from './confirm.js';
-import { mountPage, PAGE_CHROME } from '../window/page.js';
+import { mountPage, PAGE_CHROME, windowHostComponent } from '../window/page.js';
 import type { Page } from '../window/page.js';
 import { pageWindowMode, windowPersistence } from '../window/persistence.js';
 import type { RememberedWindow, WindowPersistence } from '../window/persistence.js';
@@ -283,8 +285,14 @@ export function start(composition: Composition): Started {
     kernel.boot(loaded);
 
     const components = createComponents(PRIMITIVES);
+    components.register(windowHostComponent);
     for (const { decl } of kernel.manifest.components.values()) {
         components.register(decl);
+    }
+
+    if (kernel.provided(RENDERER) === undefined) {
+        const renderer = createDomRenderer(components);
+        kernel.provide(RENDERER, renderer);
     }
 
     const run = (action: Action): void => {
@@ -311,7 +319,8 @@ export function start(composition: Composition): Started {
         apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
         internalOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.internal,
         isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',
-        render: { components, dispatch: { dispatch: run } },
+        resolve: <T>(token: ProviderToken<T>) => kernel.provided(token),
+        renderOptions: { dispatch: { dispatch: run } },
         onCommand: run,
     });
 

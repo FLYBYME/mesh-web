@@ -30,7 +30,8 @@ import type { Json } from '../description/types.js';
 import type { Action } from '../description/types.js';
 import type { ViewDecl } from '../contribution/contract.js';
 import { effect } from '../reactivity/index.js';
-import type { RenderOptions } from '../render/dom.js';
+import type { RendererOptions } from '../render/index.js';
+import type { ProviderToken } from '../contribution/provider.js';
 import { mountView, type ViewInstance } from './host.js';
 import type { WindowManager, WindowRecord } from './manager.js';
 
@@ -86,7 +87,8 @@ export interface ShellOptions {
     isReady?(owner: string): boolean;
     /** Which part/application owns this process, if known. */
     partOf?(owner: string): string | undefined;
-    readonly render: RenderOptions;
+    readonly resolve: <T>(token: ProviderToken<T>) => T | undefined;
+    readonly renderOptions: RendererOptions;
     readonly onCommand: (action: Action) => void;
     /**
      * How **one window** is drawn. `defaultFrame` when a site has not said.
@@ -185,7 +187,8 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
             internal: options.internalOf?.(record.owner),
             params: record.params,
             windows: manager,
-            render: { ...options.render, ...(part !== undefined ? { part } : {}) },
+            renderOptions: { ...options.renderOptions, ...(part !== undefined ? { part } : {}) },
+            resolve: options.resolve,
             part,
             onCommand: options.onCommand,
         });
