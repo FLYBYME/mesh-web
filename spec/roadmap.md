@@ -918,6 +918,90 @@ none of this is speculative.
       exists when somebody remembered to include one is the same gap with an extra step. **M** ·
       [input.md](./input.md)
 
+- [ ] **A8.15 ★★★ A composed part cannot be configured, so every constructor option in the ecosystem
+      is unreachable — and one of them is *remember my login*.** *(found 2026-09-10, asked how the
+      auth system remembers a session)*
+
+      `construct` (`contribution/contract.ts:489`) does `new (exported)()`. **No arguments, ever.** A
+      composition names a part by id; nothing in a manifest, a release or the import map carries a
+      value into a constructor. So a contribution's options exist only for whoever calls `new`
+      by hand, which on a real page is nobody.
+
+      `AuthExtension` is the case that shows the cost. It takes `AuthOptions`:
+
+      | option | what it decides | reachable on a composed site |
+      | --- | --- | --- |
+      | `store` | whether the ticket survives a reload | **no** |
+      | `endpoints` | which api and which routes sign you in | **no** |
+      | `now` | the clock, for tests | no, and that one is fine |
+
+      `sessionTicketStore()` is written, exported and documented — *"offered rather than assumed"* —
+      and **nothing can accept the offer.** Measured on a live console: after signing in, no cookie,
+      nothing in `sessionStorage`, and `localStorage` holding only window geometry. The ticket is in
+      memory. A reload signs you out, on every site, always, with no way for a site to choose
+      otherwise.
+
+      `mesh-core/src/auth/index.ts` states the opposite in as many words — *"a site that wants one
+      declares `new AuthExtension(...)` in its manifest like any other Extension"* — which is not
+      something a manifest can express. Load-bearing prose that has gone false, and the freeze's V11
+      sweep is where that kind of line gets caught.
+
+      **The fix is a design decision, not a patch.** Three shapes, and the third is probably right:
+
+      1. **Options in the manifest**, a JSON blob passed to the constructor. Simple, and it makes a
+         constructor take untyped data, which is the thing `schema<T>()` exists to avoid elsewhere.
+      2. **A configuration capability** the part reads in `activate()`, so values arrive through the
+         same seam as everything else and stay typed.
+      3. **Do not configure this one at all** — *remember me* belongs in an `HttpOnly` cookie that
+         JavaScript cannot read, not in a storage API a part chooses. That removes the auth case from
+         this item entirely and leaves it about `endpoints`, which is a smaller question.
+
+      Whichever, **(3) is the security answer and (1) or (2) is still needed**, because a part that
+      cannot be configured is a part every site must fork to vary. **M–L** ·
+      [auth.md](./auth.md) §4 · mesh-core
+
+- [ ] **A8.16 ★★★ Two apps on one page, and the second one covers the only sign-in form.**
+      *(found 2026-09-10, composing mesh-core's `identity` app beside the operator console)*
+
+      Both apps open a window at `start()`, cascaded — `w1` at 40,40 sized 1100×720 and `w2` at
+      71,71 sized 940×620 — so the second lands almost entirely on top of the first. Measured, not
+      described: a Playwright click on the console's sign-in button failed with *`<div
+      class="identity-body">` from `<div data-window="w2">` subtree intercepts pointer events*, sixty
+      retries, then a timeout.
+
+      **The window on top is the one that cannot do anything, and it is covering the one thing that
+      would fix that.** Signed out, `identity` shows *Organizations (0) · You need to sign in* and
+      has no sign-in of its own, because it consumes `AUTH` and the form lives in whichever app
+      happened to build one. On this page that is the console, underneath.
+
+      Three separate rules already in this repository predict it, which is what makes it worth an
+      item rather than a bug:
+
+      - *"The affordance that fixes the situation must not disappear exactly when the situation
+        occurs"* — mesh-operator's own `session = 'optional'` comment, about this exact form.
+      - **A8.11 / `EntityList`'s width prop**: a control that is visible, enabled and unclickable
+        because something else is over it. Same failure, one layer up — that one was CSS inside a
+        window, this is window placement.
+      - *"An app is a thing a person opens"* — so **two composed apps both opening at start is two
+        things nobody opened**, and the cascade is a guess about which matters.
+
+      **This is the empirical answer to *should sign-in be its own app or one per app*.** With two
+      apps composed, the form exists once, arbitrarily, in whichever app was written first, and the
+      other app covers it and cannot help. Neither "one per app" nor "the first one wins" survives
+      contact with a second app.
+
+      What it needs is a decision, and there are three:
+
+      1. **A sign-in surface owned by the page, not by an app** — chrome, or the kernel, renders it
+        when no session exists. Then no app writes one and no app can cover it.
+      2. **Signed-out apps do not open windows.** `session: 'required'` already means *do not start*;
+        what is missing is that `optional` opens a window that may be useless.
+      3. **Cascade by something other than declaration order**, which is the weakest of the three and
+        fixes only the symptom.
+
+      (1) is the one that matches how `AUTH` is already shaped — a seam every app consumes and no app
+      owns. **M** · [auth.md](./auth.md) · mesh-core
+
 ### A9 — Composition and the marketplace
 
 Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned out to be one question.
