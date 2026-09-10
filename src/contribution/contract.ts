@@ -14,7 +14,7 @@ import type { MeshClient } from '../net/client.js';
 import type { Consumer, ProviderToken, ProviderTokens } from './provider.js';
 import type { Action, IntentValue, Json, Registrar } from '../description/types.js';
 import type { Models } from '../models/types.js';
-import type { ComponentDefinition } from '../render/component.js';
+import type { PrimitiveDefinition } from '../render/component.js';
 import type { ApiDecl } from './api.js';
 
 /**
@@ -287,8 +287,12 @@ export interface Declarations {
      * Contributed components extend the vocabulary beyond the 19 primitives (e.g. `ui.Card`,
      * `ui.Nav`). Declared in the manifest so the kernel resolves name collisions at load time
      * before anything renders.
+     *
+     * The type is `PrimitiveDefinition` — the DOM renderer's record for one named node — because
+     * this is the table that tells the DOM driver how to build it. Whether any part may contribute
+     * a primitive is a separate question (roadmap A8.18 parts 2/3, not yet decided).
      */
-    readonly components?: readonly ComponentDefinition[];
+    readonly components?: readonly PrimitiveDefinition[];
     /**
      * `never` for params: a view with concrete params stays assignable here through method
      * bivariance, which is the same reason `EachNode`'s callbacks are methods rather than

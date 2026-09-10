@@ -20,7 +20,7 @@ import type {
     Action, DialogNode, EachNode, ElementNode, IntentActor, Intents, IntentValue, Json, Node, Reactive, SurfaceNode,
 } from '../description/types.js';
 import { isDynamic, read } from '../description/types.js';
-import { applyDefaultProp, type ComponentDefinition, type ComponentRegistry } from './component.js';
+import { applyDefaultProp, type PrimitiveDefinition, type ComponentRegistry } from './component.js';
 
 if (typeof HTMLDialogElement !== 'undefined') {
     if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
@@ -655,7 +655,7 @@ function bindIntents(
     el: Element,
     intents: Intents,
     dispatch: Dispatcher,
-    definition?: ComponentDefinition,
+    definition?: PrimitiveDefinition,
 ): void {
     const fire = (name: keyof Intents, event: Event, value?: IntentValue): void => {
         const binding = intents[name];
@@ -710,8 +710,8 @@ function bindIntents(
             } else if (key === ' ') {
                 // spec/input.md §3: every action has a non-pointer path (Space on Button, Row, etc.).
                 // roadmap A7.0b: Space must not activate an element for which Space is text input (like an Input text field).
-                // This knowledge belongs on ComponentDefinition rather than hardcoded tag names in this renderer,
-                // so components define their own interaction model and Extension-contributed editors/inputs work cleanly.
+                // This knowledge belongs on PrimitiveDefinition rather than hardcoded tag names in this renderer,
+                // so primitives define their own interaction model and Extension-contributed editors/inputs work cleanly.
                 const isTextInput = typeof definition?.spaceIsTextInput === 'function'
                     ? definition.spaceIsTextInput(el)
                     : Boolean(definition?.spaceIsTextInput);
