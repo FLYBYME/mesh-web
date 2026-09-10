@@ -8,7 +8,7 @@
 
 import type {
     Action, DialogNode, DialogProps, EachNode, ElementNode, EmptyNode, Intents, IntentValue, Json,
-    Node, Props, Reactive, TextNode, WhenNode,
+    Node, Props, Reactive, Registrar, TextNode, WhenNode,
 } from './types.js';
 
 const EMPTY: EmptyNode = { kind: 'empty' };
@@ -127,7 +127,7 @@ export interface HandlerTable {
      * `undefined` for an `activate`. A handler that ignores it is written `() => …` and is
      * unaffected, which is why this is a parameter rather than a second kind of handler.
      */
-    on(fn: (value?: IntentValue) => void): Action;
+    readonly on: Registrar;
     /** Invoke by id. Returns false when the id is unknown — a stale event, not a crash. */
     invoke(id: string, value?: IntentValue): boolean;
     /** Free everything. Called when the view instance goes away. */

@@ -51,6 +51,24 @@ export type Action =
 /** Opaque. Assigned by the framework, never written by an author. */
 export type HandlerId = string & { readonly __handler?: never };
 
+/**
+ * **The right to register a handler, as a value that can be passed.**
+ *
+ * `ViewContext.on` is one of these and so is `HandlerTable.on`, which is the point: a view has a
+ * table, and anything a view renders can be *given* the ability to put a function in it without
+ * being given the table, the window, or the view.
+ *
+ * That matters because the alternative is what mesh-core's composites did — construct an id and
+ * hope: `id: \`ui.ActionButton:${command.action}\`` names a handler nobody registered, so the button
+ * rendered, enabled, and did nothing when pressed. `HandlerId` is documented above as *assigned by
+ * the framework, never written by an author*, and there was no way for an author to obey that rule
+ * except to have the assigner in hand. This is the assigner in hand.
+ *
+ * A composite takes one as an ordinary prop (`on: vx.on`), so **who owns this handler stays visible
+ * at the call site** and the handler still dies with the view that registered it.
+ */
+export type Registrar = (fn: (value?: IntentValue) => void) => Action;
+
 /** Anything that may cross a boundary. */
 export type Json =
     | string | number | boolean | null

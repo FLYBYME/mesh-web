@@ -14,6 +14,7 @@ export type {
     Node,
     Props,
     Reactive,
+    Registrar,
     SurfaceNode,
     TextNode,
     WhenNode,

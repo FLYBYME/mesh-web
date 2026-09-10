@@ -785,9 +785,28 @@ none of this is speculative.
       not collide. The old tests called each composite's `run()` directly, which is exactly why a
       feature that resolved to nothing passed all of them. **M** · [view-layer §5](./view-layer.md)
 
-      Still open beside it: a **composite** has no scope of its own to register into, so a composite
-      that owns state still cannot respond to its own input without the view handing it something.
-      That is the second half of this entry and it is what the ui vocabulary will need.
+      **The second half, closed 2026-09-09.** A **composite** is constructed by `create(props)` and
+      has no view to ask, so `ViewContext.on` fixed a view and left every composite exactly as inert
+      as before. The fix is one exported type — `Registrar`, which is `(fn) => Action`, the right to
+      register a handler as a value that can be passed — and composites take one as an ordinary prop:
+      `ActionButton({ command, on: vx.on })`. No new concept, no kernel scope for composites, and
+      *who owns this handler* stays visible at the call site.
+
+      It is **required** rather than optional in mesh-core's props, because an optional registrar
+      reintroduces the whole bug: the caller who forgets it gets a control that looks finished and
+      does nothing, found by a person clicking. Now it does not compile.
+
+      Registered at construction and never inside `view()`, which is load-bearing: a `when` above a
+      composite calls `view()` again every time it flips, and the table has no eviction before the
+      view is disposed. A form memoises one registration per field name for the same reason.
+
+      Two more things surfaced only because the tests finally pressed. `ui.Select` had its `change`
+      intent on the wrapping `Row` while the option buttons carried none — and `change` is bound to
+      the DOM `input` event, which a `div` never emits and has no value to read, so even a
+      *registered* handler there could not have fired. And a generated form field's `change` named
+      `ui.Form:input:<name>`: typing into an `ActionCard` changed nothing and it submitted the
+      schema's default, which is worse than a dead control because the form lied about what it was
+      about to send. Both are fixed and both have a test that types or clicks.
 
 - [ ] **A8.11 ★★ `Row` and `Stack` do not lay out, so a window folded into regions loses its layout
       silently.** Found 2026-09-08 finishing flowboard's port. `PRIMITIVES` defines both as

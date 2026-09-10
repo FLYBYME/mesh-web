@@ -12,7 +12,7 @@ import type { AnyApiCall, Api } from '../net/api.js';
 import type { LayoutNode } from '../window/layout.js';
 import type { MeshClient } from '../net/client.js';
 import type { Consumer, ProviderToken, ProviderTokens } from './provider.js';
-import type { Action, IntentValue, Json } from '../description/types.js';
+import type { Action, IntentValue, Json, Registrar } from '../description/types.js';
 import type { Models } from '../models/types.js';
 import type { ComponentDefinition } from '../render/component.js';
 import type { ApiDecl } from './api.js';
@@ -147,8 +147,13 @@ export interface ViewContext<
      *
      * Scoped to this view instance and disposed with it, so a handler cannot outlive the screen
      * that owns it.
+     *
+     * **A `Registrar`, and therefore passable.** A composite is constructed by `create(props)` and
+     * has no view to ask, so it receives this the way it receives everything else — as a prop:
+     * `ui.ActionButton({ command, on: vx.on })`. That is the second half of A8.10 and the reason
+     * three of mesh-core's fourteen were inert even after this landed.
      */
-    on(fn: (value?: IntentValue) => void): Action;
+    readonly on: Registrar;
 
     setTitle(title: string): void;
     close(): void;
