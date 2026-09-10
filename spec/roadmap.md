@@ -1027,50 +1027,64 @@ none of this is speculative.
       open, which means what a part may write is unsettled at the same time as what the kernel
       writes. **M** · surfdns freeze gate V6
 
-- [ ] **A8.18 ★★★ A driver is the platform seam, and it exists twice under two names with nothing
-      for the rest of the platform.** *(2026-09-10, from "browser session storage and stuff like that
-      are drivers. you could have a driver that adds old IE browser support")*
+- [ ] **A8.18 ★★★ The renderer is a driver and cannot be swapped; a primitive is not a driver and
+      can be contributed by anyone.** *(2026-09-10. Corrected the same day — the first draft of this
+      item called `ComponentDefinition` a driver, and it is not one.)*
 
-      **This supersedes V5's rename.** `ComponentDefinition` → `PrimitiveDefinition` was filed as a
-      naming tidy-up. The name was never the point: the point is that **a driver is the only thing
-      allowed to touch the platform**, and the layer that would say so has never been named.
+      **The correction is the content.** A description tree is data. **The renderer is the thing that
+      realises it against a platform, and that is the driver.** `PrimitiveDefinition` — the rename
+      V5 asks for — is the DOM renderer's *table of how to build each named node*. It is internal to
+      one driver, not a driver itself. A terminal or canvas renderer would not have one; it would
+      have whatever it needs.
 
-      What exists today, and it is two thirds of an idea:
+      That distinction decides who must implement what:
 
-      | seam | shape | who may contribute one |
+      | | what it is | cost of a new one |
       | --- | --- | --- |
-      | making an element | `ComponentDefinition.create(props): Element` — *"the only place below the renderer that knows an element exists"* | any part, via `declarations.components` |
-      | reading and writing storage | `StorageProvider`, memory for `session`, `localStorage` for `device`, remote for `user` | the kernel, at hive binding. Not a part |
-      | everything else | — | — |
+      | **composite** | pure description, state and all | free on every renderer, forever |
+      | **component** | pure description, no state | free on every renderer, forever |
+      | **primitive** | a name the renderer must know how to build | **every renderer, present and future, must implement it** |
+      | **driver** | the renderer itself, the storage provider, a clock, a window | one per platform |
 
-      **Everything else is the gap**, and it is most of the platform: `window.open`,
-      `navigator.onLine`, `matchMedia`, the clipboard, notifications, visibility. Not "missing
-      features" — missing *seams*. A part that wants one today has no declaration to make and no
-      capability to ask for, which is exactly how `sessionTicketStore` came to read
-      `globalThis.sessionStorage` in mesh-core. That was reported as a part reaching for a global, and
-      it is better read as **a part with nowhere to ask**: the `session` hive is precisely that
-      driver, already written, and nothing connected the two.
+      So **the primitive set is a contract between the description language and every driver that
+      will ever exist**, and it should be small and closed. `declarations.components` lets any part
+      add one and **has zero users** — mesh-core's `ui` contributes none, and its eleven components
+      and three composites are *called*, not named. That emptiness has been read as a gap. It is not:
+      it is the one extension point whose disuse is the healthy outcome, and it is on the wrong layer.
 
-      **The test is the one that named it: what would you swap to support an old browser?** Element
-      creation, yes. Storage, yes, but only from inside the kernel. Everything else has nothing to
-      swap, because nothing declares it as a seam. A driver layer that covers the platform makes that
-      question answerable, and answering it is the proof the layer is real.
+      **What is measurably true today:**
+
+      - `PRIMITIVES` is a `const` array in `render/component.ts`, registered once at `start.ts:265`.
+      - **The renderer is not swappable at all.** `window/page.ts` imports `render` from
+        `render/dom.js` directly. There is no renderer interface, no injection point, nothing to
+        implement. The one true driver in the system is a hard import.
+      - `StorageProvider` **is** a proper driver and is the only one: an ops table, several
+        implementations, bound per hive, with `RESOLUTION_ORDER` as the search path. That is a VFS,
+        borrowed from NT on purpose, and `hives.ts` says so.
+      - Everything else has no seam: `window.open`, `navigator.onLine`, `matchMedia`, the clipboard,
+        notifications, visibility. A part that wants one has nothing to declare and nothing to ask
+        for, which is how `sessionTicketStore` came to read `globalThis.sessionStorage` — **a part
+        with nowhere to ask**, when the `session` hive was already the driver it wanted.
+
+      **The shape to copy is NT's I/O manager, and half of it is already here.** The kernel has an
+      object registry with tokens, a configuration manager with hives, and a capability set that is
+      the personality a part programs against — `needs(...)` is the syscall surface. What it lacks is
+      the I/O manager: **one place a driver registers, one interface per subsystem, resolved at load.**
 
       Wanted, in order:
 
-      1. **Name it.** One word, one concept: a driver is bundled into the kernel artifact, is the only
-         code that touches a browser API, and is contributed by declaration. `ComponentDefinition` and
-         `StorageProvider` become two kinds of it rather than two unrelated interfaces.
-      2. **One contribution point**, so a part declares a driver the way it declares a component, and
-         the kernel resolves collisions at load rather than at render.
-      3. **Then the missing ones**, driven by what actually asks: a window driver (`window.open` plus
-         cross-origin messages, which is what a hosted sign-in wants), an online/offline driver, a
-         storage driver a part may supply.
+      1. **A renderer interface**, so `render` is looked up rather than imported. The swap test is the
+         proof: an old-browser renderer, or a non-DOM one, with no part changing.
+      2. **One driver registration point** covering the renderer, storage and what comes next, so
+         `StorageProvider` stops being a special case.
+      3. **Then the missing drivers**, driven by what asks: a window driver (`window.open` and
+         cross-origin messages, which a hosted sign-in wants), online and offline.
+      4. **V5's rename lands inside (1)** as a detail of the DOM renderer, which is all it ever was.
 
-      Interface, not internals: `declarations.components` is public surface and its element type is
-      the thing being renamed and widened. **L, and it is the strongest remaining argument that
-      mesh-web 1.0 should be a considered release rather than a version bump.** · surfdns freeze
-      gate V5, which this replaces
+      Interface, not internals: `declarations.components` is public surface, and the decision it
+      encodes — that anyone may add a primitive — is the one to revisit before it freezes. **L, and
+      the strongest remaining argument that mesh-web 1.0 should be a considered release rather than a
+      version bump.** · surfdns freeze gate V5, which this replaces
 
 ### A9 — Composition and the marketplace
 
