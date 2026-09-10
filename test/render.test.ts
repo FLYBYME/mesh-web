@@ -24,6 +24,25 @@ import { command, createHandlerTable, dialog, each, element, empty, text, when }
 import type { Action, IntentValue } from '../src/description/index.js';
 import { createRegistry, PRIMITIVES, render, type Dispatcher } from '../src/render/index.js';
 import { mountView } from '../src/window/host.js';
+import { Kernel } from '../src/kernel/kernel.js';
+import { RENDERER } from '../src/render/index.js';
+import type { ComponentRegistry } from '../src/render/index.js';
+import type { ProviderToken } from '../src/contribution/provider.js';
+
+/**
+ * A `resolve` that answers the renderer token and nothing else.
+ *
+ * Built on a real `Kernel` rather than a stub, which is what makes it typed: `provided` already has
+ * the `<T>(token) => T | undefined` signature `mountView` wants, so nothing here needs a cast. A
+ * `resolve` faked with `as any` compiles against a signature nobody checked, and `as any` is a bug
+ * in this repository rather than a style nit.
+ */
+function resolveRenderer(registry: ComponentRegistry): <T>(token: ProviderToken<T>) => T | undefined {
+    const kernel = new Kernel();
+    kernel.provide(RENDERER, createDomRenderer(registry));
+    return (token) => kernel.provided(token);
+}
+
 
 /** Let batched effects run. See the note above. */
 const tick = (): void => flushSync();
@@ -814,7 +833,8 @@ describe('a view mounted inside an effect is not owned by that effect', () => {
                 api: undefined,
                 params: {},
                 windows: { setTitle: () => {}, close: () => {} } as never,
-                resolve: (() => createDomRenderer(typeof components !== 'undefined' ? components : createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch },
+                resolve: resolveRenderer(components),
+                renderOptions: { dispatch },
                 onCommand: () => {},
             }));
         });
@@ -1341,7 +1361,8 @@ describe('a view registers its own handlers', () => {
             api: undefined,
             params: {},
             windows: { setTitle: () => {}, close: () => {} } as never,
-            resolve: (() => createDomRenderer(typeof components !== 'undefined' ? components : createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch },
+            resolve: resolveRenderer(components),
+                renderOptions: { dispatch },
             onCommand: () => {},
         });
 

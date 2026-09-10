@@ -1,4 +1,22 @@
 import { createDomRenderer } from '../src/render/index.js';
+import { RENDERER } from '../src/render/index.js';
+import type { ComponentRegistry } from '../src/render/index.js';
+import type { ProviderToken } from '../src/contribution/provider.js';
+
+/**
+ * A `resolve` that answers the renderer token and nothing else.
+ *
+ * Built on a real `Kernel` rather than a stub, which is what makes it typed: `provided` already has
+ * the `<T>(token) => T | undefined` signature `mountView` wants, so nothing here needs a cast. A
+ * `resolve` faked with `as any` compiles against a signature nobody checked, and `as any` is a bug
+ * in this repository rather than a style nit.
+ */
+function resolveRenderer(registry: ComponentRegistry): <T>(token: ProviderToken<T>) => T | undefined {
+    const kernel = new Kernel();
+    kernel.provide(RENDERER, createDomRenderer(registry));
+    return (token) => kernel.provided(token);
+}
+
 /**
  * @vitest-environment jsdom
  *
@@ -175,7 +193,8 @@ function bootSite() {
                 api: process.api,
                 params: record.params,
                 windows: manager,
-                resolve: (() => createDomRenderer(createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => { } } },
+                resolve: resolveRenderer(createRegistry(PRIMITIVES)),
+                renderOptions: { dispatch: { dispatch: () => {} } },
                 onCommand: (action) => {
                     dispatched.push(action);
                     if (action.kind === 'command') {
