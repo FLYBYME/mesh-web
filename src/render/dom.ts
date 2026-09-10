@@ -421,13 +421,48 @@ function buildWhen(
     let branchNodes: readonly ChildNode[] = [];
     let shown: boolean | undefined;
 
+    /**
+     * **Everything between the markers, not the list we remember putting there.**
+     *
+     * This removed `branchNodes` — the array captured when the branch was built — and that array
+     * goes stale the moment anything *inside* the branch replaces its own nodes. A nested `when` or
+     * `each` does exactly that: it returns `[start, ...nodes, end]` to its parent and then swaps
+     * `nodes` for different ones on its next run, while the parent still holds the first list.
+     *
+     * So tearing down removed nodes that had already gone and left the ones actually on screen —
+     * orphaned, with their scope disposed, so nothing would ever update or remove them again.
+     *
+     * Reported from the operator console by signing out and back in: the outer `when` rebuilt while
+     * the inner one had moved, and the detail placeholder rendered twice. Once per round trip,
+     * accumulating.
+     *
+     * The markers are the reliable boundary. They are created here, never handed out and never
+     * moved, so whatever sits between them belongs to this branch by construction — including
+     * anything a child inserted after we stopped looking.
+     */
+    const clearBranch = (): void => {
+        if (start.parentNode === null) {
+            // Not mounted yet: the first effect run happens during `build`, before these markers
+            // reach the document. There is nothing between them because there is no "between".
+            for (const node of branchNodes) node.remove();
+            return;
+        }
+
+        let node = start.nextSibling;
+        while (node !== null && node !== end) {
+            const following = node.nextSibling;
+            node.remove();
+            node = following;
+        }
+    };
+
     effect(() => {
         const next = Boolean(read(condition));
         if (next === shown) return;
         shown = next;
 
         branchScope?.dispose();
-        for (const node of branchNodes) node.remove();
+        clearBranch();
         branchNodes = [];
 
         const source = next ? then : otherwise;
@@ -528,7 +563,22 @@ function buildEach(
                 });
             });
 
-            const created: Row = { ...row!, nodes };
+            /**
+             * **Each row gets its own markers, for the same reason the list does.**
+             *
+             * `nodes` is a snapshot taken now, and a row containing a `when` or a nested `each`
+             * replaces its own nodes later — so this array names things that may no longer be on
+             * screen. Removing a row by it left the real content behind; *moving* a row by it left
+             * the swapped part behind in the old position, which reads as a reordering bug.
+             *
+             * A row is not a single element and cannot be tracked by one, so it is tracked by the
+             * pair of comments around it. They are created here, never handed to the row's content,
+             * and never moved except as a unit — so whatever lies between them is this row's, by
+             * construction, however deeply nested the thing that put it there.
+             */
+            const rowStart = document.createComment('row');
+            const rowEnd = document.createComment('/row');
+            const created: Row = { ...row!, nodes: [rowStart, ...nodes, rowEnd] };
             next.set(key, created);
             ordered.push(created);
         });
@@ -536,7 +586,7 @@ function buildEach(
         // Whatever is left in `rows` was not in the new list.
         for (const gone of rows.values()) {
             gone.scope.dispose();
-            for (const n of gone.nodes) n.remove();
+            for (const n of liveSpan(gone.nodes)) n.remove();
         }
 
         rows = next;
@@ -547,12 +597,43 @@ function buildEach(
         }
 
         // Place every row in order before the end marker. Nodes already in the right place are
-        // moved onto themselves, which the DOM treats as a no-op.
-        for (const row of ordered) insertBefore(row.nodes, end);
+        // moved onto themselves, which the DOM treats as a no-op. `liveSpan`, not `row.nodes`,
+        // because a row whose content swapped since it was built must move as it is now.
+        for (const row of ordered) insertBefore(liveSpan(row.nodes), end);
     });
 
     const initial = [...rows.values()].flatMap((row) => row.nodes);
     return [start, ...initial, end];
+}
+
+/**
+ * What is **actually** between a marker pair right now.
+ *
+ * A build returns the nodes it created, and that array is a photograph. Anything reactive inside it
+ * — a `when`, a nested `each` — replaces its own nodes on its own schedule, and from then on the
+ * photograph names things that are not on screen and misses things that are. Acting on it removes
+ * the wrong nodes and moves the wrong nodes.
+ *
+ * The markers do not have that problem: they are created once, never handed to the content, and
+ * only ever moved as a unit with it.
+ *
+ * `nodes` is `[start, …, end]`. Before the pair is mounted there is no "between", so the photograph
+ * is all there is and is correct — that is the one case it can be trusted.
+ */
+function liveSpan(nodes: readonly ChildNode[]): readonly ChildNode[] {
+    const start = nodes[0];
+    const end = nodes[nodes.length - 1];
+    if (start === undefined || end === undefined) return nodes;
+    if (start.parentNode === null) return nodes;
+
+    const span: ChildNode[] = [start];
+    let node = start.nextSibling;
+    while (node !== null && node !== end) {
+        span.push(node);
+        node = node.nextSibling;
+    }
+    span.push(end);
+    return span;
 }
 
 function insertBefore(nodes: readonly ChildNode[], marker: ChildNode): void {

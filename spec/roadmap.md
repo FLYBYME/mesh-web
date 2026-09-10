@@ -808,6 +808,31 @@ none of this is speculative.
       schema's default, which is worse than a dead control because the form lied about what it was
       about to send. Both are fixed and both have a test that types or clicks.
 
+- [x] **A8.13 ★★ A reconciler tracked its children by a photograph, so nested branches were
+      orphaned.** *(found and fixed 2026-09-09, from a person using the operator console)*
+      `buildWhen` and `buildEach` each returned the array of nodes they had just created, and their
+      parent kept that array to know what to remove or move later. Anything reactive *inside* it — a
+      nested `when`, a nested `each` — replaces its own nodes on its own schedule, so from that
+      moment the array named nodes that were gone and missed the ones that were there.
+
+      Removing such a branch took away what it *used* to contain and left what it did contain:
+      on screen, scope disposed, nothing left that could ever update or remove it. Reordering left
+      the swapped part behind in the old position, which reads as a reordering bug rather than an
+      ownership one.
+
+      **Reported as** *"i logged out then in and this now shows"* with the console's detail
+      placeholder rendered twice. Once per round trip, accumulating. Nothing about it looked like a
+      renderer bug from the outside.
+
+      Fixed by tracking a span between marker comments rather than by a remembered array — the
+      markers are created by the reconciler, never handed to the content, and only moved as a unit
+      with it, so whatever lies between them belongs to that branch by construction however deeply
+      nested the thing that put it there. `each` gained a marker pair per **row** for the same
+      reason: a row is not one element and cannot be tracked by one.
+
+      Three tests, and each fails on the old code. The `each` pair only reproduce when the row's top
+      level *is* the conditional — a row wrapped in an element is safe by accident, because removing
+      the element takes its contents whatever they are, which is why this survived so long. **S**
 - [ ] **A8.11 ★★ `Row` and `Stack` do not lay out, so a window folded into regions loses its layout
       silently.** Found 2026-09-08 finishing flowboard's port. `PRIMITIVES` defines both as
       `tag('Stack', 'div')` and `tag('Row', 'div')` — bare divs with no `display`, no `flex`, no

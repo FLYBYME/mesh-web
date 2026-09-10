@@ -217,6 +217,60 @@ describe('when', () => {
         expect(html()).toBe('<div>out</div>');
     });
 
+    /**
+     * **A `when` inside a `when`, where the inner one moved first.**
+     *
+     * `buildWhen` returns `[start, ...branchNodes, end]` — a **snapshot** taken when it was built —
+     * and its parent holds that array to know what to remove later. If the inner `when` swaps its
+     * own branch after that, the parent's snapshot names nodes that are no longer on screen. Tearing
+     * down then removes the wrong set and leaves the real one behind.
+     *
+     * Reported from the running operator console, and the reproduction is exactly a person's:
+     * **sign out, then sign back in.** The outer `when` (signed in?) rebuilt while the inner one
+     * (which detail?) had moved, so the detail placeholder rendered twice, one copy of it orphaned
+     * with no effects attached and no way to ever remove it. Do it three times and there are three.
+     */
+    it('removes a nested branch that swapped since it was built', () => {
+        const { host, components, dispatch, html } = setup();
+        const signedIn = signal(true);
+        const seeding = signal(false);
+
+        render(
+            element('Row', {
+                children: [
+                    when(
+                        () => signedIn(),
+                        () => when(() => seeding(), () => text('seed'), () => text('detail')),
+                        () => text('sign in'),
+                    ),
+                ],
+            }),
+            host,
+            { components, dispatch },
+        );
+
+        expect(html()).toBe('<div>detail</div>');
+
+        // The inner `when` moves. The outer's snapshot still names the node it replaced.
+        seeding.set(true);
+        tick();
+        expect(html()).toBe('<div>seed</div>');
+
+        seeding.set(false);
+        tick();
+        expect(html()).toBe('<div>detail</div>');
+
+        // Now the outer moves. It must take the inner's *current* nodes with it.
+        signedIn.set(false);
+        tick();
+        expect(html()).toBe('<div>sign in</div>');
+
+        // And back — one copy, not two.
+        signedIn.set(true);
+        tick();
+        expect(html()).toBe('<div>detail</div>');
+    });
+
     it('renders nothing with no otherwise', () => {
         const { host, components, dispatch, html } = setup();
         render(element('Row', { children: [when(false, () => text('x'))] }), host, { components, dispatch });
@@ -260,6 +314,66 @@ describe('each is keyed, so a reorder moves nodes instead of rebuilding them', (
 
         render(list(() => posts()), host, { components, dispatch });
         expect(html()).toBe('<ul><li>First</li><li>Second</li></ul>');
+    });
+
+    /**
+     * **A row whose content swapped, then removed and then reordered.**
+     *
+     * Same defect as the nested `when` above and the same cause: a row was tracked by the array of
+     * nodes it was built with, and anything reactive inside it replaces those on its own schedule.
+     * Removing such a row took away the nodes it *used* to have and left the ones it has; moving one
+     * left the swapped part behind in the old position.
+     *
+     * Not hypothetical — `each` with a `when` inside is the ordinary shape of a table row with a
+     * conditional control in it, which is what the operator console's release list is.
+     */
+    /**
+     * The row's **top level** is the `when`, with no element wrapping it — which is what makes this
+     * the failing case. A row wrapped in an element is safe by accident: removing the element takes
+     * whatever is inside it, swapped or not. A row that *is* a conditional has nothing to hide
+     * behind, and the stale array is then the only thing the reconciler has to go on.
+     */
+    const rows = (posts: () => readonly { slug: string; title: string }[], expanded: () => boolean) =>
+        element('List', {
+            children: [
+                each(posts, (p) => p.slug, (p) => when(
+                    expanded,
+                    () => text(() => `${p().title}!`),
+                    () => text(() => `${p().title}?`),
+                )),
+            ],
+        });
+
+    it('removes a row whose nested branch swapped since it was built', () => {
+        const { host, components, dispatch, html } = setup();
+        const posts = signal([post('a', 'First'), post('b', 'Second')]);
+        const expanded = signal(false);
+
+        render(rows(() => posts(), () => expanded()), host, { components, dispatch });
+        expect(html()).toBe('<ul>First?Second?</ul>');
+
+        expanded.set(true);
+        tick();
+        expect(html()).toBe('<ul>First!Second!</ul>');
+
+        posts.set([post('a', 'First')]);
+        tick();
+        expect(html()).toBe('<ul>First!</ul>');
+    });
+
+    it('reorders a row whose nested branch swapped since it was built', () => {
+        const { host, components, dispatch, html } = setup();
+        const posts = signal([post('a', 'First'), post('b', 'Second')]);
+        const expanded = signal(false);
+
+        render(rows(() => posts(), () => expanded()), host, { components, dispatch });
+
+        expanded.set(true);
+        tick();
+
+        posts.set([post('b', 'Second'), post('a', 'First')]);
+        tick();
+        expect(html()).toBe('<ul>Second!First!</ul>');
     });
 
     it('keeps the same element across a reorder', () => {
