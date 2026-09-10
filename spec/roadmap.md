@@ -1002,8 +1002,17 @@ none of this is speculative.
       (1) is the one that matches how `AUTH` is already shaped — a seam every app consumes and no app
       owns. **M** · [auth.md](./auth.md) · mesh-core
 
-- [ ] **A8.17 ★★ The kernel has a log panel and writes nothing to it.** *(reported 2026-09-10:
-      "ctrl+alt+q shows on every site the logs but the framework does not really log anything")*
+- [x] **A8.17 ★★ The kernel has a log panel and writes nothing to it.** *(reported 2026-09-10:
+      "ctrl+alt+q shows on every site the logs but the framework does not really log anything".
+      **Fixed the same day.** What it records, and nothing else: a manifest conflict; an Extension
+      whose `consumes` nothing provides; a provider token nothing fills; `needs('mesh')` with no api;
+      a part that fails `checkBindings`; a constructor that throws; every activate, start and stop;
+      every failed mesh call and collection fetch, as **contract key, failure kind and status**; and
+      one boot summary. Never an input, a response body, a header or a ticket — an http line has its
+      query string stripped, because that is where a careless caller puts a token. A repeated failure
+      is one line, not one per retry, through a repeat filter capped at 128 keys so the thing that
+      prevents a flood cannot itself grow without bound. 472 tests, 17 of them new; 11 fail against
+      the kernel as it was.)*
 
       Measured: **zero** `log.` calls in `src/` outside tests. None in `kernel.ts`, none in
       `start.ts`, none on any path the framework takes. The panel is real, the `log` capability is

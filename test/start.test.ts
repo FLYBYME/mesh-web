@@ -230,7 +230,11 @@ describe('parts', () => {
         expect(good.started).toBe(1);
         expect(started.kernel.processes.find((p) => p.applicationId === 'broken')?.state)
             .toBe('failed');
-        expect(started.kernel.services.logs.some((l) => l.source === 'broken')).toBe(true);
+        // Recorded by the kernel, about the part, with the part's own reason in the message. It used
+        // to be `source: 'broken'` with the Error as data — the kernel speaking in the part's voice,
+        // and a reason that rendered as `{}`.
+        expect(started.kernel.services.logs.some((l) =>
+            l.source === 'kernel' && l.part === 'broken' && l.message.includes('nope'))).toBe(true);
         started.dispose();
     });
 
@@ -243,7 +247,8 @@ describe('parts', () => {
         });
         await started.ready;
 
-        expect(started.kernel.services.logs.some((l) => l.source === 'absent')).toBe(true);
+        expect(started.kernel.services.logs.some((l) =>
+            l.source === 'kernel' && l.part === 'absent' && l.message.includes('no Application by that id'))).toBe(true);
         started.dispose();
     });
 });

@@ -14,7 +14,8 @@ import { isApplication, isApplicationInstance, isExtension } from '../contributi
 import { checkBindings, type PartApi } from '../contribution/api.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import { createContext, createServices, type BrokerHandle, type KernelServices } from './broker.js';
-import { resolveOrder } from './graph.js';
+import { resolveOrder, type Ordered } from './graph.js';
+import { kernelLog, reasonOf, type KernelLog } from './logs.js';
 import { mergeManifests, type Manifest } from './manifest.js';
 import { signal } from '../reactivity/signal.js';
 import type { ReadonlySignal, Signal } from '../reactivity/types.js';
@@ -73,11 +74,14 @@ export class Kernel {
     #processesSignal: Signal<readonly ProcessEntry[]>;
     #pid = 0;
     #now: () => number;
+    /** What the kernel promises to record — see `KERNEL_SOURCE` in logs.ts for the whole list. */
+    #log: KernelLog;
 
     constructor(options: KernelOptions = {}) {
         this.#now = options.now ?? (() => Date.now());
         this.services = options.services ?? createServices();
         this.#processesSignal = signal<readonly ProcessEntry[]>([]);
+        this.#log = kernelLog(this.services.logs);
     }
 
     #syncProcesses(): void {
@@ -160,10 +164,10 @@ export class Kernel {
          * which is different from being stopped.
          */
         for (const conflict of this.#manifest.conflicts) {
-            this.services.logs.push({
-                level: 'warn',
-                source: 'kernel',
-                message: conflict.message,
+            // `part` is the claimant that lost — the first claim stands (manifest.ts), so the last
+            // name is the part whose declaration was dropped.
+            this.#log.warn(conflict.message, {
+                part: conflict.claimants.at(-1),
                 data: { kind: conflict.kind, key: conflict.key, claimants: conflict.claimants },
             });
         }
@@ -173,14 +177,33 @@ export class Kernel {
         }
 
         for (const { id, contribution } of loaded) {
-            if (isApplication(contribution)) this.#applications.set(id, contribution);
+            if (isApplication(contribution)) {
+                this.#applications.set(id, contribution);
+            } else if (!isExtension(contribution)) {
+                // Merged, and then run by nothing: a part exported wrongly looked exactly like a
+                // part that had nothing to do.
+                this.#log.warn(
+                    `${id} is neither an Application (no start()) nor an Extension (no activate()), ` +
+                    `so nothing will run it. Its declarations were still merged.`,
+                    { part: id },
+                );
+            }
         }
 
         // Step 6: order Extensions by consumes against provides.
         const extensions = loaded.filter((l) => isExtension(l.contribution));
-        const { order, unresolvable } = resolveOrder(
-            extensions.map(({ id, contribution }) => ({ id, declarations: contribution })),
-        );
+        let ordered: Ordered;
+        try {
+            ordered = resolveOrder(
+                extensions.map(({ id, contribution }) => ({ id, declarations: contribution })),
+            );
+        } catch (cause) {
+            // Two providers of one token, or a cycle: a boot failure by design (graph.ts). Still
+            // thrown — and written down first, so the reason is in the buffer as well as the throw.
+            this.#log.error(`boot refused: ${reasonOf(cause)}`);
+            throw cause;
+        }
+        const { order, unresolvable } = ordered;
 
         // Step 7: activate in that order.
         const byId = new Map(extensions.map((l) => [l.id, l.contribution as ErasedExtension]));
@@ -192,6 +215,7 @@ export class Kernel {
             const why = unresolvable.get(id);
             if (why !== undefined) {
                 this.#extensions.set(id, { id, state: 'failed', error: new Error(why) });
+                this.#log.error(`${id} was not activated: ${why}`, { part: id });
                 continue;
             }
 
@@ -200,19 +224,27 @@ export class Kernel {
     }
 
     #activate(id: string, contribution: ErasedExtension): void {
-        const handle = createContext(
-            // An Extension is a singleton, so the running identity and the declaring identity are
-            // the same string. For an Application they are not — see start().
-            { id, declaredBy: id },
-            contribution.needs ?? [],
-            contribution.consumes ?? [],
-            (token) => this.#resolve(id, token),
-            this.services,
-            contribution.api,
-        );
-        this.#handles.set(id, handle);
+        let handle: BrokerHandle | undefined;
 
         try {
+            /**
+             * Inside the `try`, which it was not. `createContext` refuses a manifest mistake —
+             * `needs('mesh')` with no `api` — by throwing, and outside the `try` that throw left
+             * `boot` and took every other part down with it, contradicting the rule in the `catch`
+             * below that an Extension failing does not stop the boot.
+             */
+            handle = createContext(
+                // An Extension is a singleton, so the running identity and the declaring identity
+                // are the same string. For an Application they are not — see start().
+                { id, declaredBy: id },
+                contribution.needs ?? [],
+                contribution.consumes ?? [],
+                (token) => this.#resolve(id, token),
+                this.services,
+                contribution.api,
+            );
+            this.#handles.set(id, handle);
+
             const api = contribution.activate(handle.context);
 
             if (contribution.provides !== undefined) {
@@ -240,16 +272,23 @@ export class Kernel {
              */
 
             this.#extensions.set(id, { id, state: 'activated', api });
+            this.#log.info(
+                contribution.provides === undefined
+                    ? `${id} activated`
+                    : `${id} activated, providing "${contribution.provides.id}"`,
+                { part: id },
+            );
         } catch (cause) {
             // Boot continues. A site that cannot function without an Extension says so by declaring
             // it required in the descriptor; the kernel does not guess which ones are essential.
-            handle.dispose();
+            handle?.dispose();
             this.#handles.delete(id);
             this.#extensions.set(id, {
                 id,
                 state: 'failed',
                 error: cause instanceof Error ? cause : new Error(String(cause)),
             });
+            this.#log.error(`${id} failed to activate: ${reasonOf(cause)}`, { part: id });
         }
     }
 
@@ -274,16 +313,21 @@ export class Kernel {
     async start(applicationId: string): Promise<string> {
         const contribution = this.#applications.get(applicationId);
         if (contribution === undefined) {
+            this.#log.warn(
+                `refused to start "${applicationId}": no Application by that id is loaded.`,
+                { part: applicationId },
+            );
             throw new Error(`Unknown Application "${applicationId}".`);
         }
 
-        const running = this.processes.filter(
+        const alreadyRunning = this.processes.find(
             (p) => p.applicationId === applicationId && (p.state === 'running' || p.state === 'starting'),
         );
-        if (contribution.singleton === true && running.length > 0) {
-            throw new Error(
-                `Application "${applicationId}" is singleton and is already running as ${running[0]!.pid}.`,
-            );
+        if (contribution.singleton === true && alreadyRunning !== undefined) {
+            const message =
+                `Application "${applicationId}" is singleton and is already running as ${alreadyRunning.pid}.`;
+            this.#log.warn(`refused to start a second ${applicationId}: ${message}`, { part: applicationId });
+            throw new Error(message);
         }
 
         const instance = (this.#instanceCounts.get(applicationId) ?? 0) + 1;
@@ -300,17 +344,39 @@ export class Kernel {
         this.#processes.set(pid, entry);
         this.#syncProcesses();
 
-        const handle = createContext(
-            // Scoped to the instance, so two windows do not share a log source or a namespace —
-            // but declaring identity is the Application, because the manifest is the Application's.
-            { id: pid, declaredBy: applicationId },
-            contribution.needs ?? [],
-            contribution.consumes ?? [],
-            (token) => this.#resolve(pid, token),
-            this.services,
-            contribution.api,
-        );
+        /** How every line about this instance names it: the manifest's id, and the pid. */
+        const who = `${applicationId} (${pid})`;
+
+        let handle: BrokerHandle;
+        try {
+            handle = createContext(
+                // Scoped to the instance, so two windows do not share a log source or a namespace —
+                // but declaring identity is the Application, because the manifest is the
+                // Application's.
+                { id: pid, declaredBy: applicationId },
+                contribution.needs ?? [],
+                contribution.consumes ?? [],
+                (token) => this.#resolve(pid, token),
+                this.services,
+                contribution.api,
+            );
+        } catch (cause) {
+            /**
+             * Still thrown — a manifest mistake fails loudly at start, and two tests hold it to
+             * that. But **failed first**: the entry used to stay in `starting` forever, so the
+             * process table and the panel both described a part that was about to run.
+             */
+            entry.state = 'failed';
+            entry.error = cause instanceof Error ? cause : new Error(String(cause));
+            this.#syncProcesses();
+            this.#log.error(`${who} was refused its context: ${reasonOf(cause)}`, { part: applicationId });
+            throw cause;
+        }
         this.#handles.set(pid, handle);
+
+        // Which step failed decides what the line says: a part that threw, or a part the kernel
+        // refused for binding something other than what it declared.
+        let phase: 'start' | 'bindings' = 'start';
 
         try {
             const startResult = await contribution.start(handle.context);
@@ -338,10 +404,11 @@ export class Kernel {
              * case and is not asked to prove a negative.
              */
             if (contribution.publishes !== undefined) {
+                phase = 'bindings';
                 checkBindings(
                     contribution.publishes,
                     entry.api as PartApi | undefined,
-                    `${applicationId} (${pid})`,
+                    who,
                 );
             }
 
@@ -353,6 +420,7 @@ export class Kernel {
             // Syncing processes here notifies any reactive shell waiting to mount views for this pid.
             entry.state = 'running';
             this.#syncProcesses();
+            this.#log.info(`${applicationId} started as ${pid}`, { part: applicationId });
         } catch (cause) {
             // `failed` is a resting state, not a disappearance. An Application that vanishes on
             // error is one nobody can debug (spec/application.md section 4).
@@ -361,6 +429,16 @@ export class Kernel {
             entry.state = 'failed';
             entry.error = cause instanceof Error ? cause : new Error(String(cause));
             this.#syncProcesses();
+
+            const reason = reasonOf(cause);
+            if (phase === 'bindings') {
+                // `checkBindings` was given `who` as its source, so its message already opens with
+                // it. Dropped here so the line does not name the part twice.
+                const detail = reason.startsWith(`${who}: `) ? reason.slice(who.length + 2) : reason;
+                this.#log.error(`${who} was refused at start: ${detail}`, { part: applicationId });
+            } else {
+                this.#log.error(`${who} failed to start: ${reason}`, { part: applicationId });
+            }
         }
 
         return pid;
@@ -375,10 +453,16 @@ export class Kernel {
         entry.state = 'stopping';
         this.#syncProcesses();
 
+        const who = `${entry.applicationId} (${pid})`;
+
         try {
             await contribution?.stop?.();
         } catch (cause) {
             entry.error = cause instanceof Error ? cause : new Error(String(cause));
+            this.#log.warn(
+                `${who} threw from stop(): ${reasonOf(cause)}. Its windows and commands are released anyway.`,
+                { part: entry.applicationId },
+            );
         }
 
         // Disposed whether or not stop() succeeded. `stop` is for the Application's own concerns;
@@ -392,6 +476,7 @@ export class Kernel {
 
         entry.state = 'stopped';
         this.#syncProcesses();
+        this.#log.info(`${who} stopped`, { part: entry.applicationId });
     }
 
     /** Stop then start. A **new pid**: it is not a resumption and nothing is carried over. */

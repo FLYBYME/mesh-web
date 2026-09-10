@@ -3,7 +3,7 @@ export type {
 } from './broker.js';
 export { createContext, createServices, defaultHives, recordingWindows } from './broker.js';
 export type { LogBuffer, LogViewer } from './logs.js';
-export { DEFAULT_LOG_CAPACITY, createLogBuffer, mountLogViewer } from './logs.js';
+export { DEFAULT_LOG_CAPACITY, KERNEL_SOURCE, createLogBuffer, mountLogViewer } from './logs.js';
 
 export type { GraphNode, Ordered } from './graph.js';
 export { resolveOrder } from './graph.js';

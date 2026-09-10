@@ -128,6 +128,10 @@ describe('capabilities are scoped to who asked', () => {
 
         expect(kernel.services.logs).toEqual([
             { level: 'info', source: 'auth', message: 'auth ready' },
+            // And the kernel's own line about the same part (A8.17). Which part it is about is in
+            // `part`, a field the part's `log` has no way to set — so a part cannot speak as the
+            // kernel, and the kernel does not speak as a part.
+            { level: 'info', source: 'kernel', part: 'auth', message: 'auth activated, providing "demo.auth"' },
         ]);
     });
 

@@ -37,12 +37,18 @@ import type { HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
 import { createStorage } from '../storage/index.js';
 import { createModels, type EventSourceLike, type Models } from '../models/index.js';
-import { createLogBuffer, type LogBuffer } from './logs.js';
+import type { CallError, Result } from '../net/result.js';
+import { createLogBuffer, createRepeatFilter, kernelLog, reasonOf, type LogBuffer } from './logs.js';
 
 export interface LogRecord {
     readonly level: 'debug' | 'info' | 'warn' | 'error';
     readonly source: string;
     readonly message: string;
+    /**
+     * Which part a **kernel** line is about (roadmap A8.17). Set only by the kernel's own writer
+     * (`kernelLog`); a contribution's `log` capability has no way to supply it.
+     */
+    readonly part?: string;
     readonly data?: unknown;
 }
 
@@ -365,6 +371,47 @@ export function createContext(
 
     const consumable = new Set(declaredConsumes.map((t) => t.id));
 
+    /**
+     * The kernel's own lines about this contribution (roadmap A8.17).
+     *
+     * `who` is what a person reading the panel needs: the manifest's name, and the pid beside it
+     * when they differ — "p3 failed" names nothing anyone composed. `part` is always the declaring
+     * name, so every line about one part can be found together.
+     *
+     * Refusals and failed calls go through one bounded repeat filter, because both can be reached
+     * from a render or a refetch loop, and the promise is one line per refusal rather than one per
+     * attempt.
+     */
+    const log = kernelLog(services.logs);
+    const who = id === declaredBy ? id : `${declaredBy} (${id})`;
+    const repeats = createRepeatFilter();
+    const refused = (key: string, message: string): void => {
+        if (repeats.changed(`refused:${key}`, message)) log.warn(message, { part: declaredBy });
+    };
+
+    const reportCall = (api: string, action: string, result: Result<unknown, CallError<string>>): void => {
+        const key = `call:${action}`;
+        if (result.ok) {
+            repeats.forget(key);
+            return;
+        }
+
+        const failure = describeCallFailure(result.error);
+        if (!repeats.changed(key, failure.text)) return;
+
+        const message = `${who}: ${action} failed — ${failure.text}`;
+        const about = {
+            part: declaredBy,
+            data: {
+                api,
+                contract: action,
+                kind: result.error.kind,
+                ...(failure.status === undefined ? {} : { status: failure.status }),
+            },
+        };
+        if (failure.severe) log.error(message, about); else log.warn(message, about);
+    };
+
     const base = {
         id,
         onDispose(fn: () => void): void {
@@ -372,13 +419,19 @@ export function createContext(
         },
         use(token: ProviderToken<unknown>): unknown {
             if (!consumable.has(token.id)) {
+                refused(`use:${token.id}`, `${who} used provider "${token.id}" without declaring it in consumes, and was refused.`);
                 throw new Error(
                     `${id} used provider "${token.id}" without declaring it in consumes. ` +
                     `The compile error is the first line of defence; this is the second, because a ` +
                     `bundle can be built elsewhere.`,
                 );
             }
-            return resolve(token);
+            try {
+                return resolve(token);
+            } catch (cause) {
+                refused(`resolve:${token.id}`, `${who} was refused provider "${token.id}": ${reasonOf(cause)}`);
+                throw cause;
+            }
         },
     };
 
@@ -403,7 +456,9 @@ export function createContext(
                         `rather than a run-time condition worth tolerating.`,
                     );
                 }
-                mesh = services.meshClient(declaredApi, id);
+                // Observed here rather than inside `services.meshClient`, which a site or a test
+                // replaces: what the kernel records must not depend on who built the client.
+                mesh = observeCalls(services.meshClient(declaredApi, id), reportCall);
                 break;
             case 'models':
                 if (declaredApi === undefined) {
@@ -414,7 +469,9 @@ export function createContext(
                     );
                 }
                 models = createModels(
-                    services.meshClient(declaredApi, id),
+                    // Every collection fetch and mutation is a `call` on this client, so a failed
+                    // `models` fetch is recorded by the same observer as a failed `mesh` call.
+                    observeCalls(services.meshClient(declaredApi, id), reportCall),
                     (fn) => cleanups.push(fn),
                     () => services.session,
                     declaredApi,
@@ -431,7 +488,7 @@ export function createContext(
                 capabilities.log = makeLog(id, services);
                 break;
             case 'commands':
-                capabilities.commands = makeCommands(id, declaredBy, services);
+                capabilities.commands = makeCommands(id, declaredBy, services, refused);
                 break;
             case 'notifications':
                 capabilities.notifications = makeNotifications(id, services, next);
@@ -450,7 +507,7 @@ export function createContext(
                 capabilities.display = { size: services.displaySize };
                 break;
             case 'credentials':
-                capabilities.credentials = makeCredentials(id, services);
+                capabilities.credentials = makeCredentials(id, services, refused);
                 break;
             case 'chrome':
                 capabilities.chrome = makeChrome(services);
@@ -470,6 +527,16 @@ export function createContext(
             case 'dom':
                 capabilities.dom = makeDom(id, cleanups);
                 break;
+            default: {
+                /**
+                 * **Declared and not granted.** Unreachable through the types — `name` is `never`
+                 * here — and reachable from a bundle built against a different kernel, which asks
+                 * for a capability this one does not have. It used to get nothing, silently, and fail
+                 * later at the first use of a property that was never on its context.
+                 */
+                const unknown: string = name;
+                refused(`need:${unknown}`, `${who} declared needs('${unknown}'), which this kernel does not have, so it was not granted.`);
+            }
         }
     }
 
@@ -527,6 +594,75 @@ function makeLog(owner: string, services: KernelServices): Log {
 }
 
 /**
+ * A client whose every call the kernel sees the outcome of — and only the outcome.
+ *
+ * Wraps `call` and nothing else. The input is passed straight through and never looked at; the
+ * result is handed to `report`, which reads the failure's *kind* and never its `detail` — a
+ * `detail` can be the response body verbatim (`client.ts` `interpret`), and a body is payload.
+ */
+function observeCalls(
+    client: MeshClient<unknown>,
+    report: (api: string, action: string, result: Result<unknown, CallError<string>>) => void,
+): MeshClient<unknown> {
+    return {
+        api: client.api,
+        ...(client.descriptor === undefined ? {} : { descriptor: client.descriptor }),
+        call: async (action, ...input) => {
+            const result = await client.call(action, ...input);
+            report(client.api, action, result);
+            return result;
+        },
+    };
+}
+
+interface CallFailure {
+    /** What the line says. Also the repeat key, so a changed failure is news and a repeat is not. */
+    readonly text: string;
+    /** Only where the kind pins exactly one status — `client.ts` `interpret` is the inverse. */
+    readonly status?: number;
+    /** An outage rather than an answer: the server broke, the API is unreachable, or the client is stale. */
+    readonly severe: boolean;
+}
+
+/**
+ * A failure, as a line — built from the kind and never from `detail`.
+ *
+ * `invalid` claims no status: it is a 400 over the wire *and* the client's own refusal of an action
+ * its API does not expose, and a line that said "400" for the second would be inventing a response.
+ * `offline` does carry its detail, because there it is the transport's exception message (`Failed
+ * to fetch`) and never a body.
+ *
+ * `switch` with no default, so a new failure kind is a compile error here rather than a blank line.
+ */
+function describeCallFailure(error: CallError<string>): CallFailure {
+    switch (error.kind) {
+        case 'unauthorized': return { text: '401 unauthorized', status: 401, severe: false };
+        case 'forbidden': return { text: '403 forbidden', status: 403, severe: false };
+        case 'not_found': return { text: '404 not found', status: 404, severe: false };
+        case 'conflict': return { text: '409 conflict', status: 409, severe: false };
+        case 'rate_limited': return { text: '429 rate limited', status: 429, severe: false };
+        case 'server': return { text: `${String(error.status)} server error`, status: error.status, severe: true };
+        case 'invalid': return { text: 'invalid request', severe: false };
+        case 'declared': return { text: `declared failure "${error.name.slice(0, 100)}"`, severe: false };
+        case 'offline': return { text: `could not reach the API (${error.detail.slice(0, 200)})`, severe: true };
+        case 'stale': {
+            // Contract keys and what moved about each — the question a stale line has to answer.
+            // Gate differences never fail a call (client.ts), so they are not the reason for this one.
+            const moved = (error.differences ?? [])
+                .filter((d) => d.kind !== 'gate')
+                .slice(0, 5)
+                .map((d) => `${d.contract} (${d.kind})`);
+            return {
+                text: moved.length === 0
+                    ? 'stale: the API exposure moved'
+                    : `stale: ${moved.join(', ')} changed`,
+                severe: true,
+            };
+        }
+    }
+}
+
+/**
  * `owner` is the running instance (a pid); `declaredBy` is who declared the command in the manifest
  * (an applicationId). They differ for every Application, and comparing the wrong pair means an
  * Application can never implement its own commands.
@@ -535,25 +671,36 @@ function makeLog(owner: string, services: KernelServices): Log {
  * the second is refused. That is defensible and probably not final — "which instance does the
  * palette's Blog: New Post run" is a real question and nothing has answered it.
  */
-function makeCommands(owner: string, declaredBy: string, services: KernelServices): Commands {
+function makeCommands(
+    owner: string,
+    declaredBy: string,
+    services: KernelServices,
+    refused: (key: string, message: string) => void,
+): Commands {
+    /** Recorded before it is thrown: a part that catches its own refusal still leaves a line. */
+    const refuse = (id: string, message: string): Error => {
+        refused(`implement:${id}`, message);
+        return new Error(message);
+    };
+
     return {
         implement(id: string, run: CommandImpl): void {
             const declarer = services.declaredCommands.get(id);
 
             if (declarer === undefined) {
-                throw new Error(
+                throw refuse(id,
                     `${owner} implemented command "${id}", which nothing declared. ` +
                     `Commands are declared in the manifest so the palette and the keymap know ` +
                     `about them before the contribution starts.`,
                 );
             }
             if (declarer !== declaredBy) {
-                throw new Error(
+                throw refuse(id,
                     `${owner} implemented command "${id}", which was declared by ${declarer}.`,
                 );
             }
             if (services.commands.has(id)) {
-                throw new Error(`Command "${id}" already has an implementation.`);
+                throw refuse(id, `Command "${id}" already has an implementation.`);
             }
 
             services.commands.set(id, { owner, run });
@@ -719,10 +866,14 @@ function makeHttp(owner: string, services: KernelServices): Http {
 
         // Logged against the contribution that made the call, so *which part is talking to what* is
         // answerable from the page rather than only from a network tab.
+        //
+        // **Without the query string or fragment** (A8.17). A URL is where a careless caller puts a
+        // token — `?access_token=` is a real convention — and the buffer is readable by anyone who
+        // presses ctrl+alt+q. Where the request went is the origin and path; the rest is payload.
         services.logs.push({
             level: 'debug',
             source: owner,
-            message: `${method} ${url} → ${String(response.status)}`,
+            message: `${method} ${url.split(/[?#]/, 1)[0] ?? ''} → ${String(response.status)}`,
         });
 
         return { ok: response.ok, status: response.status, body };
@@ -741,7 +892,11 @@ function makeHttp(owner: string, services: KernelServices): Http {
  * `clear()` is scoped to the owner for the same reason `attach` is refused: signing out must not be
  * something another contribution can do to the page's session on the auth Extension's behalf.
  */
-function makeCredentials(owner: string, services: KernelServices): Credentials {
+function makeCredentials(
+    owner: string,
+    services: KernelServices,
+    refused: (key: string, message: string) => void,
+): Credentials {
     const held = services.credentials;
 
     return {
@@ -749,11 +904,13 @@ function makeCredentials(owner: string, services: KernelServices): Credentials {
 
         attach(headers, sessionSignal) {
             if (held.owner !== undefined && held.owner !== owner) {
-                throw new Error(
+                // Names who holds the seam. Never what is in it: `headers` is not called here.
+                const message =
                     `${owner} tried to attach credentials, but ${held.owner} already has them. ` +
                     `A page has one session for one API (spec/hosting.md §4), so two contributions ` +
-                    `attaching is a site that will send the wrong ticket somewhere.`,
-                );
+                    `attaching is a site that will send the wrong ticket somewhere.`;
+                refused('credentials', message);
+                throw new Error(message);
             }
             held.owner = owner;
             held.headers = headers;

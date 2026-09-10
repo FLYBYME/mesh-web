@@ -63,8 +63,8 @@ import { WindowManager } from '../window/manager.js';
 import type { Action } from '../description/types.js';
 import { bindingTable } from '../input/keys.js';
 import { createServices } from './broker.js';
-import { Kernel } from './kernel.js';
-import { mountLogViewer, type LogViewer } from './logs.js';
+import { Kernel, type Loaded } from './kernel.js';
+import { kernelLog, mountLogViewer, reasonOf, type KernelLog, type LogViewer } from './logs.js';
 
 /**
  * One part, as the page hands it over.
@@ -257,10 +257,30 @@ export function start(composition: Composition): Started {
         ),
     }) as MeshClient<unknown>;
 
-    kernel.boot(composition.parts.map((part) => ({
-        id: part.id,
-        contribution: construct(part),
-    })));
+    /**
+     * **A constructor that throws is one missing part, not a blank page.**
+     *
+     * This was a `map` straight into `boot`, so one part whose constructor threw — a bad option
+     * from the site record, a typo in a class body — escaped `start()` before the log panel was
+     * mounted. The page was blank, the reason was in a console nobody had open, and ctrl+alt+q had
+     * nothing to open. Everything else here already holds that one broken part must not take the
+     * site with it (`open` below, `Kernel.#activate`); construction was the exception.
+     */
+    const log = kernelLog(kernel.services.logs);
+    const loaded: Loaded[] = [];
+    const unconstructed: string[] = [];
+    for (const part of composition.parts) {
+        try {
+            loaded.push({ id: part.id, contribution: construct(part) });
+        } catch (cause) {
+            unconstructed.push(part.id);
+            log.error(
+                `${part.id} could not be constructed: ${reasonOf(cause)}. The page boots without it.`,
+                { part: part.id },
+            );
+        }
+    }
+    kernel.boot(loaded);
 
     const components = createComponents(PRIMITIVES);
     for (const { decl } of kernel.manifest.components.values()) {
@@ -378,7 +398,7 @@ export function start(composition: Composition): Started {
 
     return {
         kernel, manager, page, settings, components, logViewer,
-        ready: open(kernel, composition, manager, persistence),
+        ready: open(kernel, composition, manager, persistence, log, unconstructed),
         dispose() {
             stopPersisting();
             stopTracking();
@@ -474,47 +494,36 @@ async function open(
     composition: Composition,
     manager: WindowManager,
     persistence: WindowPersistence,
+    log: KernelLog,
+    unconstructed: readonly string[],
 ): Promise<void> {
     const wanted = composition.open ?? defaultOpen(kernel);
 
     if (wanted.length === 0 && composition.parts.length > 0) {
         // Never silent. A composition with parts that opens nothing is a site that will render an
         // empty page, and the reason has to be visible somewhere other than a debugger.
-        kernel.services.logs.push({
-            level: 'warn',
-            source: 'kernel',
-            message: `This composition has ${String(composition.parts.length)} part(s) and no `
-                + 'Application among them, so nothing was opened. An Application declares `views`; '
-                + 'an Extension is never opened.',
-        });
+        log.warn(`This composition has ${String(composition.parts.length)} part(s) and no `
+            + 'Application among them, so nothing was opened. An Application declares `views`; '
+            + 'an Extension is never opened.');
     }
 
+    /**
+     * Neither failure below writes a line of its own any more: `kernel.start` records both — the
+     * refusal of an id nothing loaded, and a start that failed, with the reason in the message. Two
+     * lines for one failure made a boot harder to read, and these ones had the part's name as their
+     * *source*, which is the kernel speaking in a part's voice.
+     */
     for (const entry of wanted) {
         let pid: string;
         try {
             pid = await kernel.start(entry.application);
-        } catch (cause) {
-            kernel.services.logs.push({
-                level: 'error',
-                source: entry.application,
-                message: 'is named in this composition and is not in it',
-                data: cause,
-            });
+        } catch {
             continue;
         }
 
-        const process = kernel.processes.find((p) => p.pid === pid);
-        if (process?.state === 'failed') {
-            // Surfaced here rather than left in the table. A window that never appears is otherwise
-            // indistinguishable from one the site did not ask for.
-            kernel.services.logs.push({
-                level: 'error',
-                source: entry.application,
-                message: 'did not start',
-                data: process.error,
-            });
-            continue;
-        }
+        // A window that never appears is otherwise indistinguishable from one the site did not ask
+        // for; the kernel's line says which it was.
+        if (kernel.processes.find((p) => p.pid === pid)?.state === 'failed') continue;
 
         for (const view of entry.views ?? []) {
             kernel.services.windows.open(pid, view, {});
@@ -523,6 +532,65 @@ async function open(
 
     await restoreGeometry(kernel, manager, persistence);
     applyLayout(kernel, manager);
+    summarise(kernel, log, composition.parts.map((part) => part.id), unconstructed);
+}
+
+/**
+ * The boot summary: one line, once, after the composition's Applications have started.
+ *
+ * Every part lands in exactly one group, in composition order, so the line answers "which of my
+ * parts is running" without anyone having to count lines above it. `warn` when anything failed,
+ * so the level filter set to `warn` shows a broken boot at a glance.
+ */
+function summarise(
+    kernel: Kernel,
+    log: KernelLog,
+    parts: readonly string[],
+    unconstructed: readonly string[],
+): void {
+    const running: string[] = [];
+    const failed: string[] = [];
+    const idle: string[] = [];
+
+    const extensions = new Map(kernel.extensions.map((e) => [e.id, e.state]));
+    const applications = new Set(kernel.applications);
+
+    for (const id of parts) {
+        if (unconstructed.includes(id)) {
+            failed.push(id);
+            continue;
+        }
+
+        const extension = extensions.get(id);
+        if (extension !== undefined) {
+            (extension === 'activated' ? running : failed).push(id);
+            continue;
+        }
+
+        if (applications.has(id)) {
+            const processes = kernel.processes.filter((p) => p.applicationId === id);
+            const live = processes.filter((p) => p.state === 'running').map((p) => p.pid);
+            if (live.length > 0) running.push(`${id} (${live.join(', ')})`);
+            else if (processes.some((p) => p.state === 'failed')) failed.push(id);
+            else idle.push(id);
+            continue;
+        }
+
+        // Neither an Application nor an Extension — `boot` already said so.
+        idle.push(id);
+    }
+
+    const groups = [
+        running.length === 0 ? undefined : `running: ${running.join(', ')}`,
+        failed.length === 0 ? undefined : `failed: ${failed.join(', ')}`,
+        idle.length === 0 ? undefined : `not started: ${idle.join(', ')}`,
+    ].filter((group): group is string => group !== undefined);
+
+    const message = `booted ${String(parts.length)} part(s)`
+        + (groups.length === 0 ? '' : ` — ${groups.join(' · ')}`);
+    const about = { data: { parts: parts.length, running, failed, notStarted: idle } };
+
+    if (failed.length > 0) log.warn(message, about); else log.info(message, about);
 }
 
 /**

@@ -12,6 +12,108 @@ import type { LogRecord } from './broker.js';
 
 export const DEFAULT_LOG_CAPACITY = 1000;
 
+// ---------------------------------------------------------------------------- what the kernel writes
+
+/**
+ * The source of every line the kernel itself writes — roadmap A8.17.
+ *
+ * One source rather than `kernel:<part>`, so the panel's source filter set to `kernel` shows
+ * *everything the framework did*. Which part a line is about is `LogRecord.part`, which a
+ * contribution cannot set: `makeLog` builds the record, and the caller supplies only a message and
+ * data.
+ *
+ * **What the kernel promises to record, and nothing else** — this set is interface, because the
+ * moment somebody reads the panel to find out why a window is missing, a line that stops appearing is
+ * a regression:
+ *
+ * - **lifecycle**: every Extension activated or failed, every Application started, failed or
+ *   stopped, every part that could not be constructed — with the reason, in the message.
+ * - **refusals**: a published API that does not match its manifest (`checkBindings`), an unresolved
+ *   `consumes`, a provider token nothing fills, a `use` of an undeclared token, a capability name
+ *   the kernel does not have, a manifest conflict, a command implementation or credential attach
+ *   refused, an Application id nothing loaded or a singleton already running.
+ * - **failed calls it mediates**: a `mesh` call or a `models` fetch that did not succeed — contract
+ *   key, failure kind, and status where the kind pins one. **Never** the input, the response body,
+ *   a header or a ticket.
+ * - **the boot summary**, once, after the composition's Applications have started.
+ *
+ * Nothing per render, nothing per signal change. A repeated identical failure is one line until the
+ * same call succeeds again, so a list refetching against a dead API is one line and not a stream.
+ */
+export const KERNEL_SOURCE = 'kernel';
+
+export interface KernelLine {
+    /** The part the line is about — an Extension id or an applicationId, never a pid. */
+    readonly part?: string;
+    /** Plain, JSON-shaped facts only. Never an Error (it renders as `{}`) and never a payload. */
+    readonly data?: unknown;
+}
+
+export interface KernelLog {
+    info(message: string, about?: KernelLine): void;
+    warn(message: string, about?: KernelLine): void;
+    error(message: string, about?: KernelLine): void;
+}
+
+/** The kernel's writer onto the one buffer the panel shows. Not a second logging system. */
+export function kernelLog(logs: LogBuffer): KernelLog {
+    const write = (level: LogRecord['level']) => (message: string, about: KernelLine = {}): void => {
+        logs.push({
+            level,
+            source: KERNEL_SOURCE,
+            message,
+            ...(about.part === undefined ? {} : { part: about.part }),
+            ...(about.data === undefined ? {} : { data: about.data }),
+        });
+    };
+
+    return { info: write('info'), warn: write('warn'), error: write('error') };
+}
+
+/**
+ * Why, as text.
+ *
+ * In the message rather than as `data: error`, which is what the kernel did before: an `Error`
+ * serialises to `{}`, so the panel showed "did not start" with an empty box under it.
+ */
+export function reasonOf(cause: unknown): string {
+    return cause instanceof Error ? cause.message : String(cause);
+}
+
+/**
+ * Remembers the last outcome per key, so an identical repeat is not written twice.
+ *
+ * Bounded, because the keys come from contributions — an action string from a hand-built bundle is
+ * arbitrary — and a filter that grows without limit is the leak the buffer exists to prevent.
+ */
+export interface RepeatFilter {
+    /** True when `key` did not already hold `outcome`: the line is new and worth writing. */
+    changed(key: string, outcome: string): boolean;
+    /** The call succeeded, so the next failure is news again. */
+    forget(key: string): void;
+}
+
+export function createRepeatFilter(limit = 128): RepeatFilter {
+    const last = new Map<string, string>();
+
+    return {
+        changed(key, outcome) {
+            if (last.get(key) === outcome) return false;
+            last.delete(key);
+            last.set(key, outcome);
+            while (last.size > limit) {
+                const oldest = last.keys().next();
+                if (oldest.done === true) break;
+                last.delete(oldest.value);
+            }
+            return true;
+        },
+        forget(key) {
+            last.delete(key);
+        },
+    };
+}
+
 export interface LogBuffer extends Array<LogRecord> {
     readonly capacity: number;
     readonly dropped: number;
@@ -183,7 +285,11 @@ export function mountLogViewer(doc: Document, root: Element, logs: LogBuffer): L
         const filtered = logs.filter((log) => {
             if (levelFilter !== 'all' && log.level !== levelFilter) return false;
             if (sourceFilter !== 'all' && log.source !== sourceFilter) return false;
-            if (query !== '' && !log.message.toLowerCase().includes(query)) return false;
+            // The part too, so typing a part's name finds the kernel's lines about it alongside
+            // its own.
+            if (query !== ''
+                && !log.message.toLowerCase().includes(query)
+                && !(log.part?.toLowerCase().includes(query) ?? false)) return false;
             return true;
         });
 
@@ -223,6 +329,13 @@ export function mountLogViewer(doc: Document, root: Element, logs: LogBuffer): L
             src.className = 'mesh-log-source';
             src.textContent = log.source;
             entry.append(src);
+
+            if (log.part !== undefined) {
+                const part = doc.createElement('span');
+                part.className = 'mesh-log-part';
+                part.textContent = log.part;
+                entry.append(part);
+            }
 
             const msg = doc.createElement('span');
             msg.className = 'mesh-log-message';

@@ -372,8 +372,14 @@ html, body {
     min-width: 100px;
 }
 
+/* Which part a kernel line is about. Only the kernel sets it. */
+.mesh-log-part {
+    color: var(--ink-dim, #8b949e);
+}
+
 .mesh-log-message {
     flex: 1 1 auto;
+    white-space: pre-wrap;
 }
 
 .mesh-log-data {
