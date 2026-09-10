@@ -1086,6 +1086,23 @@ none of this is speculative.
       the strongest remaining argument that mesh-web 1.0 should be a considered release rather than a
       version bump.** · surfdns freeze gate V5, which this replaces
 
+- [ ] **A8.19 ★★ A `Dialog` opened at mount is not modal, so no sign-in can open over a page that
+      starts signed out.** *(found 2026-09-10 building mesh-core's `ui.SignIn`; mesh-core **U6**)*
+
+      `Dialog` renders a native `<dialog>` and calls `showModal()`, which is correct — **after
+      mount.** Opened *at* mount the element is not connected yet, so `showModal()` throws, `openModal`
+      in `render/dom.ts` falls back to setting the `open` attribute, and its microtask retry is gated
+      on `!el.open` — which the fallback has just made false. So it never becomes modal. Measured with
+      a bare `ui.Dialog`: opened after mount, `:modal` and `position: fixed`; opened at mount, neither,
+      and `position: absolute` over the window's content.
+
+      At mount is exactly when a signed-out page opens a sign-in, so this is what forced `ui.SignIn`
+      to ship as a card in place. It would otherwise have been one more layer over windows, which is
+      **A8.16**'s shape.
+
+      Fix: retry `showModal()` once connected, regardless of the fallback attribute — remove the
+      `open` attribute first, then call it. **S.** Then the modal variant in mesh-core is a few lines.
+
 ### A9 — Composition and the marketplace
 
 Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned out to be one question.
