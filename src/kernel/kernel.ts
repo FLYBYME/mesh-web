@@ -128,6 +128,11 @@ export class Kernel {
         return this.#providers.get(token.id) as T | undefined;
     }
 
+    /** Register a core driver or provider that does not come from an Extension. */
+    provide<T>(token: ProviderToken<T>, instance: T): void {
+        this.#providers.set(token.id, instance);
+    }
+
     get processes(): readonly ProcessEntry[] {
         return this.#processesSignal();
     }

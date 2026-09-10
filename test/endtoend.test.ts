@@ -1,3 +1,4 @@
+import { createDomRenderer } from '../src/render/index.js';
 /**
  * @vitest-environment jsdom
  *
@@ -174,7 +175,7 @@ function bootSite() {
                 api: process.api,
                 params: record.params,
                 windows: manager,
-                render: { components: createRegistry(PRIMITIVES), dispatch: { dispatch: () => {} } },
+                resolve: (() => createDomRenderer(createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => { } } },
                 onCommand: (action) => {
                     dispatched.push(action);
                     if (action.kind === 'command') {

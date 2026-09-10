@@ -1,3 +1,4 @@
+import { createDomRenderer } from '../../src/render/index.js';
 /**
  * Mode switching with no remount — roadmap A2.4, and the claim the whole design rests on.
  *
@@ -105,7 +106,7 @@ function shell(): Shell {
                     api: undefined,
                     params: {},
                     windows: manager,
-                    render: { components, dispatch: { dispatch: () => {} } },
+                    resolve: (() => createDomRenderer(typeof components !== 'undefined' ? components : createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => { } } },
                     onCommand: () => {},
                 });
 

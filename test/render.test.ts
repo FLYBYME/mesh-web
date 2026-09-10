@@ -1,3 +1,4 @@
+import { createDomRenderer } from '../src/render/index.js';
 /**
  * @vitest-environment jsdom
  *
@@ -813,7 +814,7 @@ describe('a view mounted inside an effect is not owned by that effect', () => {
                 api: undefined,
                 params: {},
                 windows: { setTitle: () => {}, close: () => {} } as never,
-                render: { components, dispatch },
+                resolve: (() => createDomRenderer(typeof components !== 'undefined' ? components : createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch },
                 onCommand: () => {},
             }));
         });
@@ -1340,7 +1341,7 @@ describe('a view registers its own handlers', () => {
             api: undefined,
             params: {},
             windows: { setTitle: () => {}, close: () => {} } as never,
-            render: { components, dispatch },
+            resolve: (() => createDomRenderer(typeof components !== 'undefined' ? components : createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch },
             onCommand: () => {},
         });
 

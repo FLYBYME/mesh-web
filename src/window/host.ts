@@ -16,8 +16,9 @@ import type { ReactiveScope } from '../reactivity/types.js';
 import { createHandlerTable, type HandlerTable } from '../description/build.js';
 import type { Action, IntentValue, Json } from '../description/types.js';
 import type { ViewContext, ViewDecl } from '../contribution/contract.js';
-import { render, type Dispatcher, type Mounted, type RenderOptions } from '../render/index.js';
+import { RENDERER, type Dispatcher, type Mounted, type RendererOptions } from '../render/index.js';
 import type { WindowManager } from './manager.js';
+import type { ProviderToken } from '../contribution/provider.js';
 
 export interface ViewHostOptions {
     readonly windowId: string;
@@ -26,7 +27,8 @@ export interface ViewHostOptions {
     readonly internal?: unknown;
     readonly params: Readonly<Record<string, Json>>;
     readonly windows: WindowManager;
-    readonly render: RenderOptions;
+    readonly resolve: <T>(token: ProviderToken<T>) => T | undefined;
+    readonly renderOptions: RendererOptions;
     /** The part or application owning this view, if known. */
     readonly part?: string;
     /** Commands go to the kernel; handlers come back to this view's own table. */
@@ -107,10 +109,13 @@ export function mountView(host: Element, options: ViewHostOptions): ViewInstance
 
     let mounted: Mounted | undefined;
 
-    const part = options.part ?? options.render.part;
+    const part = options.part ?? options.renderOptions.part;
+    const renderer = options.resolve(RENDERER);
+    if (renderer === undefined) throw new Error('No renderer available to mount view.');
+
     scope.run(() => {
-        mounted = render(options.decl.render(vx), host, {
-            ...options.render,
+        mounted = renderer.render(options.decl.render(vx), host, {
+            ...options.renderOptions,
             ...(part !== undefined ? { part } : {}),
             dispatch,
         });
