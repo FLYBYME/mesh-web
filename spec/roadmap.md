@@ -1027,6 +1027,51 @@ none of this is speculative.
       open, which means what a part may write is unsettled at the same time as what the kernel
       writes. **M** · surfdns freeze gate V6
 
+- [ ] **A8.18 ★★★ A driver is the platform seam, and it exists twice under two names with nothing
+      for the rest of the platform.** *(2026-09-10, from "browser session storage and stuff like that
+      are drivers. you could have a driver that adds old IE browser support")*
+
+      **This supersedes V5's rename.** `ComponentDefinition` → `PrimitiveDefinition` was filed as a
+      naming tidy-up. The name was never the point: the point is that **a driver is the only thing
+      allowed to touch the platform**, and the layer that would say so has never been named.
+
+      What exists today, and it is two thirds of an idea:
+
+      | seam | shape | who may contribute one |
+      | --- | --- | --- |
+      | making an element | `ComponentDefinition.create(props): Element` — *"the only place below the renderer that knows an element exists"* | any part, via `declarations.components` |
+      | reading and writing storage | `StorageProvider`, memory for `session`, `localStorage` for `device`, remote for `user` | the kernel, at hive binding. Not a part |
+      | everything else | — | — |
+
+      **Everything else is the gap**, and it is most of the platform: `window.open`,
+      `navigator.onLine`, `matchMedia`, the clipboard, notifications, visibility. Not "missing
+      features" — missing *seams*. A part that wants one today has no declaration to make and no
+      capability to ask for, which is exactly how `sessionTicketStore` came to read
+      `globalThis.sessionStorage` in mesh-core. That was reported as a part reaching for a global, and
+      it is better read as **a part with nowhere to ask**: the `session` hive is precisely that
+      driver, already written, and nothing connected the two.
+
+      **The test is the one that named it: what would you swap to support an old browser?** Element
+      creation, yes. Storage, yes, but only from inside the kernel. Everything else has nothing to
+      swap, because nothing declares it as a seam. A driver layer that covers the platform makes that
+      question answerable, and answering it is the proof the layer is real.
+
+      Wanted, in order:
+
+      1. **Name it.** One word, one concept: a driver is bundled into the kernel artifact, is the only
+         code that touches a browser API, and is contributed by declaration. `ComponentDefinition` and
+         `StorageProvider` become two kinds of it rather than two unrelated interfaces.
+      2. **One contribution point**, so a part declares a driver the way it declares a component, and
+         the kernel resolves collisions at load rather than at render.
+      3. **Then the missing ones**, driven by what actually asks: a window driver (`window.open` plus
+         cross-origin messages, which is what a hosted sign-in wants), an online/offline driver, a
+         storage driver a part may supply.
+
+      Interface, not internals: `declarations.components` is public surface and its element type is
+      the thing being renamed and widened. **L, and it is the strongest remaining argument that
+      mesh-web 1.0 should be a considered release rather than a version bump.** · surfdns freeze
+      gate V5, which this replaces
+
 ### A9 — Composition and the marketplace
 
 Raised 2026-09-05 and **needed, not speculative**. Three separate asks turned out to be one question.
