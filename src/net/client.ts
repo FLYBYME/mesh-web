@@ -215,7 +215,32 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
                  * response in hand is good and is returned. If something did, only the calls that
                  * changed fail — and they fail naming what moved.
                  */
-                const affected = differences?.find((d) => d.contract === action);
+                /**
+                 * **A gate difference is reported and never fails a call.**
+                 *
+                 * A gate is *per site*: `spec/exposure.md` — a part declares what it **calls**, and
+                 * a site declares what it exposes and at what level. So a generated client has no
+                 * gate to declare, and `mesh-serve client` writes `auth: 'public'` for every entry
+                 * with a comment saying the value *"means nothing here"*. Comparing that placeholder
+                 * against a real site produces a difference for **every contract the site gates
+                 * above public** — which on an operator console is all of them.
+                 *
+                 * The console was unusable on its first deploy for exactly this: eight gate
+                 * differences, eight calls failing as `stale`, a banner listing them, and an empty
+                 * screen. Every one of the eight was correct and expected.
+                 *
+                 * There is also nothing a client could do with the knowledge. It cannot change its
+                 * own gate, and a call it may not make is refused by the server with a 401 or a 403
+                 * — which is the authoritative answer, arriving at the only moment it is true. The
+                 * difference stays in `differences` because it is worth seeing in a diagnostic; it
+                 * is simply not a reason to refuse.
+                 *
+                 * Everything else here is a **shape** difference — a moved path, a changed schema, a
+                 * contract that is gone — and those genuinely break a call.
+                 */
+                const affected = differences?.find(
+                    (d) => d.contract === action && d.kind !== 'gate',
+                );
 
                 if (differences !== undefined && affected === undefined) {
                     // Nothing this client uses moved. Anything else is somebody else's contract.

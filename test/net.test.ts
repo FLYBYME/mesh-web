@@ -942,4 +942,108 @@ describe('a moved exposure is not a broken client', () => {
         const fine = await client.call('session.whoami');
         expect(fine.ok).toBe(true);
     });
+
+    /**
+     * **A gate difference is reported and never refuses a call.**
+     *
+     * A gate is per **site**: a part declares what it *calls*, a site declares what it *exposes and
+     * at what level*, so a generated client has no gate of its own to declare. `mesh-serve client`
+     * writes `auth: 'public'` for every entry with a comment saying the value means nothing — which
+     * makes a gate difference guaranteed for every contract a site gates above public.
+     *
+     * The operator console was unusable on its first deploy because of it: eight contracts, eight
+     * gate differences, eight calls refused as `stale`, and a page listing all eight above an empty
+     * screen. Every one of the eight was correct.
+     *
+     * There is also nothing a client could do with the knowledge — it cannot change its own gate,
+     * and a call it may not make comes back 401 or 403 from the only thing that knows.
+     */
+    it('reports a gate difference and returns the response anyway', async () => {
+        /**
+         * The client declares `public` on every call and the site gates them at `operator` — the
+         * generated shape, and the exact eight-difference state the console shipped in. `siteApi`
+         * above cannot show this: it declares no gate, so no gate difference is ever produced and
+         * the test would pass whether the fix existed or not.
+         */
+        const generated = defineApi({
+            id: 'console',
+            exposure: 'sha256:gate',
+            shapeHash: 'sha256:shape-v1',
+            calls: {
+                'site.find': call<void, readonly { host: string }[]>(
+                    'GET', '/sites', { kind: 'auth', level: 'public' }),
+            },
+        });
+
+        const fake = fakeTransport((request) => (
+            request.url.endsWith('/_describe')
+                ? json(200, {
+                    calls: [{ key: 'site.find', method: 'GET', path: '/sites', gate: 'operator' }],
+                })
+                : json(200, [{ host: '127.0.0.1' }], { 'x-exposure-shape': 'sha256:shape-v2' })
+        ));
+
+        const result = await createClient(generated, { transport: fake.transport })
+            .call('site.find');
+
+        expect(result.ok).toBe(true);
+        expect(result.ok && result.value[0]?.host).toBe('127.0.0.1');
+    });
+
+    /**
+     * The gate difference is still *found* — it belongs in a diagnostic. What changed is that it no
+     * longer refuses anything, so this asserts the reporting half separately from the failing half.
+     */
+    it('still describes the gate change when asked', () => {
+        /**
+         * Gates declared, and `public` on every one — which is exactly what `mesh-serve client`
+         * emits and why this difference is guaranteed rather than exceptional. A client that
+         * declares no gate at all (like `siteApi` above) never produces one, so the fixture has to
+         * be the generated shape for this to be the real case.
+         */
+        const generated = defineApi({
+            id: 'console',
+            exposure: 'sha256:gate',
+            shapeHash: 'sha256:shape',
+            calls: {
+                'site.find': call<void, readonly unknown[]>('GET', '/sites', { kind: 'auth', level: 'public' }),
+                'site.seed': call<void, unknown>('POST', '/sites/seed', { kind: 'auth', level: 'public' }),
+            },
+        });
+
+        const diffs = diffExposure(generated, {
+            calls: [
+                { key: 'site.find', method: 'GET', path: '/sites', gate: 'operator' },
+                { key: 'site.seed', method: 'POST', path: '/sites/seed', gate: 'operator' },
+            ],
+        } as ExposureDescriptor);
+
+        expect(diffs.every((d) => d.kind === 'gate')).toBe(true);
+        expect(diffs).toHaveLength(2);
+    });
+
+    /**
+     * A gate difference must not mask a real one on the same contract. If a path moved *and* the
+     * gate changed, the call still fails — the shape is what breaks it.
+     */
+    it('still refuses a call whose shape moved even when its gate moved too', async () => {
+        const both = {
+            ...describeBody,
+            calls: describeBody.calls.map((c) => (c.key === 'credential.resolve'
+                ? { ...c, method: 'POST', gate: 'operator' }
+                : { ...c, gate: 'operator' })),
+        };
+
+        const fake = fakeTransport((request) => (
+            request.url.endsWith('/_describe')
+                ? json(200, both)
+                : json(200, {}, { 'x-exposure-shape': 'sha256:moved' })
+        ));
+
+        const result = await createClient(siteApi, { transport: fake.transport })
+            .call('credential.resolve', { id: 'c1' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.error.kind).toBe('stale');
+    });
 });
