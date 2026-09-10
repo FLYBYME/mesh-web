@@ -34,7 +34,7 @@ import { element } from '../description/build.js';
 import type { Node } from '../description/types.js';
 import { effect } from '../reactivity/index.js';
 import { render, type RenderOptions } from '../render/dom.js';
-import type { ComponentDefinition } from '../render/component.js';
+import type { PrimitiveDefinition } from '../render/component.js';
 import { provider, type ProviderToken } from '../contribution/provider.js';
 import { mountShell, type Shell, type ShellOptions } from './shell.js';
 
@@ -59,7 +59,7 @@ const HOST_ATTRIBUTE = 'data-mesh-window-host';
  * every window would be placed against the viewport instead of against the area chrome gave them.
  * Everything else — size, background, border — is the site's.
  */
-export const windowHostComponent: ComponentDefinition = {
+export const windowHostComponent: PrimitiveDefinition = {
     name: WINDOW_HOST,
     create: () => {
         const el = document.createElement('div');

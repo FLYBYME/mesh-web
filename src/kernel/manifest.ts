@@ -12,7 +12,7 @@
 import type {
     CommandDecl, Declarations, KeyDecl, MenuDecl, SettingDecl, StoreDecl, ViewDecl,
 } from '../contribution/contract.js';
-import type { ComponentDefinition } from '../render/component.js';
+import type { PrimitiveDefinition } from '../render/component.js';
 import type { AnyApiCall, Api } from '../net/api.js';
 import type { LayoutNode } from '../window/layout.js';
 import { BROWSER_TAB_RESERVED, normalizeBinding, reservedSet } from '../input/keys.js';
@@ -54,7 +54,7 @@ export interface Manifest {
     readonly stores: ReadonlyMap<string, Contributed<StoreDecl>>;
     /** Keyed `<contributor>/<view id>`; view ids are scoped, so two Applications may both have `main`. */
     readonly views: ReadonlyMap<string, Contributed<ViewDecl>>;
-    readonly components: ReadonlyMap<string, Contributed<ComponentDefinition>>;
+    readonly components: ReadonlyMap<string, Contributed<PrimitiveDefinition>>;
     readonly sessions: ReadonlyMap<string, 'required' | 'optional'>;
     readonly conflicts: readonly Conflict[];
 }
@@ -79,7 +79,7 @@ export function mergeManifests(
     const settings = new Map<string, Contributed<SettingDecl>>();
     const stores = new Map<string, Contributed<StoreDecl>>();
     const views = new Map<string, Contributed<ViewDecl>>();
-    const components = new Map<string, Contributed<ComponentDefinition>>();
+    const components = new Map<string, Contributed<PrimitiveDefinition>>();
     const sessions = new Map<string, 'required' | 'optional'>();
     const conflicts: Conflict[] = [];
 
