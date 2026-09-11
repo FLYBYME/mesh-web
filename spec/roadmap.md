@@ -1088,9 +1088,9 @@ none of this is speculative.
          Created `createDomRenderer` to package the DOM driver, and passed it to the kernel via `kernel.provide`.
          `mountPage` and `mountView` now look up `RENDERER` rather than statically importing `render`.
          A swap test asserts an in-memory renderer mounts a view successfully with no dependencies on DOM.)*
-      2. **One driver registration point** covering the renderer, storage and what comes next, so
+      2. **[x] One driver registration point** covering the renderer, storage and what comes next, so
          `StorageProvider` stops being a special case.
-      3. **Then the missing drivers**, driven by what asks: a window driver (`window.open` and
+      3. **[x] Then the missing drivers**, driven by what asks: a window driver (`window.open` and
          cross-origin messages, which a hosted sign-in wants), online and offline.
       4. **[x] V5's rename lands inside (1)** as a detail of the DOM renderer, which is all it ever was.
 

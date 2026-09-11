@@ -16,6 +16,7 @@
  *   matters is the one that crashed.
  */
 
+import { HOST_WINDOW_DRIVER, ONLINE_DRIVER, type HostWindowDriver, type OnlineDriver } from './drivers.js';
 import { computed, effect, signal } from '../reactivity/index.js';
 import { createScope } from '../reactivity/scope.js';
 import type { ReactiveScope, ReadonlySignal, Signal } from '../reactivity/types.js';
@@ -361,6 +362,7 @@ export function createContext(
     declaredConsumes: readonly ProviderToken<unknown>[],
     resolve: (token: ProviderToken<unknown>) => unknown,
     services: KernelServices,
+    io: import("./io.js").IoManager,
     declaredApi?: Api<Record<string, AnyApiCall>>,
 ): BrokerHandle {
     const { id, declaredBy } = identity;
@@ -527,6 +529,24 @@ export function createContext(
             case 'dom':
                 capabilities.dom = makeDom(id, cleanups);
                 break;
+            case 'hostWindow': {
+                const driver = io.get(HOST_WINDOW_DRIVER);
+                if (driver === undefined) {
+                    refused('need:hostWindow', `${who} declared needs('hostWindow'), but no driver is registered.`);
+                } else {
+                    capabilities.hostWindow = driver as HostWindowDriver;
+                }
+                break;
+            }
+            case 'online': {
+                const driver = io.get(ONLINE_DRIVER);
+                if (driver === undefined) {
+                    refused('need:online', `${who} declared needs('online'), but no driver is registered.`);
+                } else {
+                    capabilities.online = driver as OnlineDriver;
+                }
+                break;
+            }
             default: {
                 /**
                  * **Declared and not granted.** Unreachable through the types — `name` is `never`
