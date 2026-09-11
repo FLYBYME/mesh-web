@@ -34,7 +34,8 @@
         "typecheck": "tsc -p tsconfig.check.json --noEmit",
         "test:browser": "vitest run --config vitest.browser.config.ts",
         "check:consumer": "node scripts/check-consumer.mjs",
-        "test": "vitest run",
+        "//test": "All three, because two of them were skippable by accident. `vitest run` alone is the unit project -- it reports 473 while the repository has 485 tests, and the 12 it leaves out are the browser ones that need a real DOM. And vitest transpiles without typechecking, so the suite could be green while the compiler was not.",
+        "test": "npm run typecheck && vitest run && npm run test:browser",
         "test:watch": "vitest"
     },
     "keywords": [
