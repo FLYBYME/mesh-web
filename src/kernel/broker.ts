@@ -480,6 +480,7 @@ export function createContext(
                     {
                         eventSource: services.eventSource,
                         origin: services.credentials.origin,
+                        log: (msg: string) => log.warn(msg, { part: declaredBy }),
                     },
                 );
                 break;

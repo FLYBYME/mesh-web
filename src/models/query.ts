@@ -28,23 +28,33 @@ export type SessionSource =
     | ReadonlySignal<Session | null>
     | (() => ReadonlySignal<Session | null> | undefined);
 
+function isRecord(val: unknown): val is Record<string, unknown> {
+    return val !== null && typeof val === 'object';
+}
+
+function isTypedItemWithId<T>(val: unknown): val is T & { id: string } {
+    return isRecord(val) && 'id' in val && typeof val.id === 'string';
+}
+
+function getId(val: unknown): string | undefined {
+    return isRecord(val) && 'id' in val && typeof val.id === 'string' ? val.id : undefined;
+}
+
 /**
  * Does this item match the query filters?
  * Used to filter live event additions and updates so query views do not receive excluded rows.
  */
 export function matchesQuery(item: unknown, query: unknown): boolean {
-    if (!query || typeof query !== 'object') return true;
-    if (!item || typeof item !== 'object') return true;
-    const itemRec = item as Record<string, unknown>;
-    const queryRec = query as Record<string, unknown>;
+    if (!isRecord(query)) return true;
+    if (!isRecord(item)) return true;
 
-    for (const [key, value] of Object.entries(queryRec)) {
+    for (const [key, value] of Object.entries(query)) {
         if (value === undefined || value === null) continue;
         if (key === 'limit' || key === 'offset' || key === 'skip' || key === 'page' || key === 'sort' || key === 'order') {
             continue;
         }
-        if (key in itemRec) {
-            const itemVal = itemRec[key];
+        if (key in item) {
+            const itemVal = item[key];
             if (Array.isArray(value)) {
                 if (!value.includes(itemVal)) return false;
             } else if (itemVal !== value) {
@@ -52,7 +62,7 @@ export function matchesQuery(item: unknown, query: unknown): boolean {
             }
         } else if (key === 'search' && typeof value === 'string') {
             const term = value.toLowerCase();
-            const matchesAny = Object.values(itemRec).some(
+            const matchesAny = Object.values(item).some(
                 (v) => typeof v === 'string' && v.toLowerCase().includes(term),
             );
             if (!matchesAny) return false;
@@ -216,34 +226,29 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     }
 
     applyCreated(payload: unknown): void {
-        const item = (payload && typeof payload === 'object' && 'item' in payload && (payload as Record<string, unknown>).item !== undefined)
-            ? (payload as Record<string, unknown>).item
-            : payload;
+        if (!isTypedItemWithId<TItem>(payload)) return;
         const currentQuery = this.queryFn ? this.queryFn() : undefined;
-        if (!matchesQuery(item, currentQuery)) {
+        if (!matchesQuery(payload, currentQuery)) {
             return;
         }
 
-        const id = (item as Record<string, unknown>)?.id ?? (item as Record<string, unknown>)?._id ?? (payload as Record<string, unknown>)?.id;
+        const id = payload.id;
         const currentRows = this._rows() ?? [];
-        if (id !== undefined) {
-            const existingIndex = currentRows.findIndex(
-                (r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id,
-            );
-            if (existingIndex >= 0) {
-                // Deduplicate by ID to prevent double-applying local writes: replace in place
-                const next = [...currentRows];
-                next[existingIndex] = item as TItem;
-                this._data.set(next);
-                this._rows.set(next);
-                this._loading.set(false);
-                this._empty.set(next.length === 0);
-                this._status.set(next.length === 0 ? 'empty' : 'ready');
-                return;
-            }
+        const existingIndex = currentRows.findIndex(r => getId(r) === id);
+
+        if (existingIndex >= 0) {
+            // Deduplicate by ID to prevent double-applying local writes: replace in place
+            const next = [...currentRows];
+            next[existingIndex] = payload;
+            this._data.set(next);
+            this._rows.set(next);
+            this._loading.set(false);
+            this._empty.set(next.length === 0);
+            this._status.set(next.length === 0 ? 'empty' : 'ready');
+            return;
         }
 
-        const next = [...currentRows, item as TItem];
+        const next = [...currentRows, payload];
         this._data.set(next);
         this._rows.set(next);
         this._loading.set(false);
@@ -252,21 +257,17 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     }
 
     applyUpdated(payload: unknown): void {
-        const item = (payload && typeof payload === 'object' && 'item' in payload && (payload as Record<string, unknown>).item !== undefined)
-            ? (payload as Record<string, unknown>).item
-            : payload;
-        const id = (payload as Record<string, unknown>)?.id ?? (item as Record<string, unknown>)?.id ?? (item as Record<string, unknown>)?._id;
+        if (!isTypedItemWithId<TItem>(payload)) return;
+        const id = payload.id;
         const currentQuery = this.queryFn ? this.queryFn() : undefined;
-        const matches = matchesQuery(item, currentQuery);
+        const matches = matchesQuery(payload, currentQuery);
         const currentRows = this._rows() ?? [];
-        const existingIndex = id !== undefined
-            ? currentRows.findIndex((r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id)
-            : -1;
+        const existingIndex = currentRows.findIndex(r => getId(r) === id);
 
         if (existingIndex >= 0) {
             if (matches) {
                 const next = [...currentRows];
-                next[existingIndex] = item as TItem;
+                next[existingIndex] = payload;
                 this._data.set(next);
                 this._rows.set(next);
                 this._loading.set(false);
@@ -283,7 +284,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
             }
         } else if (matches) {
             // New item now matches view
-            const next = [...currentRows, item as TItem];
+            const next = [...currentRows, payload];
             this._data.set(next);
             this._rows.set(next);
             this._loading.set(false);
@@ -293,15 +294,11 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     }
 
     applyDeleted(payload: unknown): void {
-        const id = typeof payload === 'string'
-            ? payload
-            : ((payload && typeof payload === 'object') ? ((payload as Record<string, unknown>).id ?? (payload as Record<string, unknown>)._id) : undefined);
+        const id = typeof payload === 'string' ? payload : undefined;
         if (id === undefined) return;
 
         const currentRows = this._rows() ?? [];
-        const existingIndex = currentRows.findIndex(
-            (r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id,
-        );
+        const existingIndex = currentRows.findIndex(r => getId(r) === id);
         if (existingIndex >= 0) {
             const next = currentRows.filter((_, idx) => idx !== existingIndex);
             this._data.set(next);

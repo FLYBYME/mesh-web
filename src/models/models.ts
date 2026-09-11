@@ -8,10 +8,50 @@
  * - Zero type parameters at the call site
  */
 
+import { z } from 'zod';
 import { isCollectionStreamed, type AnyApiCall, type Api, type Gate } from '../net/api.js';
 import type { Result, CallError } from '../net/result.js';
 import { runDetached } from '../reactivity/scope.js';
 import type { ReadonlySignal } from '../reactivity/types.js';
+
+export const StreamFrameSchema = z.object({
+    event: z.string(),
+    data: z.unknown().optional(),
+}).passthrough();
+
+// ANSWER (roadmap 2): mesh-serve's crud output schemas uniquely use `id`. `_id` is a Mongo detail
+// that does not cross the API boundary. We normalize to `id` once here at the edge.
+export const EntityPayloadSchema = z.union([
+    z.object({ item: z.object({ id: z.string() }).passthrough() }).passthrough(),
+    z.object({ id: z.string() }).passthrough(),
+]);
+
+export function extractStreamEntity(payload: unknown): { id: string } & Record<string, unknown> | undefined {
+    const res = EntityPayloadSchema.safeParse(payload);
+    if (res.success) {
+        if ('item' in res.data) {
+            return res.data.item;
+        } else {
+            return res.data;
+        }
+    }
+    return undefined;
+}
+
+export const IdPayloadSchema = z.union([
+    z.string(),
+    EntityPayloadSchema
+]);
+
+export function extractStreamId(payload: unknown): string | undefined {
+    const res = IdPayloadSchema.safeParse(payload);
+    if (res.success) {
+        if (typeof res.data === 'string') return res.data;
+        if ('item' in res.data) return res.data.item.id;
+        return res.data.id;
+    }
+    return undefined;
+}
 import { CollectionQueryImpl, type QueryFetcher, type SessionSource } from './query.js';
 import type {
     CallsOf,
@@ -36,12 +76,20 @@ import type {
     UpdateOutputOf,
 } from './types.js';
 
+export interface EventSourceEvent {
+    type?: string;
+}
+
+export interface EventSourceMessageEvent extends EventSourceEvent {
+    data?: unknown;
+}
+
 export interface EventSourceLike {
-    addEventListener?(event: string, listener: (event: any) => void): void;
-    removeEventListener?(event: string, listener: (event: any) => void): void;
-    onopen?: ((event: any) => void) | null;
-    onmessage?: ((event: any) => void) | null;
-    onerror?: ((event: any) => void) | null;
+    addEventListener?(event: string, listener: (event: EventSourceMessageEvent) => void): void;
+    removeEventListener?(event: string, listener: (event: EventSourceMessageEvent) => void): void;
+    onopen?: ((event: EventSourceEvent) => void) | null;
+    onmessage?: ((event: EventSourceMessageEvent) => void) | null;
+    onerror?: ((event: EventSourceEvent) => void) | null;
     close(): void;
 }
 
@@ -50,6 +98,7 @@ export type EventSourceFactory = (url: string) => EventSourceLike;
 export interface ModelsOptions {
     readonly eventSource?: EventSourceFactory;
     readonly origin?: string;
+    readonly log?: (msg: string) => void;
 }
 
 export interface EventStreamClient {
@@ -62,6 +111,7 @@ export interface EventStreamClient {
 export function createEventStreamClient(
     url: string,
     factory?: EventSourceFactory,
+    log?: (msg: string) => void,
 ): EventStreamClient {
     if (!factory) {
         return {
@@ -110,6 +160,7 @@ export function createEventStreamClient(
                 try {
                     data = JSON.parse(rawData);
                 } catch {
+                    log?.(`Dropped malformed JSON on stream event '${eventName}': ${rawData}`);
                     return;
                 }
             }
@@ -121,19 +172,25 @@ export function createEventStreamClient(
             }
         };
 
-        source.onmessage = (event: any) => {
-            const evType = event?.type || 'message';
+        source.onmessage = (event: EventSourceMessageEvent) => {
+            const evType = event.type || 'message';
             if (evType !== 'message') {
-                handleIncoming(evType, event?.data);
+                handleIncoming(evType, event.data);
             } else {
-                let parsed = event?.data;
-                if (typeof event?.data === 'string') {
+                let parsed = event.data;
+                if (typeof event.data === 'string') {
                     try {
                         parsed = JSON.parse(event.data);
-                    } catch {}
+                    } catch {
+                        log?.(`Dropped unparsable stream message frame: ${event.data}`);
+                        return;
+                    }
                 }
-                if (parsed && typeof parsed === 'object' && 'event' in parsed) {
-                    handleIncoming((parsed as any).event, (parsed as any).data ?? parsed);
+                const res = StreamFrameSchema.safeParse(parsed);
+                if (res.success) {
+                    handleIncoming(res.data.event, res.data.data ?? res.data);
+                } else {
+                    log?.(`Dropped stream frame matching no known shape: ${JSON.stringify(parsed)}`);
                 }
             }
         };
@@ -150,12 +207,13 @@ export function createEventStreamClient(
                 eventListeners.set(eventName, listeners);
                 const source = ensureConnected();
                 if (typeof source.addEventListener === 'function') {
-                    source.addEventListener(eventName, (event: any) => {
-                        let data = event?.data;
-                        if (typeof event?.data === 'string') {
+                    source.addEventListener(eventName, (event: EventSourceMessageEvent) => {
+                        let data = event.data;
+                        if (typeof event.data === 'string') {
                             try {
                                 data = JSON.parse(event.data);
                             } catch {
+                                log?.(`Dropped malformed JSON on stream event '${eventName}': ${event.data}`);
                                 return;
                             }
                         }
@@ -300,18 +358,27 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
     if (isStreamed && streamClient) {
         streamCleanups.push(
             streamClient.subscribe(`${name}.created`, (payload) => {
-                for (const q of activeQueries) {
-                    q.applyCreated(payload);
+                const entity = extractStreamEntity(payload);
+                if (entity) {
+                    for (const q of activeQueries) {
+                        q.applyCreated(entity);
+                    }
                 }
             }),
             streamClient.subscribe(`${name}.updated`, (payload) => {
-                for (const q of activeQueries) {
-                    q.applyUpdated(payload);
+                const entity = extractStreamEntity(payload);
+                if (entity) {
+                    for (const q of activeQueries) {
+                        q.applyUpdated(entity);
+                    }
                 }
             }),
             streamClient.subscribe(`${name}.deleted`, (payload) => {
-                for (const q of activeQueries) {
-                    q.applyDeleted(payload);
+                const id = extractStreamId(payload);
+                if (id !== undefined) {
+                    for (const q of activeQueries) {
+                        q.applyDeleted(id);
+                    }
                 }
             }),
             streamClient.onReconnect(() => {
@@ -472,7 +539,7 @@ export function createModels<A>(
             ? (u: string) => new (globalThis as any).EventSource(u)
             : undefined);
 
-    const streamClient = createEventStreamClient(eventsUrl, factory);
+    const streamClient = createEventStreamClient(eventsUrl, factory, options?.log);
     if (onDispose !== undefined) {
         onDispose(() => {
             streamClient.close();
