@@ -1,0 +1,151 @@
+Type the network edge with a schema, and delete the casts that spread out from it.
+
+**The compiler and the existing tests are the referee for this one.** There is
+nothing here to estimate: every cast either disappears because the type was
+already there, or it turns out to be load-bearing and becomes a finding.
+
+The platform's owner read this code and picked out the lines below himself. His
+words are quoted where they apply.
+
+Read `mesh-serve/stuff.md` items 5 and 6 first — they are this dispatch — then
+`src/models/models.ts`, `src/models/query.ts` and `src/net/describe.ts`.
+
+--------------------------------------------------------------------------------
+1 — THE EVENT SOURCE IS `any` FIVE TIMES OVER
+
+`src/models/models.ts:40-44`
+
+    addEventListener?(event: string, listener: (event: any) => void): void;
+    removeEventListener?(event: string, listener: (event: any) => void): void;
+    onopen?:    ((event: any) => void) | null;
+    onmessage?: ((event: any) => void) | null;
+    onerror?:   ((event: any) => void) | null;
+
+and at `:124` the handler that uses it:
+
+    source.onmessage = (event: any) => {
+        const evType = event?.type || 'message';
+        if (evType !== 'message') {
+            handleIncoming(evType, event?.data);
+        } else {
+            let parsed = event?.data;
+            if (typeof event?.data === 'string') {
+                try { parsed = JSON.parse(event.data); } catch {}
+            }
+            if (parsed && typeof parsed === 'object' && 'event' in parsed) {
+                handleIncoming((parsed as any).event, (parsed as any).data ?? parsed);
+            }
+        }
+    };
+
+> *"this needs to go though a zod schema"*
+
+He is right and the reason is worth stating: **this is the one place in the kernel
+where data genuinely arrives untyped.** Everywhere else the type is known and
+being thrown away. Here it is a string off a socket that a server produced, which
+is exactly what a schema is for — and instead there are three `any` and a chain of
+`typeof` checks that silently do nothing when they fail.
+
+Note the `catch {}` and the `if (… 'event' in parsed)` with no else: a frame that
+does not parse, or parses to something unexpected, is **dropped without a word**.
+A live collection that silently stops updating is the hardest possible bug to find
+from a screenshot.
+
+Parse the frame with a schema. On a frame that does not match, **say so** —
+`cx.log` exists and A8.17 gave the kernel a log panel to put it in. A dropped
+frame is an event worth one line.
+
+`zod` is already a dependency of this repository.
+
+--------------------------------------------------------------------------------
+2 — WHAT FOLLOWS FROM AN UNTYPED FRAME
+
+Once the frame has a type, this stops needing to guess. Same file, the row
+matching path:
+
+    const item = (payload && typeof payload === 'object' && 'item' in payload && (payload as Record<string, unknown>).item !== undefined)
+        ? (payload as Record<string, unknown>).item
+        : payload;
+    …
+    const id = (item as Record<string, unknown>)?.id ?? (item as Record<string, unknown>)?._id ?? (payload as Record<string, unknown>)?.id;
+    …
+    const existingIndex = currentRows.findIndex(
+        (r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id,
+    );
+
+Seven casts of the same shape in one function, and three different opinions about
+where an id lives (`item.id`, `item._id`, `payload.id`).
+
+**`id` versus `_id` is a real question, not a typo.** Find out which one the
+platform actually sends — `mesh-serve`'s crud output schemas are the authority,
+and `src/generated/api.ts` there carries them — and write the answer down. If both
+genuinely occur, that is a finding for `spec/roadmap.md`, and the normalising
+should happen once at the edge rather than at three separate comparisons.
+
+`src/models/query.ts` has **twelve** more of the same cast. Same treatment: when
+the shape is known, say so once.
+
+--------------------------------------------------------------------------------
+3 — THE DESCRIPTOR CAST, TWICE, IDENTICALLY
+
+`src/models/models.ts:293` and `:463`
+
+    const apiObj = (api ?? mesh.descriptor) as Api<Record<string, AnyApiCall & { readonly gate?: Gate }>> | undefined;
+
+> *"what the hell is this."*
+
+Two possibilities and they need different answers. Either `mesh.descriptor` is
+already this type and the cast is noise, or it is not and the cast is a lie that
+happens to hold. Find out which, fix it at the declaration, and delete both. An
+identical cast in two places is a type that wants a name.
+
+--------------------------------------------------------------------------------
+WHAT NOT TO DO
+
+- **Do not change behaviour.** This is a typing job. If removing a cast changes
+  what runs, stop: that is a bug the cast concealed, and it deserves its own
+  commit, its own test and a line in `spec/roadmap.md`.
+- **Do not touch `src/contribution/`.** A typed command registry is being added
+  there in parallel and it will conflict. Everything in this dispatch is under
+  `src/models/`, `src/net/` and `src/registry/`.
+- Do not edit mesh-serve, mesh-core, mesh-operator or flowboard.
+- Do not touch `@flybyme/mesh` (frozen).
+- Do not introduce `any`, `as` or `!` while removing others. The count goes down
+  and nothing moves sideways.
+
+--------------------------------------------------------------------------------
+HOW TO EDIT, AND WHY THIS IS HERE
+
+**Edit files with your file tools.** Three dispatches in a row across these
+repositories have committed programs that rewrite source with regular expressions
+— eighteen `.cjs` files in mesh-core, five `patch_*.js` in mesh-serve, six more in
+mesh-core the same evening. All were deleted by hand, twice by the person who owns
+this platform, who found them himself. One of them removed 88 lines of
+explanatory comments on its way past. Write the change. Do not write a program
+that writes the change.
+
+**Commit as you go, in the foreground.** A dispatch reported SUCCESS with eight
+modified files unstaged and nothing committed. When your turn ends the process
+exits: a commit survives that and an unstaged edit does not.
+
+**`git status` must be clean when you finish**, with nothing in the repository
+that is not part of the change.
+
+--------------------------------------------------------------------------------
+DONE MEANS
+
+- `npm test` green and not smaller than when you started. That is **typecheck +
+  473 unit + 12 browser** — the `test` script runs all three, and it runs all
+  three because `vitest run` alone silently skipped the browser project.
+- A malformed frame is parsed by a schema, rejected, and **logged**. A test feeds
+  one in and asserts the log line — not that nothing crashed.
+- A well-formed frame still updates the collection. A test covers create, update
+  and delete arriving over the stream.
+- `id` versus `_id` is answered in writing, from mesh-serve's output schemas.
+- `grep -c "as Record<string, unknown>" src/models/query.ts` is **0**. It is 12.
+- Both copies of the descriptor cast are gone.
+- No new `any`, `as` or `!`.
+- `git status` clean; no `patch_*`, `fix_*`, `scratch*` or stray `test-*` file.
+- `spec/roadmap.md` carries anything the compiler turned up that is a real
+  disagreement rather than a cast.
+- No `Co-Authored-By` or `Claude-Session` trailers.
