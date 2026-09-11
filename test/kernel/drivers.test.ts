@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Kernel } from '../../src/kernel/kernel.js';
 import { HOST_WINDOW_DRIVER, ONLINE_DRIVER, type HostWindowDriver, type OnlineDriver } from '../../src/kernel/drivers.js';
+import type { Extension } from '../../src/contribution/contract.js';
 
 describe('drivers seam', () => {
     it('allows a part to declare needs("online") and use the driver', () => {
@@ -14,19 +15,27 @@ describe('drivers seam', () => {
         kernel.io.register(ONLINE_DRIVER, fakeOnline);
 
         let activated = false;
-        kernel.boot([{
-            id: 'test-ext',
-            contribution: {
-                id: 'test-ext',
-                needs: ['online'] as any,
-                activate: (cx: any) => {
-                    expect(cx.online.isOnline).toBe(true);
-                    cx.online.watch(() => {});
-                    activated = true;
-                    return [];
-                }
-            } as any
-        }]);
+
+        /**
+         * Typed as the `Extension` it is, rather than cast.
+         *
+         * The cast this replaces was not cosmetic: `needs: ['online'] as any` compiles whether or not
+         * `online` is a `CapabilityName`, so the test passed without ever showing that a real part
+         * could ask for the driver. Declaring the type is what makes `cx.online` resolve — and makes
+         * the test fail to compile the day the capability is renamed or dropped, which is the thing
+         * worth knowing.
+         */
+        const part: Extension<['online']> = {
+            needs: ['online'],
+            activate: (cx) => {
+                expect(cx.online.isOnline).toBe(true);
+                cx.online.watch(() => {});
+                activated = true;
+                return [];
+            },
+        };
+
+        kernel.boot([{ id: 'test-ext', contribution: part }]);
         
         expect(activated).toBe(true);
         expect(watched).toBe(true);
@@ -60,18 +69,17 @@ describe('drivers seam', () => {
         kernel.io.register(HOST_WINDOW_DRIVER, fakeWindow);
         
         let activated = false;
-        kernel.boot([{
-            id: 'test-ext-win',
-            contribution: {
-                id: 'test-ext-win',
-                needs: ['hostWindow'] as any,
-                activate: (cx: any) => {
-                    cx.hostWindow.open('http://example.com');
-                    activated = true;
-                    return [];
-                }
-            } as any
-        }]);
+
+        const part: Extension<['hostWindow']> = {
+            needs: ['hostWindow'],
+            activate: (cx) => {
+                cx.hostWindow.open('http://example.com');
+                activated = true;
+                return [];
+            },
+        };
+
+        kernel.boot([{ id: 'test-ext-win', contribution: part }]);
 
         expect(activated).toBe(true);
         expect(opened).toBe(true);

@@ -330,7 +330,18 @@ export function start(composition: Composition): Started {
         apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
         internalOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.internal,
         isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',
-        resolve: <T>(token: ProviderToken<T>) => (kernel.io.get(token) ?? kernel.provided(token)) as any,
+        /**
+         * **Drivers first, then what an Extension provided.**
+         *
+         * Two registries answer one question, and the order is the policy: a subsystem with a driver
+         * installed is answered by the driver, and `provided` remains what a *part* contributed. They
+         * are separate on purpose — `io` is the platform seam and `providers` is the contribution
+         * graph — so a part cannot shadow the renderer by providing the same token.
+         *
+         * `??` and not `||`: a driver may legitimately be a falsy value, and `||` would fall through
+         * to the provider graph for one.
+         */
+        resolve: <T>(token: ProviderToken<T>): T | undefined => kernel.io.get(token) ?? kernel.provided(token),
         renderOptions: { dispatch: { dispatch: run } },
         onCommand: run,
     });
