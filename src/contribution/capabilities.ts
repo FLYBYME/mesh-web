@@ -409,6 +409,17 @@ export interface Confirmation {
  * to a broken object is worse than one that does not resolve, because the compile error is the
  * point.
  */
+export interface HostWindow {
+    open(url: string, target?: string, features?: string): WindowProxy | null;
+    addEventListener(event: "message", listener: (e: MessageEvent) => void): void;
+    removeEventListener(event: "message", listener: (e: MessageEvent) => void): void;
+}
+
+export interface Online {
+    readonly isOnline: boolean;
+    watch(onChange: (isOnline: boolean) => void): () => void;
+}
+
 export interface CapabilityMap {
     readonly state: State;
     readonly log: Log;
@@ -422,6 +433,8 @@ export interface CapabilityMap {
     readonly storage: Storage;
     readonly dom: Dom;
     readonly confirmation: Confirmation;
+    readonly hostWindow: HostWindow;
+    readonly online: Online;
 }
 
 /**

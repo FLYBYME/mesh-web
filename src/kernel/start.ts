@@ -46,6 +46,10 @@ import type { ProviderToken } from '../contribution/provider.js';
 import { effect } from '../reactivity/index.js';
 import { createRegistry as createComponents, PRIMITIVES } from '../render/component.js';
 import type { ComponentRegistry } from '../render/component.js';
+import { IoManager } from './io.js';
+import { STORAGE } from '../registry/storage-driver.js';
+import { HOST_WINDOW_DRIVER, ONLINE_DRIVER } from './drivers.js';
+import { createHostWindowDriver, createOnlineDriver } from './default-drivers.js';
 import { createDomRenderer, RENDERER } from '../render/index.js';
 import { createClient, fetchTransport, withHeaders } from '../net/client.js';
 import { createFetchEventSource } from '../net/eventsource.js';
@@ -167,12 +171,19 @@ export function start(composition: Composition): Started {
         height: root.clientHeight,
     });
 
-    const hives = composition.hives ?? {
-        system: { provider: memoryProvider('system'), writable: false },
-        user: { provider: memoryProvider('user'), writable: true },
-        device: { provider: localProvider(), writable: true },
-        session: { provider: memoryProvider('session'), writable: true },
-    };
+    const io = new IoManager();
+    if (io.get(STORAGE) === undefined) {
+        const hives = composition.hives ?? {
+            system: { provider: memoryProvider('system'), writable: false },
+            user: { provider: memoryProvider('user'), writable: true },
+            device: { provider: localProvider(), writable: true },
+            session: { provider: memoryProvider('session'), writable: true },
+        };
+        io.register(STORAGE, hives);
+        io.register(HOST_WINDOW_DRIVER, createHostWindowDriver());
+        io.register(ONLINE_DRIVER, createOnlineDriver());
+    }
+    const hives = io.resolve(STORAGE);
 
     const services = createServices(undefined, {
         apiOrigin: api,
@@ -201,7 +212,7 @@ export function start(composition: Composition): Started {
             headers: () => kernel.services.credentials.headers?.() ?? {},
         }),
     });
-    const kernel = new Kernel({ services });
+    const kernel = new Kernel({ services, io });
 
     /**
      * Four hives, and where each is backed.
@@ -290,9 +301,9 @@ export function start(composition: Composition): Started {
         components.register(decl);
     }
 
-    if (kernel.provided(RENDERER) === undefined) {
+    if (kernel.io.get(RENDERER) === undefined) {
         const renderer = createDomRenderer(components);
-        kernel.provide(RENDERER, renderer);
+        kernel.io.register(RENDERER, renderer);
     }
 
     const run = (action: Action): void => {
@@ -319,7 +330,7 @@ export function start(composition: Composition): Started {
         apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
         internalOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.internal,
         isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',
-        resolve: <T>(token: ProviderToken<T>) => kernel.provided(token),
+        resolve: <T>(token: ProviderToken<T>) => (kernel.io.get(token) ?? kernel.provided(token)) as any,
         renderOptions: { dispatch: { dispatch: run } },
         onCommand: run,
     });
