@@ -43,25 +43,26 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
  *
  * Optional, because a client generated before this existed carries none, and an older client must
  * keep compiling against a newer kernel.
+ *
+ * **Not a fixed `public`/`user`/`admin`/`operator` ladder.** mesh-serve's actual authorization model
+ * has no such enum: a site's `serve.expose` row names either a dynamic role key (resolved against
+ * `identity.role`, which an operator can create, rename or grant arbitrarily) or a permission
+ * pattern, checked fresh against the caller's own account — never against a fixed level a generator
+ * could enumerate in advance. `role`/`permission` name what mesh-serve actually checks; there is no
+ * `public` variant because a call with neither is ungated, i.e. no `Gate` at all.
  */
 export type Gate =
-    | { readonly kind: 'auth'; readonly level: 'public' | 'user' | 'admin' | 'operator' }
+    | { readonly kind: 'role'; readonly role: string }
     | { readonly kind: 'permission'; readonly permission: string };
 
 /**
  * Does this gate require an active authenticated session?
  *
- * Public auth gates do not; all other auth levels and permission gates do.
+ * `undefined` (no gate at all) is the only public case — a role or a permission both name something
+ * a caller has to hold, and holding anything at all means being signed in first.
  */
 export function requiresAuth(gate?: Gate): boolean {
-    if (gate === undefined) return false;
-    if (gate.kind === 'auth') {
-        return gate.level !== 'public';
-    }
-    if (gate.kind === 'permission') {
-        return true;
-    }
-    return false;
+    return gate !== undefined;
 }
 
 export interface ApiCall<TInput, TOutput, TErrors extends string = never> {

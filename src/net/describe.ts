@@ -247,7 +247,7 @@ function formatGate(gate: unknown): string | undefined {
     if (typeof gate === 'string') return gate;
     if (typeof gate === 'object') {
         const g = gate as Record<string, unknown>;
-        if (g['kind'] === 'auth' && typeof g['level'] === 'string') return g['level'];
+        if (g['kind'] === 'role' && typeof g['role'] === 'string') return g['role'];
         if (g['kind'] === 'permission' && typeof g['permission'] === 'string') return `permission:${g['permission']}`;
     }
     return undefined;
