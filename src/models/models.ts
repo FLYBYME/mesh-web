@@ -9,7 +9,7 @@
  */
 
 import { isCollectionStreamed, type AnyApiCall, type Api, type Gate } from '../net/api.js';
-import type { Result, CallError } from '../net/result.js';
+import type { CallError } from '../net/result.js';
 import { runDetached } from '../reactivity/scope.js';
 import type { ReadonlySignal } from '../reactivity/types.js';
 import { CollectionQueryImpl, type QueryFetcher, type SessionSource } from './query.js';
@@ -19,19 +19,15 @@ import type {
     CollectionNameOf,
     CollectionQuery,
     CollectionStatus,
-    CreateErrorsOf,
     CreateInputOf,
     CreateOutputOf,
-    DeleteErrorsOf,
     DeleteInputOf,
     DeleteOutputOf,
-    GetErrorsOf,
     GetInputOf,
     GetOutputOf,
     ItemOf,
     Models,
     QueryOf,
-    UpdateErrorsOf,
     UpdateInputOf,
     UpdateOutputOf,
 } from './types.js';
@@ -200,25 +196,11 @@ export function createEventStreamClient(
 }
 
 export interface MeshCaller {
-    call(action: string, input?: unknown): Promise<Result<unknown, CallError<string>>>;
+    /** Throws MeshCallError on failure -- matching net/client.ts's MeshClient.call. */
+    call(action: string, input?: unknown): Promise<unknown>;
     readonly descriptor?: unknown;
     readonly eventSource?: EventSourceFactory;
     readonly origin?: string;
-}
-
-function isTypedResult<T, E extends string>(
-    _res: Result<unknown, CallError<string>>,
-): _res is Result<T, CallError<E>> {
-    return true;
-}
-
-function coerceResult<T, E extends string>(
-    res: Result<unknown, CallError<string>>,
-): Result<T, CallError<E>> {
-    if (isTypedResult<T, E>(res)) {
-        return res;
-    }
-    throw new Error('Unreachable result coercion failure');
 }
 
 function isTypedArray<T>(_val: unknown): _val is readonly T[] {
@@ -324,14 +306,8 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
 
     const fetcher: QueryFetcher<TItem, TQuery> = async (queryInput) => {
         const action = `${name}.find`;
-        const res = await mesh.call(action, queryInput);
-        if (res.ok) {
-            if (isTypedArray<TItem>(res.value)) {
-                return { ok: true, value: res.value };
-            }
-            return { ok: true, value: [] };
-        }
-        return res;
+        const value = await mesh.call(action, queryInput);
+        return isTypedArray<TItem>(value) ? value : [];
     };
 
     function instantiateQuery(
@@ -412,35 +388,28 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
 
         async create(...input: CreateInputOf<TCalls, C> extends void ? [] : [input: CreateInputOf<TCalls, C>]) {
             const action = `${name}.create`;
-            const res = await mesh.call(action, input[0]);
-            if (res.ok) {
-                await invalidate();
-            }
-            return coerceResult<CreateOutputOf<TCalls, C>, CreateErrorsOf<TCalls, C>>(res);
+            const value = await mesh.call(action, input[0]);
+            await invalidate();
+            return value as CreateOutputOf<TCalls, C>;
         },
 
         async update(...input: UpdateInputOf<TCalls, C> extends void ? [] : [input: UpdateInputOf<TCalls, C>]) {
             const action = `${name}.update`;
-            const res = await mesh.call(action, input[0]);
-            if (res.ok) {
-                await invalidate();
-            }
-            return coerceResult<UpdateOutputOf<TCalls, C>, UpdateErrorsOf<TCalls, C>>(res);
+            const value = await mesh.call(action, input[0]);
+            await invalidate();
+            return value as UpdateOutputOf<TCalls, C>;
         },
 
         async delete(...input: DeleteInputOf<TCalls, C> extends void ? [] : [input: DeleteInputOf<TCalls, C>]) {
             const action = `${name}.delete`;
-            const res = await mesh.call(action, input[0]);
-            if (res.ok) {
-                await invalidate();
-            }
-            return coerceResult<DeleteOutputOf<TCalls, C>, DeleteErrorsOf<TCalls, C>>(res);
+            const value = await mesh.call(action, input[0]);
+            await invalidate();
+            return value as DeleteOutputOf<TCalls, C>;
         },
 
         async get(...input: GetInputOf<TCalls, C> extends void ? [] : [input: GetInputOf<TCalls, C>]) {
             const action = `${name}.get`;
-            const res = await mesh.call(action, input[0]);
-            return coerceResult<GetOutputOf<TCalls, C>, GetErrorsOf<TCalls, C>>(res);
+            return await mesh.call(action, input[0]) as GetOutputOf<TCalls, C>;
         },
     });
 

@@ -12,7 +12,7 @@
 import type { AnyApiCall, Api, ActionOf, CallOf, InputOf, OutputOf, ErrorsOf } from './api.js';
 import { toRequest } from './api.js';
 import { diffExposure, fetchApiSpec, type FetchApiSpecOutcome } from './describe.js';
-import { err, ok, type CallError, type ExposureDifference, type Result } from './result.js';
+import { err, ok, MeshCallError, type CallError, type ExposureDifference, type Result } from './result.js';
 
 // ---------------------------------------------------------------------------- transport
 
@@ -89,10 +89,16 @@ export interface MeshClient<A> {
     /** The API descriptor this client was created from, if available at runtime. */
     readonly descriptor?: unknown;
 
+    /**
+     * Throws `MeshCallError` on failure -- matching `ctx.call`/`broker.call` inside the mesh
+     * framework itself. `MeshCallError.error` carries the same named `CallError` a `Result`'s
+     * `.error` used to, so `catch (e) { if (e instanceof MeshCallError) switch (e.error.kind) {...} }`
+     * discriminates exactly like `if (!r.ok) switch (r.error.kind)` did.
+     */
     call<K extends ActionOf<A>>(
         action: K,
         ...input: InputOf<CallOf<A, K>> extends void ? [] : [input: InputOf<CallOf<A, K>>]
-    ): Promise<Result<OutputOf<CallOf<A, K>>, CallError<ErrorsOf<CallOf<A, K>>>>>;
+    ): Promise<OutputOf<CallOf<A, K>>>;
 }
 
 export interface ClientOptions {
@@ -119,11 +125,11 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
         api: api.id,
         descriptor: api,
 
-        async call(action, ...rest): Promise<Result<never, CallError<string>>> {
+        async call(action, ...rest): Promise<unknown> {
             const decl = api.calls[action];
             if (decl === undefined) {
                 // Unreachable through the types; reachable through a hand-built bundle.
-                return err({ kind: 'invalid', detail: `${api.id} does not expose "${action}"` });
+                throw new MeshCallError({ kind: 'invalid', detail: `${api.id} does not expose "${action}"` });
             }
 
             const request = toRequest(api, decl, rest[0]);
@@ -137,7 +143,7 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
                     headers: request.body === undefined ? {} : { 'content-type': 'application/json' },
                 });
             } catch (cause) {
-                return err({ kind: 'offline', detail: cause instanceof Error ? cause.message : String(cause) });
+                throw new MeshCallError({ kind: 'offline', detail: cause instanceof Error ? cause.message : String(cause) });
             }
 
             /**
@@ -244,10 +250,12 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
 
                 if (differences !== undefined && affected === undefined) {
                     // Nothing this client uses moved. Anything else is somebody else's contract.
-                    return interpret(response) as Result<never, CallError<string>>;
+                    const result = interpret(response);
+                    if (!result.ok) throw new MeshCallError(result.error);
+                    return result.value;
                 }
 
-                return err({
+                throw new MeshCallError({
                     kind: 'stale',
                     expected: api.shapeHash,
                     actual: reported,
@@ -255,7 +263,9 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
                 });
             }
 
-            return interpret(response) as Result<never, CallError<string>>;
+            const result = interpret(response);
+            if (!result.ok) throw new MeshCallError(result.error);
+            return result.value;
         },
     } as MeshClient<Api<TCalls>>;
 }

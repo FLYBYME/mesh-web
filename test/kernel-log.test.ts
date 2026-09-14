@@ -300,8 +300,9 @@ describe('a failed call the kernel mediates', () => {
         const { kernel, cx, sent } = await bootCatalog(() => replies[next++] ?? json(500, echo), true);
 
         for (let i = 0; i < replies.length; i++) {
-            const result = await cx.mesh.call('session.signIn', { email: 'alice@example.com', password: PASSWORD });
-            expect(result.ok).toBe(false);
+            await expect(
+                cx.mesh.call('session.signIn', { email: 'alice@example.com', password: PASSWORD }),
+            ).rejects.toThrow();
         }
         const parts = cx.models('part');
         await parts.refetch();

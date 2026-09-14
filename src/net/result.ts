@@ -1,17 +1,24 @@
 /**
  * A result, and the failures it names.
  *
- * spec/type-safety.md section 5, and roadmap A3.1c — **decided, not open**: a call returns a result
- * naming its failures, and the value is only reachable after the check.
+ * Superseded for `MeshClient.call` (spec/type-safety.md §5's original "decided, not open" position,
+ * reversed): `cx.mesh.call` now throws `MeshCallError` on failure and returns the raw value on
+ * success, matching `ctx.call`/`broker.call` inside the mesh framework itself. `fillPath` already
+ * threw synchronously out of `client.call()` for a missing path parameter before this change —
+ * "never throws" was already not quite true.
  *
- * The alternative is a promise that rejects, and the reason it is not used here is that a rejection
- * is untyped. `catch (e)` gives `unknown` and every caller writes the same three lines to find out
- * what happened, or — far more often — writes none and finds out in production. A discriminated
- * union puts the failures in the signature, where the compiler can insist they were considered.
+ * What the original design protected is kept: `CallError` stays a *named*, exhaustively-switched
+ * union (`describe()` below has no `default`), so a caller catching `MeshCallError` still gets
+ * `e.error.kind` to discriminate on, not an untyped `catch (e: unknown)`. `MeshCallError` is that
+ * bridge — a thrown value carrying the same structured failure a `Result` used to.
  *
- * This is deliberately *not* a general-purpose Result library. No `map`, no `andThen`, no chaining:
- * one narrow type used at one boundary, because the value of it is that `r.value` does not exist
- * until `r.ok` has been checked, and that survives no matter how small the type is.
+ * `Result`/`ok`/`err` remain, for the one place they're still real: a `models` collection's
+ * *background reactive read* (`.rows()`/`.status()`/`.error()`) has no call site to throw at — it's a
+ * signal read from a render function, not an awaited expression — so it keeps `.error()` as an
+ * inspectable value. A collection *write* you directly await (`.create`/`.update`/`.delete`/`.get`)
+ * throws, same as `.call()`.
+ *
+ * Deliberately *not* a general-purpose Result library. No `map`, no `andThen`, no chaining.
  */
 
 export interface Ok<T> {
@@ -106,5 +113,20 @@ export function describe(error: CallError<string>): string {
             return 'This page is out of date with the API. Reload.';
         }
         case 'declared': return error.detail;
+    }
+}
+
+/**
+ * What `MeshClient.call` throws on failure, and what a `models` write throws too.
+ *
+ * Carries the exact `CallError` a `Result`'s `.error` used to, as `.error` here — every existing
+ * discriminator (`describe()`, `describeCallFailure()` in kernel/broker.ts, any `switch
+ * (error.kind)`) keeps working unchanged; only how you obtain the `CallError` changes: catch +
+ * `.error`, instead of check `.ok` + `.error`.
+ */
+export class MeshCallError<TName extends string = string> extends Error {
+    constructor(public readonly error: CallError<TName>) {
+        super(describe(error));
+        this.name = 'MeshCallError';
     }
 }

@@ -6,7 +6,7 @@
  */
 
 import type { AnyApiCall, Api, InputOf, OutputOf, ErrorsOf } from '../net/api.js';
-import type { Result, CallError } from '../net/result.js';
+import type { CallError } from '../net/result.js';
 import type { ReadonlySignal } from '../reactivity/types.js';
 
 export type CollectionStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
@@ -77,18 +77,23 @@ export interface CollectionHandle<TCalls extends Record<string, AnyApiCall>, C e
         query?: QueryOf<TCalls, C> | (() => QueryOf<TCalls, C>),
     ): CollectionQuery<ItemOf<TCalls, C>, QueryOf<TCalls, C>>;
     invalidate(): Promise<void>;
+    /**
+     * These throw MeshCallError on failure, matching `.call()` -- a write you directly await, same
+     * as any other network call. `.rows()`/`.status()`/`.error()` above stay inspectable values:
+     * there's no call site to throw *at* for a background reactive read.
+     */
     create(
         ...input: CreateInputOf<TCalls, C> extends void ? [] : [input: CreateInputOf<TCalls, C>]
-    ): Promise<Result<CreateOutputOf<TCalls, C>, CallError<CreateErrorsOf<TCalls, C>>>>;
+    ): Promise<CreateOutputOf<TCalls, C>>;
     update(
         ...input: UpdateInputOf<TCalls, C> extends void ? [] : [input: UpdateInputOf<TCalls, C>]
-    ): Promise<Result<UpdateOutputOf<TCalls, C>, CallError<UpdateErrorsOf<TCalls, C>>>>;
+    ): Promise<UpdateOutputOf<TCalls, C>>;
     delete(
         ...input: DeleteInputOf<TCalls, C> extends void ? [] : [input: DeleteInputOf<TCalls, C>]
-    ): Promise<Result<DeleteOutputOf<TCalls, C>, CallError<DeleteErrorsOf<TCalls, C>>>>;
+    ): Promise<DeleteOutputOf<TCalls, C>>;
     get(
         ...input: GetInputOf<TCalls, C> extends void ? [] : [input: GetInputOf<TCalls, C>]
-    ): Promise<Result<GetOutputOf<TCalls, C>, CallError<GetErrorsOf<TCalls, C>>>>;
+    ): Promise<GetOutputOf<TCalls, C>>;
 }
 
 /**

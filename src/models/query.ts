@@ -14,15 +14,16 @@
 import { signal, effect } from '../reactivity/index.js';
 import { getActiveScopeContext } from '../reactivity/context.js';
 import type { ReadonlySignal, Signal, IDisposableContainer } from '../reactivity/types.js';
-import type { Result, CallError } from '../net/result.js';
+import { MeshCallError, type CallError } from '../net/result.js';
 import type { Gate } from '../net/api.js';
 import { requiresAuth } from '../net/api.js';
 import type { CollectionQuery, CollectionStatus } from './types.js';
 import type { Session } from '../contribution/session.js';
 
+/** Throws MeshCallError on failure, matching MeshClient.call -- never resolves to a Result. */
 export type QueryFetcher<TItem, TQuery> = (
     query?: TQuery,
-) => Promise<Result<readonly TItem[], CallError<string>>>;
+) => Promise<readonly TItem[]>;
 
 export type SessionSource =
     | ReadonlySignal<Session | null>
@@ -378,7 +379,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
 
         this._loading.set(true);
 
-        let fetchPromise: Promise<Result<readonly TItem[], CallError<string>>>;
+        let fetchPromise: Promise<readonly TItem[]>;
         try {
             fetchPromise = this.fetcher(queryParam);
         } catch (syncErr) {
@@ -393,47 +394,27 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         }
 
         const resultPromise = fetchPromise.then(
-            (result) => {
+            (rows) => {
                 if (this.isDisposed || requestId !== this.currentRequestId) {
                     return undefined;
                 }
                 this.currentInFlightPromise = null;
                 this._loading.set(false);
 
-                if (result.ok) {
-                    const sessionNow = sessionSignal ? sessionSignal.peek() : null;
-                    this._data.set(result.value);
-                    this._rows.set(result.value);
-                    this._error.set(null);
-                    this.failedForAuth = false;
-                    this.loadedWithSession = sessionNow !== null;
-                    if (result.value.length === 0) {
-                        this._empty.set(true);
-                        this._status.set('empty');
-                    } else {
-                        this._empty.set(false);
-                        this._status.set('ready');
-                    }
-                    return result.value;
-                }
-
-                // Refusal or transport failure: preserve existing data, populate error state
-                if (result.error.kind === 'unauthorized') {
-                    this.failedForAuth = true;
-                    this.loadedWithSession = false;
-                    this._data.set(undefined);
-                    this._rows.set([]);
+                const sessionNow = sessionSignal ? sessionSignal.peek() : null;
+                this._data.set(rows);
+                this._rows.set(rows);
+                this._error.set(null);
+                this.failedForAuth = false;
+                this.loadedWithSession = sessionNow !== null;
+                if (rows.length === 0) {
+                    this._empty.set(true);
+                    this._status.set('empty');
+                } else {
                     this._empty.set(false);
-                    const sessionNow = sessionSignal ? sessionSignal.peek() : null;
-                    if (sessionAtStart === null && sessionNow !== null) {
-                        // Session arrived while the unauthenticated request was in flight: reload immediately with the session
-                        void this.triggerFetch(true);
-                        return undefined;
-                    }
+                    this._status.set('ready');
                 }
-                this._error.set(result.error);
-                this._status.set('error');
-                return undefined;
+                return rows;
             },
             (rejection: unknown) => {
                 if (this.isDisposed || requestId !== this.currentRequestId) {
@@ -441,6 +422,29 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
                 }
                 this.currentInFlightPromise = null;
                 this._loading.set(false);
+
+                // A thrown MeshCallError carries the same named failure a Result's .error used to --
+                // everything below matches what the old onFulfilled(!result.ok) branch did, just
+                // reached from here now that the fetcher throws instead of returning a Result.
+                if (rejection instanceof MeshCallError) {
+                    if (rejection.error.kind === 'unauthorized') {
+                        this.failedForAuth = true;
+                        this.loadedWithSession = false;
+                        this._data.set(undefined);
+                        this._rows.set([]);
+                        this._empty.set(false);
+                        const sessionNow = sessionSignal ? sessionSignal.peek() : null;
+                        if (sessionAtStart === null && sessionNow !== null) {
+                            // Session arrived while the unauthenticated request was in flight: reload immediately with the session
+                            void this.triggerFetch(true);
+                            return undefined;
+                        }
+                    }
+                    this._error.set(rejection.error);
+                    this._status.set('error');
+                    return undefined;
+                }
+
                 const message = rejection instanceof Error ? rejection.message : String(rejection);
                 this._error.set({ kind: 'offline', detail: message });
                 this._status.set('error');

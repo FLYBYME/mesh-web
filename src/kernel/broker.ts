@@ -37,7 +37,7 @@ import type { HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
 import { createStorage } from '../storage/index.js';
 import { createModels, type EventSourceLike, type Models } from '../models/index.js';
-import type { CallError, Result } from '../net/result.js';
+import { err, MeshCallError, ok, type CallError, type Result } from '../net/result.js';
 import { createLogBuffer, createRepeatFilter, kernelLog, reasonOf, type LogBuffer } from './logs.js';
 
 export interface LogRecord {
@@ -608,9 +608,21 @@ function observeCalls(
         api: client.api,
         ...(client.descriptor === undefined ? {} : { descriptor: client.descriptor }),
         call: async (action, ...input) => {
-            const result = await client.call(action, ...input);
-            report(client.api, action, result);
-            return result;
+            // client.call throws MeshCallError on failure now, rather than returning a Result --
+            // report() still wants a Result (unchanged, so its own logging logic stays as-is), so
+            // one is reconstructed here purely for that call, and the *original* error is what
+            // actually propagates. Losing this catch would mean report() -- and with it every
+            // failed-call log line -- simply never runs, since the throw skips straight past it.
+            try {
+                const value = await client.call(action, ...input);
+                report(client.api, action, ok(value));
+                return value;
+            } catch (e) {
+                if (e instanceof MeshCallError) {
+                    report(client.api, action, err(e.error));
+                }
+                throw e;
+            }
         },
     };
 }

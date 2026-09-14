@@ -562,9 +562,8 @@ describe('mutation invalidation', () => {
         expect(findCalls).toBe(1);
         expect(parts.data()?.length).toBe(2);
 
-        // Create mutation
-        const createRes = await parts.create({ name: 'Gamma', tag: 't1' });
-        expect(createRes.ok).toBe(true);
+        // Create mutation -- success means the call resolves; a throw would fail this test on its own.
+        await parts.create({ name: 'Gamma', tag: 't1' });
 
         // Verify invalidation triggered a refetch
         expect(findCalls).toBe(2);
@@ -572,14 +571,12 @@ describe('mutation invalidation', () => {
         expect(parts.data()?.map((p) => p.name)).toContain('Gamma');
 
         // Update mutation
-        const updateRes = await parts.update({ id: '1', name: 'Alpha Updated' });
-        expect(updateRes.ok).toBe(true);
+        await parts.update({ id: '1', name: 'Alpha Updated' });
         expect(findCalls).toBe(3);
         expect(parts.data()?.find((p) => p.id === '1')?.name).toBe('Alpha Updated');
 
         // Delete mutation
-        const deleteRes = await parts.delete({ id: '2' });
-        expect(deleteRes.ok).toBe(true);
+        await parts.delete({ id: '2' });
         expect(findCalls).toBe(4);
         expect(parts.data()?.length).toBe(2);
         expect(parts.data()?.find((p) => p.id === '2')).toBeUndefined();
@@ -1059,7 +1056,7 @@ describe('session-aware collections', () => {
             id: 'gated-models',
             exposure: 'sha256:gated1234',
             calls: {
-                'part.find': call<PartQuery, readonly Part[]>('GET', '/parts', { kind: 'auth', level: 'user' }),
+                'part.find': call<PartQuery, readonly Part[]>('GET', '/parts', { kind: 'role', role: 'user' }),
                 'part.get': call<{ id: string }, Part, 'not_found'>('GET', '/parts/get'),
                 'part.create': call<CreatePartInput, Part, 'invalid_name'>('POST', '/parts'),
                 'part.update': call<UpdatePartInput, Part, 'not_found'>('PUT', '/parts'),
@@ -1456,7 +1453,7 @@ describe("a collection's default query is nobody else's to own", () => {
             id: 'site-models-gated',
             exposure: 'sha256:models1234',
             calls: {
-                'part.find': call<PartQuery, readonly Part[]>('GET', '/parts', { kind: 'auth', level: 'user' }),
+                'part.find': call<PartQuery, readonly Part[]>('GET', '/parts', { kind: 'role', role: 'user' }),
             },
         });
 

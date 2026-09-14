@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     Kernel, call, createClient, createServices, defineApi, describe as describeError, diffExposure, exposureDifference, fetchApiSpec,
-    needs, provider, toApiSpec, withHeaders,
+    needs, provider, toApiSpec, withHeaders, MeshCallError,
     type Api, type Application, type Context, type ExposureDescriptor, type ExposureDifference, type NetRequest, type NetResponse, type Transport, KEEPS_NOTHING,
 } from '../src/index.js';
 
@@ -91,12 +91,10 @@ describe('the types are the feature', () => {
 
         const result = await client.call('credential.resolve', { id: 'c1' });
 
-        if (!result.ok) throw new Error('expected ok');
-
-        // Inferred, not asserted. If `value` were `unknown` these would not compile, which is the
+        // Inferred, not asserted. If `result` were `unknown` these would not compile, which is the
         // whole claim: `cred` has full types, exactly as `ctx.call` does inside the mesh.
-        const name: string = result.value.name;
-        const provider: 'cloudflare' | 'route53' = result.value.provider;
+        const name: string = result.name;
+        const provider: 'cloudflare' | 'route53' = result.provider;
         expect([name, provider]).toEqual(['prod', 'cloudflare']);
     });
 
@@ -104,9 +102,11 @@ describe('the types are the feature', () => {
         const client = createClient(siteApi, { transport: fakeTransport(() => json(200, {})).transport });
 
         // spec/network.md section 3.3 — the descriptor names what is exposed, so this is a compile
-        // error rather than a 404 discovered by a user.
+        // error rather than a 404 discovered by a user. (Runtime also refuses it -- unreachable
+        // through the types, reachable through a hand-built bundle -- but the compile error above is
+        // the actual claim this test makes; the catch is just so that path doesn't fail the test.)
         // @ts-expect-error "credential.delete" is not in the exposure descriptor
-        await client.call('credential.delete', { id: 'c1' });
+        await client.call('credential.delete', { id: 'c1' }).catch(() => {});
     });
 
     it('will not accept the wrong input shape', async () => {
@@ -125,7 +125,7 @@ describe('the types are the feature', () => {
 
         // No `undefined`, no `{}` — `void` input means the argument is absent from the signature.
         const result = await client.call('session.whoami');
-        expect(result.ok && result.value.roles).toEqual(['user']);
+        expect(result.roles).toEqual(['user']);
     });
 
     it('keeps two APIs from shadowing each other', async () => {
@@ -138,21 +138,24 @@ describe('the types are the feature', () => {
         const client = createClient(other, { transport: fakeTransport(() => json(200, { total: 1 })).transport });
 
         // spec/network.md section 3.2: scoped to a declared API, not `declare global`. An action
-        // from the other API is not in this one's union.
+        // from the other API is not in this one's union. (Runtime also refuses it; the catch is
+        // just so that doesn't fail the test -- the compile error above is the actual claim.)
         // @ts-expect-error "credential.resolve" belongs to surfdns, not billing
-        await client.call('credential.resolve', { id: 'c1' });
+        await client.call('credential.resolve', { id: 'c1' }).catch(() => {});
     });
 
-    it('makes the value unreachable until the failure has been considered', async () => {
+    it('throws MeshCallError rather than returning a value that might not exist', async () => {
         const client = createClient(siteApi, { transport: fakeTransport(() => json(404, {})).transport });
-        const result = await client.call('credential.resolve', { id: 'c1' });
 
-        // roadmap A3.1c. `value` does not exist on the union until `ok` narrows it.
-        // @ts-expect-error value is not available before the check
-        void result.value;
+        // roadmap A3.1c, reversed: matching ctx.call/broker.call, a failure is a rejection, not a
+        // value the caller must remember to check `.ok` on before touching.
+        await expect(client.call('credential.resolve', { id: 'c1' })).rejects.toThrow(MeshCallError);
 
-        if (result.ok) return;
-        expect(result.error.kind).toBe('not_found');
+        try {
+            await client.call('credential.resolve', { id: 'c1' });
+        } catch (e) {
+            expect(e instanceof MeshCallError && e.error.kind).toBe('not_found');
+        }
     });
 });
 
@@ -176,7 +179,7 @@ describe('a call becomes a request', () => {
             exposure: 'sha256:gate',
             shapeHash: 'sha256:shape',
             calls: {
-                'part.find': call<void, unknown>('GET', '/parts', { kind: 'auth', level: 'user' }),
+                'part.find': call<void, unknown>('GET', '/parts', { kind: 'role', role: 'user' }),
                 'zone.delete': call<void, unknown>('DELETE', '/zones/:id',
                     { kind: 'permission', permission: 'domains.delete' }),
                 // No gate: what a client generated before this existed looks like.
@@ -184,7 +187,7 @@ describe('a call becomes a request', () => {
             },
         });
 
-        expect(gated.calls['part.find'].gate).toEqual({ kind: 'auth', level: 'user' });
+        expect(gated.calls['part.find'].gate).toEqual({ kind: 'role', role: 'user' });
         expect(gated.calls['zone.delete'].gate)
             .toEqual({ kind: 'permission', permission: 'domains.delete' });
         expect(gated.calls['session.whoami'].gate).toBeUndefined();
@@ -284,9 +287,13 @@ describe('a call becomes a request', () => {
 describe('failures are named, not numbered', () => {
     const failsWith = async (response: NetResponse) => {
         const client = createClient(siteApi, { transport: fakeTransport(() => response).transport });
-        const result = await client.call('credential.resolve', { id: 'c1' });
-        if (result.ok) throw new Error('expected a failure');
-        return result.error;
+        try {
+            await client.call('credential.resolve', { id: 'c1' });
+        } catch (e) {
+            if (e instanceof MeshCallError) return e.error;
+            throw e;
+        }
+        throw new Error('expected a failure');
     };
 
     it('maps the statuses a caller decides differently about', async () => {
@@ -341,14 +348,17 @@ describe('failures are named, not numbered', () => {
             .toEqual({ kind: 'invalid', detail: 'id: Required' });
     });
 
-    it('reports a transport failure rather than throwing', async () => {
+    it('reports a transport failure as a thrown MeshCallError', async () => {
         const client = createClient(siteApi, {
             transport: { send: () => Promise.reject(new Error('network down')) },
         });
 
-        const result = await client.call('session.whoami');
-        expect(result.ok).toBe(false);
-        expect(!result.ok && result.error).toEqual({ kind: 'offline', detail: 'network down' });
+        try {
+            await client.call('session.whoami');
+            throw new Error('expected a failure');
+        } catch (e) {
+            expect(e instanceof MeshCallError && e.error).toEqual({ kind: 'offline', detail: 'network down' });
+        }
     });
 
     it('refuses to speak to an API whose shapes have moved on', async () => {
@@ -378,27 +388,28 @@ describe('failures are named, not numbered', () => {
                 'x-exposure-shape': 'sha256:abc123',
             })).transport,
         });
-        expect((await client.call('session.whoami')).ok).toBe(true);
+        // Success means the promise just resolves -- a throw would fail this test on its own.
+        await client.call('session.whoami');
     });
 
     it('proceeds when the shape matches, and when either side reports none', async () => {
         const matching = createClient(siteApi, {
             transport: fakeTransport(() => json(200, { userId: 'u1', roles: [] }, { 'x-exposure-shape': 'sha256:abc123' })).transport,
         });
-        expect((await matching.call('session.whoami')).ok).toBe(true);
+        await matching.call('session.whoami');
 
         // An older API sends no header.
         const silent = createClient(siteApi, {
             transport: fakeTransport(() => json(200, { userId: 'u1', roles: [] })).transport,
         });
-        expect((await silent.call('session.whoami')).ok).toBe(true);
+        await silent.call('session.whoami');
 
         // And a client generated before D4 carries no shapeHash. Unverifiable beats refusing
         // everything, and it is a state that resolves itself on the next regenerate.
         const older = createClient(defineApi({ id: 'surfdns', exposure: 'sha256:gate-hash', calls: siteApi.calls }), {
             transport: fakeTransport(() => json(200, { userId: 'u1', roles: [] }, { 'x-exposure-shape': 'sha256:anything' })).transport,
         });
-        expect((await older.call('session.whoami')).ok).toBe(true);
+        await older.call('session.whoami');
     });
 
     it('has a message for every failure, checked exhaustively', () => {
@@ -428,12 +439,13 @@ class ConsoleApp implements Application<typeof CONSOLE_NEEDS, readonly [], typeo
             ...KEEPS_NOTHING,
             api: {
                 whoami: async () => {
-                    const result = await cx.mesh.call('session.whoami');
-                    if (!result.ok) {
-                        cx.log.warn(describeError(result.error));
+                    try {
+                        const result = await cx.mesh.call('session.whoami');
+                        return result.userId;
+                    } catch (e) {
+                        cx.log.warn(e instanceof MeshCallError ? describeError(e.error) : String(e));
                         return 'anonymous';
                     }
-                    return result.value.userId;
                 },
             },
         };
@@ -640,8 +652,8 @@ describe('stale client recovery and exposure difference reporting', () => {
         exposure: 'sha256:gate-v1',
         shapeHash: 'sha256:shape-v1',
         calls: {
-            'domain.get': call<{ id: string }, { id: string; name: string }>('GET', '/domains/:id', { kind: 'auth', level: 'user' }),
-            'domain.create': call<{ name: string }, { id: string }>('POST', '/domains', { kind: 'auth', level: 'admin' }),
+            'domain.get': call<{ id: string }, { id: string; name: string }>('GET', '/domains/:id', { kind: 'role', role: 'user' }),
+            'domain.create': call<{ name: string }, { id: string }>('POST', '/domains', { kind: 'role', role: 'admin' }),
             'domain.delete': call<{ id: string }, void>('DELETE', '/domains/:id', { kind: 'permission', permission: 'domain.delete' }),
         },
     });
@@ -784,16 +796,20 @@ describe('stale client recovery and exposure difference reporting', () => {
         const wrappedTransport = withHeaders(fake.transport, () => ({ authorization: 'Bearer ticket-123' }));
         const client = createClient(baseClientApi, { transport: wrappedTransport });
 
-        const result = await client.call('domain.get', { id: 'd1' });
-        expect(result.ok).toBe(false);
-        if (result.ok) throw new Error('expected err');
+        let caught: MeshCallError | undefined;
+        try {
+            await client.call('domain.get', { id: 'd1' });
+        } catch (e) {
+            if (e instanceof MeshCallError) caught = e;
+        }
+        if (caught === undefined) throw new Error('expected err');
 
-        expect(result.error.kind).toBe('stale');
-        if (result.error.kind !== 'stale') throw new Error('expected stale');
+        expect(caught.error.kind).toBe('stale');
+        if (caught.error.kind !== 'stale') throw new Error('expected stale');
 
-        expect(result.error.expected).toBe('sha256:shape-v1');
-        expect(result.error.actual).toBe('sha256:shape-v2');
-        expect(result.error.differences).toEqual([
+        expect(caught.error.expected).toBe('sha256:shape-v1');
+        expect(caught.error.actual).toBe('sha256:shape-v2');
+        expect(caught.error.differences).toEqual([
             {
                 contract: 'domain.get',
                 kind: 'path',
@@ -802,7 +818,7 @@ describe('stale client recovery and exposure difference reporting', () => {
         ]);
 
         // Formatted description contains the exact change
-        expect(describeError(result.error)).toBe(
+        expect(describeError(caught.error)).toBe(
             'This page is out of date with the API: Contract "domain.get" path changed from /domains/:id to /v2/domains/:id.',
         );
 
@@ -835,20 +851,20 @@ describe('stale client recovery and exposure difference reporting', () => {
 
         const client = createClient(baseClientApi, { transport: fake.transport });
 
-        // Two concurrent calls
-        const [res1, res2] = await Promise.all([
+        // Two concurrent calls, both expected to reject
+        const [res1, res2] = await Promise.allSettled([
             client.call('domain.get', { id: 'd1' }),
             client.call('domain.delete', { id: 'd2' }),
         ]);
 
-        expect(res1.ok).toBe(false);
-        expect(res2.ok).toBe(false);
+        expect(res1.status).toBe('rejected');
+        expect(res2.status).toBe('rejected');
         // Only one fetch to /api/_describe occurred
         expect(describeCalls).toBe(1);
 
         // A third sequential call also uses the cached differences
-        const res3 = await client.call('domain.create', { name: 'test' });
-        expect(res3.ok).toBe(false);
+        const res3 = await Promise.allSettled([client.call('domain.create', { name: 'test' })]);
+        expect(res3[0]!.status).toBe('rejected');
         expect(describeCalls).toBe(1);
     });
 
@@ -861,16 +877,20 @@ describe('stale client recovery and exposure difference reporting', () => {
         });
 
         const client = createClient(baseClientApi, { transport: fake.transport });
-        const result = await client.call('domain.get', { id: 'd1' });
 
-        expect(result.ok).toBe(false);
-        if (result.ok) throw new Error('expected err');
-        expect(result.error.kind).toBe('stale');
-        if (result.error.kind !== 'stale') throw new Error('expected stale');
-        expect(result.error.expected).toBe('sha256:shape-v1');
-        expect(result.error.actual).toBe('sha256:shape-v2');
-        expect(result.error.differences).toBeUndefined();
-        expect(describeError(result.error)).toBe('This page is out of date with the API. Reload.');
+        let caught: MeshCallError | undefined;
+        try {
+            await client.call('domain.get', { id: 'd1' });
+        } catch (e) {
+            if (e instanceof MeshCallError) caught = e;
+        }
+        if (caught === undefined) throw new Error('expected err');
+        expect(caught.error.kind).toBe('stale');
+        if (caught.error.kind !== 'stale') throw new Error('expected stale');
+        expect(caught.error.expected).toBe('sha256:shape-v1');
+        expect(caught.error.actual).toBe('sha256:shape-v2');
+        expect(caught.error.differences).toBeUndefined();
+        expect(describeError(caught.error)).toBe('This page is out of date with the API. Reload.');
     });
 });
 
@@ -912,8 +932,7 @@ describe('a moved exposure is not a broken client', () => {
             .call('credential.resolve', { id: 'c1' });
 
         // The response was good. Refusing it because somebody else's contract appeared is the bug.
-        expect(result.ok).toBe(true);
-        expect(result.ok && result.value.name).toBe('prod');
+        expect(result.name).toBe('prod');
     });
 
     it('still refuses the call that actually moved, and says what changed', async () => {
@@ -931,16 +950,20 @@ describe('a moved exposure is not a broken client', () => {
         ));
         const client = createClient(siteApi, { transport: fake.transport });
 
-        const broken = await client.call('credential.resolve', { id: 'c1' });
-        expect(broken.ok).toBe(false);
-        if (!broken.ok) {
-            expect(broken.error.kind).toBe('stale');
-            expect(JSON.stringify(broken.error)).toContain('credential.resolve');
+        try {
+            await client.call('credential.resolve', { id: 'c1' });
+            throw new Error('expected a failure');
+        } catch (e) {
+            if (e instanceof MeshCallError) {
+                expect(e.error.kind).toBe('stale');
+                expect(JSON.stringify(e.error)).toContain('credential.resolve');
+            } else {
+                throw e;
+            }
         }
 
         // And a call that did not move is unaffected, on the same stale exposure.
-        const fine = await client.call('session.whoami');
-        expect(fine.ok).toBe(true);
+        await client.call('session.whoami');
     });
 
     /**
@@ -971,7 +994,7 @@ describe('a moved exposure is not a broken client', () => {
             shapeHash: 'sha256:shape-v1',
             calls: {
                 'site.find': call<void, readonly { host: string }[]>(
-                    'GET', '/sites', { kind: 'auth', level: 'public' }),
+                    'GET', '/sites', { kind: 'role', role: 'public' }),
             },
         });
 
@@ -986,8 +1009,7 @@ describe('a moved exposure is not a broken client', () => {
         const result = await createClient(generated, { transport: fake.transport })
             .call('site.find');
 
-        expect(result.ok).toBe(true);
-        expect(result.ok && result.value[0]?.host).toBe('127.0.0.1');
+        expect(result[0]?.host).toBe('127.0.0.1');
     });
 
     /**
@@ -1006,8 +1028,8 @@ describe('a moved exposure is not a broken client', () => {
             exposure: 'sha256:gate',
             shapeHash: 'sha256:shape',
             calls: {
-                'site.find': call<void, readonly unknown[]>('GET', '/sites', { kind: 'auth', level: 'public' }),
-                'site.seed': call<void, unknown>('POST', '/sites/seed', { kind: 'auth', level: 'public' }),
+                'site.find': call<void, readonly unknown[]>('GET', '/sites', { kind: 'role', role: 'public' }),
+                'site.seed': call<void, unknown>('POST', '/sites/seed', { kind: 'role', role: 'public' }),
             },
         });
 
@@ -1040,10 +1062,13 @@ describe('a moved exposure is not a broken client', () => {
                 : json(200, {}, { 'x-exposure-shape': 'sha256:moved' })
         ));
 
-        const result = await createClient(siteApi, { transport: fake.transport })
-            .call('credential.resolve', { id: 'c1' });
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) expect(result.error.kind).toBe('stale');
+        try {
+            await createClient(siteApi, { transport: fake.transport })
+                .call('credential.resolve', { id: 'c1' });
+            throw new Error('expected a failure');
+        } catch (e) {
+            if (e instanceof MeshCallError) expect(e.error.kind).toBe('stale');
+            else throw e;
+        }
     });
 });
