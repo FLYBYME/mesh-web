@@ -60,7 +60,8 @@ import { pageWindowMode, windowPersistence } from '../window/persistence.js';
 import type { RememberedWindow, WindowPersistence } from '../window/persistence.js';
 import { windowSink } from '../window/sink.js';
 import { WindowManager } from '../window/manager.js';
-import type { Action } from '../description/types.js';
+import type { Action, IntentValue } from '../description/types.js';
+import type { Dispatcher } from '../render/dom.js';
 import { bindingTable } from '../input/keys.js';
 import { createServices } from './broker.js';
 import { Kernel, type Loaded } from './kernel.js';
@@ -300,6 +301,24 @@ export function start(composition: Composition): Started {
      * boot rather than rendering a page with no windows — which is the right time to find out.
      */
     const chrome = kernel.provided(PAGE_CHROME);
+
+    /**
+     * `run` alone, kept as `onCommand` below (every window already resolves its own `handler`
+     * actions locally, in `window/host.ts`'s `mountView`, and only ever forwards a `command` up to
+     * here) -- but chrome's own render tree isn't a window, so nothing resolves a `handler` action
+     * chrome produces unless chrome itself can. `chrome.handlers`, when present, is exactly that:
+     * the table `createHandlerTable().on` registered into, handed back the same way `api` is.
+     */
+    const pageDispatch: Dispatcher = {
+        dispatch(action: Action, value?: IntentValue): void {
+            if (action.kind === 'handler') {
+                chrome?.handlers?.invoke(action.id, value);
+                return;
+            }
+            run(action);
+        },
+    };
+
     const page = mountPage(root, {
         manager,
         ...(chrome === undefined ? {} : { chrome }),
@@ -311,7 +330,7 @@ export function start(composition: Composition): Started {
         apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
         internalOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.internal,
         isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',
-        render: { components, dispatch: { dispatch: run } },
+        render: { components, dispatch: pageDispatch },
         onCommand: run,
     });
 

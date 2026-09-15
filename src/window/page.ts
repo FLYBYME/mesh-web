@@ -31,6 +31,7 @@
  */
 
 import { element } from '../description/build.js';
+import type { HandlerTable } from '../description/build.js';
 import type { Node } from '../description/types.js';
 import { effect } from '../reactivity/index.js';
 import { render, type RenderOptions } from '../render/dom.js';
@@ -82,6 +83,21 @@ export const windowHost = (): Node => element(WINDOW_HOST);
  */
 export interface PageChrome {
     render(): Node;
+    /**
+     * Resolves this chrome's own `{ kind: 'handler' }` actions -- the incidental interactions
+     * `command(...)` doesn't cover, e.g. a form's field `change`/`commit` registered through
+     * `createHandlerTable().on`. Absent means this chrome only ever produces `command` actions,
+     * which was every chrome written before one embedded a composite that needed a `Registrar`.
+     *
+     * A window's own view gets an equivalent table for free (`window/host.ts`'s `mountView`,
+     * scoped to that window and disposed with it); chrome has no per-window lifetime to scope one
+     * to; this is the same mechanism given a shape a singleton, page-level Extension can hold and
+     * hand back. Found live: a chrome consuming `AUTH` and rendering a real sign-in composite in
+     * its banner for the first time -- the button was there and did nothing, because
+     * `mountPage`'s own dispatcher had only ever needed to resolve `command` actions and silently
+     * dropped every `handler` one, which nothing had exercised until then.
+     */
+    readonly handlers?: HandlerTable;
 }
 
 /**
