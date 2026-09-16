@@ -415,6 +415,10 @@ export function start(composition: Composition): Started {
         lastMode = currentMode;
     });
 
+
+    // @ts-ignore
+    window.kernel = kernel;
+
     return {
         kernel, manager, page, settings, components, logViewer,
         ready: open(kernel, composition, manager, persistence, log, unconstructed),
