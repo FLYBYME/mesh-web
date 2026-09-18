@@ -65,6 +65,7 @@ export function kernelLog(logs: LogBuffer): KernelLog {
             ...(about.part === undefined ? {} : { part: about.part }),
             ...(about.data === undefined ? {} : { data: about.data }),
         });
+        console.log(level, message, about);
     };
 
     return { info: write('info'), warn: write('warn'), error: write('error') };
@@ -150,7 +151,7 @@ export function createLogBuffer(capacity = DEFAULT_LOG_CAPACITY): LogBuffer {
                 dropped += excess;
             }
             for (const listener of listeners) {
-                try { listener(); } catch {}
+                try { listener(); } catch { }
             }
             return arr.length;
         },
