@@ -42,9 +42,15 @@
  */
 
 import type { ErasedContribution } from '../contribution/contract.js';
+import type { ProviderToken } from '../contribution/provider.js';
 import { effect } from '../reactivity/index.js';
 import { createRegistry as createComponents, PRIMITIVES } from '../render/component.js';
 import type { ComponentRegistry } from '../render/component.js';
+import { IoManager } from './io.js';
+import { STORAGE } from '../registry/storage-driver.js';
+import { HOST_WINDOW_DRIVER, ONLINE_DRIVER } from './drivers.js';
+import { createHostWindowDriver, createOnlineDriver } from './default-drivers.js';
+import { createDomRenderer, RENDERER, type Dispatcher } from '../render/index.js';
 import { createClient, fetchTransport, withHeaders } from '../net/client.js';
 import { createFetchEventSource } from '../net/eventsource.js';
 import type { MeshClient } from '../net/client.js';
@@ -54,7 +60,7 @@ import type { Registry } from '../registry/registry.js';
 import type { BuildPolicy, HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
 import { domConfirm } from './confirm.js';
-import { mountPage, PAGE_CHROME } from '../window/page.js';
+import { mountPage, PAGE_CHROME, windowHostComponent } from '../window/page.js';
 import type { Page } from '../window/page.js';
 import { pageWindowMode, windowPersistence } from '../window/persistence.js';
 import type { RememberedWindow, WindowPersistence } from '../window/persistence.js';
@@ -62,7 +68,6 @@ import { windowSink } from '../window/sink.js';
 import { WindowManager } from '../window/manager.js';
 import { browserHistory, routerSink } from '../router/router.js';
 import type { Action, IntentValue } from '../description/types.js';
-import type { Dispatcher } from '../render/dom.js';
 import { bindingTable } from '../input/keys.js';
 import { createServices } from './broker.js';
 import { Kernel, type Loaded } from './kernel.js';
@@ -167,12 +172,19 @@ export function start(composition: Composition): Started {
         height: root.clientHeight,
     });
 
-    const hives = composition.hives ?? {
-        system: { provider: memoryProvider('system'), writable: false },
-        user: { provider: memoryProvider('user'), writable: true },
-        device: { provider: localProvider(), writable: true },
-        session: { provider: memoryProvider('session'), writable: true },
-    };
+    const io = new IoManager();
+    if (io.get(STORAGE) === undefined) {
+        const hives = composition.hives ?? {
+            system: { provider: memoryProvider('system'), writable: false },
+            user: { provider: memoryProvider('user'), writable: true },
+            device: { provider: localProvider(), writable: true },
+            session: { provider: memoryProvider('session'), writable: true },
+        };
+        io.register(STORAGE, hives);
+        io.register(HOST_WINDOW_DRIVER, createHostWindowDriver());
+        io.register(ONLINE_DRIVER, createOnlineDriver());
+    }
+    const hives = io.resolve(STORAGE);
 
     const services = createServices(undefined, {
         apiOrigin: api,
@@ -201,7 +213,7 @@ export function start(composition: Composition): Started {
             headers: () => kernel.services.credentials.headers?.() ?? {},
         }),
     });
-    const kernel = new Kernel({ services });
+    const kernel = new Kernel({ services, io });
 
     /**
      * Four hives, and where each is backed.
@@ -297,8 +309,14 @@ export function start(composition: Composition): Started {
     kernel.boot(loaded);
 
     const components = createComponents(PRIMITIVES);
+    components.register(windowHostComponent);
     for (const { decl } of kernel.manifest.components.values()) {
         components.register(decl);
+    }
+
+    if (kernel.io.get(RENDERER) === undefined) {
+        const renderer = createDomRenderer(components);
+        kernel.io.register(RENDERER, renderer);
     }
 
     const run = (action: Action): void => {
@@ -343,7 +361,26 @@ export function start(composition: Composition): Started {
         apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
         internalOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.internal,
         isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',
-        render: { components, dispatch: pageDispatch },
+        /**
+         * **Drivers first, then what an Extension provided.**
+         *
+         * Two registries answer one question, and the order is the policy: a subsystem with a driver
+         * installed is answered by the driver, and `provided` remains what a *part* contributed. They
+         * are separate on purpose — `io` is the platform seam and `providers` is the contribution
+         * graph — so a part cannot shadow the renderer by providing the same token.
+         *
+         * `??` and not `||`: a driver may legitimately be a falsy value, and `||` would fall through
+         * to the provider graph for one.
+         */
+        resolve: <T>(token: ProviderToken<T>): T | undefined => kernel.io.get(token) ?? kernel.provided(token),
+        /**
+         * `pageDispatch`, not a bare `run` — that's the whole reason a form works inside chrome
+         * (v0.17.2, "PageChrome resolves its own handler actions"). The renderer registered onto
+         * `kernel.io` above already closed over `components`, so this call site only needs to supply
+         * dispatch, but it still has to be the one that forwards `{ kind: 'handler' }` to
+         * `chrome.handlers`, not the one that silently drops it.
+         */
+        renderOptions: { dispatch: pageDispatch },
         onCommand: run,
     });
 

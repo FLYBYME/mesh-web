@@ -1,3 +1,4 @@
+import { IoManager } from '../src/kernel/io.js';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
@@ -55,6 +56,7 @@ function storageContext(
         [],
         () => undefined,
         services,
+        new IoManager(),
     );
     const cx = handle.context as unknown as Context<['storage']>;
     return { handle, storage: cx.storage, services };

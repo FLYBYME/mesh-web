@@ -34,8 +34,8 @@ import { element } from '../description/build.js';
 import type { HandlerTable } from '../description/build.js';
 import type { Node } from '../description/types.js';
 import { effect } from '../reactivity/index.js';
-import { render, type RenderOptions } from '../render/dom.js';
-import type { ComponentDefinition } from '../render/component.js';
+import { RENDERER } from '../render/index.js';
+import type { PrimitiveDefinition } from '../render/component.js';
 import { provider, type ProviderToken } from '../contribution/provider.js';
 import { mountShell, type Shell, type ShellOptions } from './shell.js';
 
@@ -60,7 +60,7 @@ const HOST_ATTRIBUTE = 'data-mesh-window-host';
  * every window would be placed against the viewport instead of against the area chrome gave them.
  * Everything else — size, background, border — is the site's.
  */
-export const windowHostComponent: ComponentDefinition = {
+export const windowHostComponent: PrimitiveDefinition = {
     name: WINDOW_HOST,
     create: () => {
         const el = document.createElement('div');
@@ -175,13 +175,10 @@ export function mountPage(root: Element, options: PageOptions): Page {
         };
     }
 
-    // Registered here rather than asked of the site: the marker is the framework's, and a site that
-    // had to remember to register it would discover the omission as chrome that renders nothing.
-    if (options.render.components.get(WINDOW_HOST) === undefined) {
-        options.render.components.register(windowHostComponent);
-    }
+    const renderer = options.resolve(RENDERER);
+    if (renderer === undefined) throw new Error('No renderer available to mount page chrome.');
 
-    const chrome = render(options.chrome.render(), root, { ...options.render, part: 'chrome' });
+    const chrome = renderer.render(options.chrome.render(), root, { ...options.renderOptions, part: 'chrome' });
 
     const host = root.querySelector(`[${HOST_ATTRIBUTE}]`);
     if (host === null) {

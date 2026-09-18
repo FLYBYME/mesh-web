@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { needs } from '../src/contribution/capabilities.js';
 import type { Application, Context, Extension } from '../src/contribution/contract.js';
 import { KEEPS_NOTHING } from '../src/contribution/contract.js';
-import type { ComponentDefinition } from '../src/render/component.js';
+import type { PrimitiveDefinition } from '../src/render/component.js';
 import { createRegistry, PRIMITIVES } from '../src/render/component.js';
 import { render } from '../src/render/dom.js';
 import { element, text } from '../src/description/index.js';
@@ -20,7 +20,7 @@ const WINDOWS_NEEDS = needs('windows');
 
 describe('manifest component declarations and merging', () => {
     it('merges declared components into the manifest', () => {
-        const cardDef: ComponentDefinition = {
+        const cardDef: PrimitiveDefinition = {
             name: 'ui.Card',
             create: () => document.createElement('div'),
         };
@@ -36,11 +36,11 @@ describe('manifest component declarations and merging', () => {
     });
 
     it('enforces namespace prefix matching the contributing part id', () => {
-        const bareDef: ComponentDefinition = {
+        const bareDef: PrimitiveDefinition = {
             name: 'Card',
             create: () => document.createElement('div'),
         };
-        const wrongPrefixDef: ComponentDefinition = {
+        const wrongPrefixDef: PrimitiveDefinition = {
             name: 'other.Card',
             create: () => document.createElement('div'),
         };
@@ -61,7 +61,7 @@ describe('manifest component declarations and merging', () => {
     });
 
     it('reports two contributions claiming one component name as a load-time conflict in manifest.conflicts', () => {
-        const cardOne: ComponentDefinition = {
+        const cardOne: PrimitiveDefinition = {
             name: 'ui.Card',
             create: () => {
                 const el = document.createElement('div');
@@ -69,7 +69,7 @@ describe('manifest component declarations and merging', () => {
                 return el;
             },
         };
-        const cardTwo: ComponentDefinition = {
+        const cardTwo: PrimitiveDefinition = {
             name: 'ui.Card',
             create: () => {
                 const el = document.createElement('div');
@@ -97,7 +97,7 @@ describe('manifest component declarations and merging', () => {
 
 describe('runtime component registration and rendering', () => {
     it('registers Extension-provided components in the registry and renders them in an Application', async () => {
-        const cardDef: ComponentDefinition = {
+        const cardDef: PrimitiveDefinition = {
             name: 'ui.Card',
             create: () => {
                 const el = document.createElement('section');
@@ -152,7 +152,7 @@ describe('runtime component registration and rendering', () => {
     });
 
     it('does not throw at render when two contributions claim the same component name', async () => {
-        const cardOne: ComponentDefinition = {
+        const cardOne: PrimitiveDefinition = {
             name: 'ui.Card',
             create: () => {
                 const el = document.createElement('div');
@@ -160,7 +160,7 @@ describe('runtime component registration and rendering', () => {
                 return el;
             },
         };
-        const cardTwo: ComponentDefinition = {
+        const cardTwo: PrimitiveDefinition = {
             name: 'ui.Card',
             create: () => {
                 const el = document.createElement('div');

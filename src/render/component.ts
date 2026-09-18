@@ -1,19 +1,29 @@
 /**
- * Components: the vocabulary an Application is allowed to name.
+ * Primitives: the DOM renderer's table of how to build each named node.
  *
  * spec/view-layer.md section 3. An Application writes `Stack`, `Text`, `Button` — never `div`. This
- * file is where a name becomes an element, and it is deliberately the *only* place in the package
- * below the renderer that knows an element exists.
+ * file is where a name becomes an element, and it is deliberately the *only* place in the DOM driver
+ * that maps a description-layer name to a concrete element.
  *
  * The framework ships primitives; an Extension contributes the rest (view-layer section 3), which is
  * what lets a design system ship separately and a site restyle without touching an Application.
+ *
+ * **This is internal to the DOM renderer driver.** A terminal or canvas renderer would not have this
+ * table; it would have whatever it needs for its own platform.
  */
 
 import type { Json, Props } from '../description/types.js';
 import { read } from '../description/types.js';
 import { canDrop, cancelGrab, drop, grab, hasGrab, isGrabbed } from './drag.js';
 
-export interface ComponentDefinition {
+/**
+ * The DOM renderer's record for one named node: how to create it, apply props, and find its slot.
+ *
+ * **Internal to the DOM driver.** The primitive set is a contract between the description language
+ * and the DOM renderer — every name here must be implemented, which is the cost of a new primitive
+ * (see spec/roadmap.md A8.18). Extension-contributed nodes also get entries here at load time.
+ */
+export interface PrimitiveDefinition {
     readonly name: string;
 
     /** The host element. Called once per node instance. */
@@ -22,7 +32,7 @@ export interface ComponentDefinition {
     /**
      * Apply one prop. Called at construction, and again whenever a reactive prop changes.
      *
-     * Returning false means "not mine" and falls through to the default handling, so a component
+     * Returning false means "not mine" and falls through to the default handling, so a primitive
      * only has to describe the props it treats specially.
      */
     apply?(el: Element, name: string, value: Json): boolean | void;
@@ -37,21 +47,27 @@ export interface ComponentDefinition {
      * is part of how that holds). But on an element where Space is text entry, pressing Space mid-word
      * must enter a space rather than firing `activate` (roadmap A7.0b).
      *
-     * This knowledge belongs on ComponentDefinition rather than as a hardcoded tag-name list in
-     * `bindIntents`: components understand their own input semantics, and Extension-contributed
+     * This knowledge belongs on PrimitiveDefinition rather than as a hardcoded tag-name list in
+     * `bindIntents`: primitives understand their own input semantics, and Extension-contributed
      * custom editors or inputs can declare this without modifying the renderer.
      */
     readonly spaceIsTextInput?: boolean | ((el: Element) => boolean);
 }
 
+/**
+ * The DOM driver's lookup table of named node definitions.
+ *
+ * Internal to the DOM renderer. Used to resolve `element('Stack', ...)` to a concrete DOM element,
+ * and to register Extension-contributed components at load time.
+ */
 export interface ComponentRegistry {
-    get(name: string): ComponentDefinition | undefined;
-    register(definition: ComponentDefinition): void;
+    get(name: string): PrimitiveDefinition | undefined;
+    register(definition: PrimitiveDefinition): void;
     readonly names: readonly string[];
 }
 
-export function createRegistry(definitions: readonly ComponentDefinition[] = []): ComponentRegistry {
-    const map = new Map<string, ComponentDefinition>();
+export function createRegistry(definitions: readonly PrimitiveDefinition[] = []): ComponentRegistry {
+    const map = new Map<string, PrimitiveDefinition>();
     for (const d of definitions) map.set(d.name, d);
 
     return {
@@ -413,7 +429,7 @@ function applyFieldAccessibilityProps(el: Element, name: string, value: Json): b
 // ---------------------------------------------------------------------------- primitives
 
 /** A tag, plus an optional prop mapping. The shorthand most primitives need. */
-function tag(name: string, tagName: string, extra?: Partial<ComponentDefinition>): ComponentDefinition {
+function tag(name: string, tagName: string, extra?: Partial<PrimitiveDefinition>): PrimitiveDefinition {
     return {
         name,
         create: () => document.createElement(tagName),
@@ -422,13 +438,13 @@ function tag(name: string, tagName: string, extra?: Partial<ComponentDefinition>
 }
 
 /**
- * The primitive component vocabulary (spec/roadmap.md A7.3).
+ * The primitive node vocabulary (spec/roadmap.md A7.3).
  *
  * Every primitive satisfies "every action has a non-pointer path" (spec/input.md §3).
  * Primitives understand their own DOM properties and semantics (such as dirty value flags,
  * keyboard accessibility, and semantic heading tags) while preserving fine-grained reactivity.
  */
-export const PRIMITIVES: readonly ComponentDefinition[] = [
+export const PRIMITIVES: readonly PrimitiveDefinition[] = [
     tag('Stack', 'div', {
         apply(el, name, value) {
             if (name === 'gap') {

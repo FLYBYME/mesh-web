@@ -1,0 +1,107 @@
+A8.18, parts (1) and (4): the renderer becomes a driver that is looked up, and
+`ComponentDefinition` is renamed to what it actually is.
+
+This closes surfdns freeze gate **V5** and the first half of **A8.18**. Read
+`spec/roadmap.md` A8.18 in full before you touch anything — it is long, it was
+corrected once on the day it was written, and the correction is the content.
+
+--------------------------------------------------------------------------------
+WHY THIS IS URGENT RATHER THAN NICE
+
+mesh-web is about to go 0.16.5 -> 1.0. Every part in two other repositories pins
+`"kernel": "^0.16"` in its mesh.json, and a part built against ^0.16 does not
+load on a 1.0 kernel. **The version bump is the last cheap breaking change.** A
+public name that is wrong on freeze day is wrong permanently, or costs a major
+version to remove.
+
+`ComponentDefinition` is such a name, and it is wrong in a way that has already
+cost time: it reads as "the definition of a component", so it gets reached for
+whenever somebody wants to contribute a component. It is not that. It is the DOM
+renderer's table of how to build one named node — a detail of one driver.
+
+--------------------------------------------------------------------------------
+THE DISTINCTION, WHICH YOU MUST NOT BLUR
+
+| | what it is | cost of a new one |
+| --- | --- | --- |
+| composite | pure description, state and all | free on every renderer, forever |
+| component | pure description, no state | free on every renderer, forever |
+| primitive | a name the renderer must know how to build | **every renderer, present and future, must implement it** |
+| driver | the renderer itself, the storage provider, a clock, a window | one per platform |
+
+A description tree is data. **The renderer is the thing that realises it against
+a platform, and that is the driver.** The primitive set is a contract between the
+description language and every driver that will ever exist, so it should be small
+and closed.
+
+--------------------------------------------------------------------------------
+WHAT IS MEASURABLY TRUE TODAY — verify each before changing it
+
+- `PRIMITIVES` is a `const` array in `src/render/component.ts`, registered once
+  at `src/kernel/start.ts:265`.
+- **The renderer is not swappable at all.** `src/window/page.ts` imports `render`
+  from `../render/dom.js` directly. There is no renderer interface, no injection
+  point, nothing to implement. The one true driver in the system is a hard
+  import.
+- `StorageProvider` **is** a proper driver and is the only one: an ops table,
+  several implementations, bound per hive, with `RESOLUTION_ORDER` as the search
+  path. That is a VFS borrowed from NT deliberately, and `src/kernel/hives.ts`
+  says so. **Read it — it is the shape to copy.**
+
+--------------------------------------------------------------------------------
+TASK 1 — A RENDERER INTERFACE, SO `render` IS LOOKED UP RATHER THAN IMPORTED
+
+Define the interface a renderer implements, register the DOM one at start, and
+make `window/page.ts` resolve it instead of importing it. Follow how
+`StorageProvider` is registered and resolved; do not invent a second mechanism
+beside it — if the object registry already does this, use the object registry.
+
+`PrimitiveDefinition` (the renamed table) becomes internal to the DOM renderer.
+It is not part of the renderer interface: a terminal or canvas renderer would not
+have one, it would have whatever it needs.
+
+**The swap test is the proof, and it is the deliverable.** Write a test that
+registers a second, non-DOM renderer — one that records the description nodes it
+was asked to realise, in memory, touching no `document` — mounts a part against
+it, and asserts the part rendered correctly **with no part changing**. A renderer
+interface with only one implementation has not been shown to be an interface. If
+you cannot write that test, the seam is in the wrong place; move the seam, do not
+weaken the test.
+
+TASK 2 — THE RENAME
+
+`ComponentDefinition` -> `PrimitiveDefinition`, everywhere, including
+`ComponentRegistry` if the same argument applies to it (decide, and say which way
+in the report). Update `src/contribution/contract.ts` where
+`declarations.components` is typed, and the doc comment above `ComponentContract`
+that already draws these three layers and already uses the word "driver" for the
+bottom one.
+
+Do NOT change `declarations.components` to a different shape or remove it in this
+dispatch. Whether anyone may contribute a primitive is a real decision and it is
+A8.18 part (2)/(3), not this. Renaming the type does not decide it.
+
+--------------------------------------------------------------------------------
+WHAT NOT TO DO
+
+- Do not do A8.18 parts (2) or (3) — one driver registration point covering
+  storage as well, and the missing drivers (window, online/offline). They are
+  the next dispatch. Stopping cleanly at a seam plus a rename is the task.
+- Do not touch `@flybyme/mesh`. It is frozen; bug fixes only.
+- `as any` and `as never` are bugs in this codebase, not style. This repository
+  exists because full type safety was worth rewriting a framework for. If you
+  need one, you have the wrong shape — say so in the report instead.
+
+--------------------------------------------------------------------------------
+DONE MEANS
+
+- `npm test` green (455 tests before you start; it must not go down).
+- `npm run typecheck` clean.
+- The swap test above exists and passes.
+- `spec/roadmap.md` A8.18 updated: parts (1) and (4) marked done with what was
+  built, parts (2) and (3) left open and still accurate.
+- If you find a structural gap while working, add it to `spec/roadmap.md` as its
+  own item. That is a standing rule here: a gap found and only mentioned in a
+  report is a gap lost.
+- Commit as you go. Do not add `Co-Authored-By` or `Claude-Session` trailers to
+  commits in this repository.

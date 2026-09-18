@@ -1,3 +1,4 @@
+import { IoManager } from '../src/kernel/io.js';
 /**
  * @vitest-environment jsdom
  *
@@ -48,6 +49,7 @@ describe('Surface (A7.5)', () => {
             [],
             () => undefined,
             services,
+            new IoManager(),
         );
 
         expect('dom' in handle.context).toBe(false);
@@ -63,6 +65,7 @@ describe('Surface (A7.5)', () => {
             [],
             () => undefined,
             services,
+            new IoManager(),
         );
 
         const cx = handle.context as Context<typeof DOM_NEEDS>;
@@ -82,6 +85,7 @@ describe('Surface (A7.5)', () => {
             [],
             () => undefined,
             services,
+            new IoManager(),
         );
         const cx = handle.context as Context<typeof DOM_NEEDS>;
 
@@ -120,6 +124,7 @@ describe('Surface (A7.5)', () => {
             [],
             () => undefined,
             services,
+            new IoManager(),
         );
         const cx = handle.context as Context<typeof DOM_NEEDS>;
 
@@ -164,6 +169,7 @@ describe('Surface (A7.5)', () => {
             [],
             () => undefined,
             services,
+            new IoManager(),
         );
         const cx = handle.context as Context<typeof DOM_NEEDS>;
 
@@ -203,6 +209,7 @@ describe('Surface (A7.5)', () => {
             [],
             () => undefined,
             services,
+            new IoManager(),
         );
         const cx = handle.context as Context<typeof DOM_NEEDS>;
 

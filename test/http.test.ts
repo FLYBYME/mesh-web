@@ -1,3 +1,4 @@
+import { IoManager } from '../src/kernel/io.js';
 /**
  * The `http` capability.
  *
@@ -37,7 +38,7 @@ interface Probe {
 /** A context with exactly the declared capabilities, as the kernel builds one. */
 const contextWith = (...names: readonly CapabilityName[]) => {
     const services = createServices();
-    const handle = createContext(identity, names, [], noProviders, services);
+    const handle = createContext(identity, names, [], noProviders, services, new IoManager());
     return { context: handle.context as unknown as Probe, services };
 };
 
@@ -90,7 +91,7 @@ describe('what it never sends', () => {
         services.credentials.owner = 'auth';
         services.credentials.headers = () => ({ authorization: 'Bearer secret-ticket' });
 
-        const handle = createContext(identity, needs('http'), [], noProviders, services);
+        const handle = createContext(identity, needs('http'), [], noProviders, services, new IoManager());
         const http = (handle.context as unknown as Probe).http!;
 
         await http.get('https://somewhere-else.example/collect');

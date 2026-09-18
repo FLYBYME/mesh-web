@@ -1,0 +1,100 @@
+A8.18 parts (2) and (3): one driver registration point, then the drivers that
+are missing because there was nowhere to ask.
+
+Part (1) landed and is merged — `Renderer`, the `RENDERER` provider token, and
+`page.ts`/`shell.ts`/`host.ts` resolving it instead of importing `render` from
+`render/dom.js`. `test/browser/swap.browser.test.ts` mounts a view against a
+renderer that touches no `document` and asserts the host element stays empty.
+**Read that test first**; it is the standard the rest of this work is held to.
+
+Read `spec/roadmap.md` A8.18 in full before changing anything.
+
+--------------------------------------------------------------------------------
+PART 2 — ONE REGISTRATION POINT, SO `StorageProvider` STOPS BEING A SPECIAL CASE
+
+Today there are two driver mechanisms and they do not know about each other:
+
+- `StorageProvider` — an ops table, several implementations, bound per hive, with
+  `RESOLUTION_ORDER` as the search path. A VFS borrowed from NT deliberately, and
+  `src/kernel/hives.ts` says so.
+- `RENDERER` — a provider token, resolved through the object registry.
+
+The roadmap's own words: *"The shape to copy is NT's I/O manager, and half of it
+is already here. The kernel has an object registry with tokens, a configuration
+manager with hives, and a capability set that is the personality a part programs
+against — `needs(...)` is the syscall surface. What it lacks is the I/O manager:
+**one place a driver registers, one interface per subsystem, resolved at load.**"*
+
+Build that. Both the renderer and storage register through it; nothing else
+changes shape. The test that this is real: **a driver registered for a subsystem
+that already has one is refused, or replaces it deliberately — say which and
+test it.** Two drivers silently both installed is the kind of thing discovered
+months later by a bug that makes no sense.
+
+Do **not** turn this into a rewrite of hives. `StorageProvider`'s resolution
+order is a decided design and it works; this is about where a driver is
+*registered*, not how storage resolves a path.
+
+--------------------------------------------------------------------------------
+PART 3 — THE DRIVERS THAT ARE MISSING, DRIVEN BY WHAT ASKED
+
+Only build what something asks for. The roadmap names the asks:
+
+- **a window driver** — `window.open` and cross-origin messages, which a hosted
+  sign-in wants
+- **online and offline** — `navigator.onLine`, and the events
+
+The evidence that this gap is real, and the shape of it: *"a part that wants one
+has nothing to declare and nothing to ask for, which is how `sessionTicketStore`
+came to read `globalThis.sessionStorage` — **a part with nowhere to ask**, when
+the `session` hive was already the driver it wanted."*
+
+For each driver you add, the same two things or do not add it:
+
+1. a part can **declare** it needs the subsystem and be refused at load if no
+   driver is registered — not fail at the moment it calls
+2. a **fake** implementation in a test that proves the seam, the way the
+   recording renderer does — if you cannot write the fake, the interface is
+   shaped around the browser and has not been separated from it
+
+`matchMedia`, the clipboard, notifications and visibility are named in the
+roadmap as having no seam either. **Do not add them speculatively.** A driver
+nothing asks for is an interface nobody has tested against a second
+implementation, which is the whole finding this item came from.
+
+--------------------------------------------------------------------------------
+WHAT NOT TO DO
+
+- Do not touch `@flybyme/mesh` (frozen).
+- Do not edit mesh-core, mesh-serve or mesh-operator. Separate repositories, and
+  dispatches may be running in them. If you need something from one, write it
+  into `spec/roadmap.md` with its evidence and work around it here.
+- `as any` and `as never` are bugs here, not style nits. Two dispatches shipped
+  casts today and both were taken back out within the hour — one of them was in
+  the swap test for part (1), reaching a button through `card.view() as any`. If
+  you need a cast you have the wrong shape; say so in the report.
+- Do not assert that a token was registered and call it a test. That is the exact
+  mistake part (1)'s first test made: it proves the registry works and says
+  nothing about the driver being swappable.
+
+--------------------------------------------------------------------------------
+COMMIT AS YOU GO — NOT ADVICE
+
+A dispatch was killed mid-run yesterday and left eight modified files
+uncommitted in its worktree; the work survived only because a person went and
+looked. **A commit survives the process ending; an unstaged edit does not.**
+Never background a command: run `npm test` in the foreground and wait.
+
+--------------------------------------------------------------------------------
+DONE MEANS
+
+- `npm test` green (473) **and** `npm run test:browser` green (51). They are two
+  projects and two scripts; `npm test` alone runs the unit one only.
+- `npm run typecheck` clean — the script, not `npx tsc --noEmit`, which checks
+  `src/**` only and reports a half-checked tree clean.
+- A fake implementation exists for every subsystem you gave a driver, and a test
+  mounts against it.
+- `spec/roadmap.md` A8.18 updated: (2) and (3) marked with what landed and what
+  you deliberately left out.
+- Any structural gap found goes into `spec/roadmap.md` as its own item.
+- No `Co-Authored-By` or `Claude-Session` trailers.

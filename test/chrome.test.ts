@@ -1,3 +1,4 @@
+import { IoManager } from '../src/kernel/io.js';
 /**
  * The `chrome` capability — roadmap A6.3, spec/extension.md §8.
  *
@@ -61,6 +62,7 @@ const contextFor = (
     [],
     () => undefined,
     services,
+    new IoManager(),
 ).context as unknown as Record<string, unknown>;
 
 const chromeOf = (services: KernelServices): Chrome =>

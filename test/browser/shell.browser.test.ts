@@ -1,3 +1,4 @@
+import { createDomRenderer } from '../../src/render/index.js';
 /**
  * The window layer, and the seam in it — roadmap A6.3e, spec/kernel.md §2.
  *
@@ -111,7 +112,7 @@ async function boot(frame?: FrameChrome): Promise<Site> {
         viewOf: (owner, view) => kernel.viewOf(owner, view),
         apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
         isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',
-        render: { components: createRegistry(PRIMITIVES), dispatch: { dispatch: () => {} } },
+        resolve: (() => createDomRenderer(createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => {} } },
         onCommand: () => {},
         ...(frame === undefined ? {} : { frame }),
     });
@@ -345,7 +346,7 @@ describe('the shell positions windows without help from a stylesheet', () => {
             manager: new WindowManager({ width: 400, height: 300 }),
             viewOf: () => undefined,
             apiOf: () => undefined,
-            render: { components: createRegistry(PRIMITIVES), dispatch: { dispatch: () => {} } },
+            resolve: (() => createDomRenderer(createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => {} } },
             onCommand: () => {},
         });
 
@@ -366,7 +367,7 @@ describe('the shell positions windows without help from a stylesheet', () => {
             manager: new WindowManager({ width: 400, height: 300 }),
             viewOf: () => undefined,
             apiOf: () => undefined,
-            render: { components: createRegistry(PRIMITIVES), dispatch: { dispatch: () => {} } },
+            resolve: (() => createDomRenderer(createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => {} } },
             onCommand: () => {},
         });
 

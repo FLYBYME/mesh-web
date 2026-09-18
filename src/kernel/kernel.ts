@@ -8,6 +8,7 @@
  * What is here is boot steps 3-7 and 10 of spec/kernel.md section 3. Steps 1, 2, 8, 9 and 11 need
  * the deployment descriptor, the registry, auth, view state and the router, none of which exist.
  */
+import { IoManager } from './io.js';
 
 import type { ErasedApplication, ErasedContribution, ErasedExtension, ViewDecl } from '../contribution/contract.js';
 import { isApplication, isApplicationInstance, isExtension } from '../contribution/contract.js';
@@ -59,10 +60,12 @@ export interface KernelOptions {
      * so a kernel can be booted and exercised with no DOM at all.
      */
     readonly services?: KernelServices;
+    readonly io?: IoManager;
 }
 
 export class Kernel {
     readonly services: KernelServices;
+    readonly io: IoManager;
 
     #manifest: Manifest | undefined;
     #extensions = new Map<string, ExtensionEntry>();
@@ -80,6 +83,7 @@ export class Kernel {
     constructor(options: KernelOptions = {}) {
         this.#now = options.now ?? (() => Date.now());
         this.services = options.services ?? createServices();
+        this.io = options.io ?? new IoManager();
         this.#processesSignal = signal<readonly ProcessEntry[]>([]);
         this.#log = kernelLog(this.services.logs);
     }
@@ -126,6 +130,11 @@ export class Kernel {
      */
     provided<T>(token: ProviderToken<T>): T | undefined {
         return this.#providers.get(token.id) as T | undefined;
+    }
+
+    /** Register a core driver or provider that does not come from an Extension. */
+    provide<T>(token: ProviderToken<T>, instance: T): void {
+        this.#providers.set(token.id, instance);
     }
 
     get processes(): readonly ProcessEntry[] {
@@ -240,7 +249,7 @@ export class Kernel {
                 contribution.needs ?? [],
                 contribution.consumes ?? [],
                 (token) => this.#resolve(id, token),
-                this.services,
+                this.services, this.io,
                 contribution.api,
             );
             this.#handles.set(id, handle);
@@ -357,7 +366,7 @@ export class Kernel {
                 contribution.needs ?? [],
                 contribution.consumes ?? [],
                 (token) => this.#resolve(pid, token),
-                this.services,
+                this.services, this.io,
                 contribution.api,
             );
         } catch (cause) {

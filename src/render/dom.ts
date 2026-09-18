@@ -20,7 +20,7 @@ import type {
     Action, DialogNode, EachNode, ElementNode, IntentActor, Intents, IntentValue, Json, Node, Reactive, SurfaceNode,
 } from '../description/types.js';
 import { isDynamic, read } from '../description/types.js';
-import { applyDefaultProp, type ComponentDefinition, type ComponentRegistry } from './component.js';
+import { applyDefaultProp, type PrimitiveDefinition, type ComponentRegistry } from './component.js';
 
 if (typeof HTMLDialogElement !== 'undefined') {
     if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
@@ -50,30 +50,7 @@ function isModalDialogElement(el: object): el is ModalDialogElement {
            'open' in el && typeof el.open === 'boolean';
 }
 
-/**
- * Where an action goes.
- *
- * The renderer does not know what a command is or where a handler lives — it turns a device event
- * into an intent and hands the intent's action to this. The kernel supplies it.
- */
-export interface Dispatcher {
-    /**
-     * `value` is present only for an intent that has one — `change` on a field. See `IntentValue`.
-     *
-     * Optional rather than a second method, so every existing dispatcher keeps working and a
-     * dispatcher that does not care about values simply ignores the parameter.
-     *
-     * `actor` says **who raised it**. It is optional and defaults to `'user'` at this seam and only
-     * at this seam: everything reaching `bindIntents` came from a real device event on a real
-     * element, so a person did it by construction. Anything else — an agent driving the page, a
-     * part raising an intent on itself — is not a device event and does not arrive here, so it has
-     * to say what it is.
-     *
-     * The default is therefore a statement of fact rather than a convenience, which is the only
-     * kind of default that is safe for this. See `IntentActor`.
-     */
-    dispatch(action: Action, value?: IntentValue, actor?: IntentActor): void;
-}
+import type { Dispatcher, Mounted, Renderer, RendererOptions } from './renderer.js';
 
 export interface RenderOptions {
     readonly components: ComponentRegistry;
@@ -82,9 +59,15 @@ export interface RenderOptions {
     readonly part?: string;
 }
 
-export interface Mounted {
-    /** Stops every effect and removes every node this render created. */
-    dispose(): void;
+/**
+ * Creates the DOM renderer driver.
+ */
+export function createDomRenderer(components: ComponentRegistry): Renderer<Element> {
+    return {
+        render: (description: Node, host: Element, options: RendererOptions): Mounted => {
+            return render(description, host, { ...options, components });
+        }
+    };
 }
 
 /**
@@ -655,7 +638,7 @@ function bindIntents(
     el: Element,
     intents: Intents,
     dispatch: Dispatcher,
-    definition?: ComponentDefinition,
+    definition?: PrimitiveDefinition,
 ): void {
     const fire = (name: keyof Intents, event: Event, value?: IntentValue): void => {
         const binding = intents[name];
@@ -710,8 +693,8 @@ function bindIntents(
             } else if (key === ' ') {
                 // spec/input.md §3: every action has a non-pointer path (Space on Button, Row, etc.).
                 // roadmap A7.0b: Space must not activate an element for which Space is text input (like an Input text field).
-                // This knowledge belongs on ComponentDefinition rather than hardcoded tag names in this renderer,
-                // so components define their own interaction model and Extension-contributed editors/inputs work cleanly.
+                // This knowledge belongs on PrimitiveDefinition rather than hardcoded tag names in this renderer,
+                // so primitives define their own interaction model and Extension-contributed editors/inputs work cleanly.
                 const isTextInput = typeof definition?.spaceIsTextInput === 'function'
                     ? definition.spaceIsTextInput(el)
                     : Boolean(definition?.spaceIsTextInput);

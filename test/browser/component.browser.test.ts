@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
     element, needs, text,
-    type Application, type Context, type Extension, type ComponentDefinition, type Props, type Json, KEEPS_NOTHING,
+    type Application, type Context, type Extension, type PrimitiveDefinition, type Props, type Json, KEEPS_NOTHING,
 } from '../../src/index.js';
 import { mountPart, cleanup } from '../../src/testing/index.js';
 
-const BANNER_DEF: ComponentDefinition = {
+const BANNER_DEF: PrimitiveDefinition = {
     name: 'ui.Banner',
     create: (_props?: Props) => {
         const el = document.createElement('div');
