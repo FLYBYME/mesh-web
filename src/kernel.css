@@ -399,7 +399,20 @@ html, body {
 }
 
 
-/* ---------------------------------------------------------------------------- component primitives */
+/* ---------------------------------------------------------------------------- component primitives
+ *
+ * In `@layer kernel-reset`, not bare rules -- an unlayered rule beats every layered rule
+ * regardless of specificity, cascade layers being exactly the mechanism CSS gives for "this is a
+ * default, not a decision." mesh-core/ui's own component styles (ui.css) are already written in
+ * `@layer ui.tokens`/`@layer ui.components`, precisely so a site's own unlayered CSS can override
+ * them on purpose -- but with this block unlayered too, it sat *above* ui.css's layers instead of
+ * below them (a layer named later in the cascade outranks one named earlier, and kernel.css loads
+ * before any part built on it). `.ui-select-option.selected`'s `background: var(--ui-accent)` and
+ * every `.ui-button-primary`/`.ui-button-danger` accent override lost to this file's own
+ * `button { background: var(--surface) }`, silently, for every consumer of this design system --
+ * not a mistake in any of their CSS, a mistake in which side of the layer boundary this file was on.
+ */
+@layer kernel-reset {
 
 button {
     font: inherit;
@@ -557,6 +570,8 @@ span[data-code] {
     outline: 2px solid var(--accent, #58a6ff);
     outline-offset: -2px;
 }
+
+} /* @layer kernel-reset */
 
 /* ---------------------------------------------------------------------------- surface (roadmap A7.5) */
 
