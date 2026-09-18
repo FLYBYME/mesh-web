@@ -125,6 +125,18 @@ export class WindowManager {
     /** The Application's declared split tree. Consulted only in tiled mode. */
     readonly layout: Signal<LayoutNode | undefined>;
 
+    /**
+     * Which pids' windows the current mode is even allowed to consider, or `undefined` for "every
+     * pid" — the behaviour every site had before a router existed.
+     *
+     * A router sets this to the foreground Application's pid(s); a site with no router capability
+     * declared (still the ordinary case for a single-Application site) never touches it, so `visible()`
+     * is unchanged for them. This is deliberately a *pid* filter and not a window-level one: the
+     * mode-specific logic below (single/tiled/windowed) already decides which of *those* windows show,
+     * and this only narrows which processes it gets to choose from.
+     */
+    readonly foreground: Signal<ReadonlySet<string> | undefined>;
+
     #next = 0;
     #opened = 0;
 
@@ -135,6 +147,11 @@ export class WindowManager {
         this.viewport = signal(viewport);
         this.mode = signal<WindowMode>('windowed');
         this.layout = signal<LayoutNode | undefined>(undefined);
+        this.foreground = signal<ReadonlySet<string> | undefined>(undefined);
+    }
+
+    setForeground(pids: ReadonlySet<string> | undefined): void {
+        this.foreground.set(pids);
     }
 
     /**
@@ -166,6 +183,12 @@ export class WindowManager {
         return tileRects(layout, this.viewport(), { gap: TILE_GAP }).get(record.tile);
     }
 
+    /** Whether a record's owner is one `foreground()` allows — everyone's, when it is unset. */
+    #inForeground(w: WindowRecord): boolean {
+        const pids = this.foreground();
+        return pids === undefined || pids.has(w.owner);
+    }
+
     /**
      * The grid used when the Application declared no layout.
      *
@@ -175,7 +198,9 @@ export class WindowManager {
     autoLayout(): LayoutNode | undefined {
         if (this.layout() !== undefined) return undefined;
         return gridLayout(
-            this.windows().filter((w) => w.state !== 'minimized').map((w) => w.id),
+            this.windows()
+                .filter((w) => w.state !== 'minimized' && this.#inForeground(w))
+                .map((w) => w.id),
         );
     }
 
@@ -191,7 +216,11 @@ export class WindowManager {
      * simply not shown, which is the whole point of the mode being a *view* concern.
      */
     visible(): readonly WindowRecord[] {
-        const stacked = this.stacked();
+        // Narrowed to the foreground Application(s) before anything mode-specific runs, so a
+        // background process's windows are never candidates for single mode's "most recently
+        // focused", tiled mode's grid or occupant map, or windowed mode's stack — the same way a
+        // minimized window already isn't. Unfiltered (everyone's) when no router has set this.
+        const stacked = this.stacked().filter((w) => this.#inForeground(w));
         if (this.mode() === 'single') {
             const active = stacked.filter((w) => w.state !== 'minimized').at(-1);
             return active === undefined ? [] : [active];

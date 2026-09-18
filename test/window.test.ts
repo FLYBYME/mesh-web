@@ -156,6 +156,81 @@ describe('the window manager', () => {
 });
 
 /**
+ * `foreground` — what a router sets so a composition of several Applications shows one at a time,
+ * the rest running underneath. Unset (the default, and every existing single-Application site) must
+ * leave every method below exactly as it always behaved; that is the point of the tests that pass no
+ * `foreground` at all.
+ */
+describe('foreground filtering', () => {
+    const open = (m: WindowManager, owner: string, view = 'editor') => m.open({ owner, view });
+
+    it('visible() shows every window when nothing has set foreground', () => {
+        const m = new WindowManager();
+        open(m, 'p1');
+        open(m, 'p2');
+
+        expect(m.visible().map((w) => w.owner).sort()).toEqual(['p1', 'p2']);
+    });
+
+    it('visible() narrows to the foreground pids once set', () => {
+        const m = new WindowManager();
+        open(m, 'p1');
+        open(m, 'p2');
+
+        m.setForeground(new Set(['p1']));
+
+        expect(m.visible().map((w) => w.owner)).toEqual(['p1']);
+    });
+
+    it('hidden() reports a background Application\'s windows as hidden, not closed', () => {
+        const m = new WindowManager();
+        const bg = open(m, 'p1');
+        open(m, 'p2');
+
+        m.setForeground(new Set(['p2']));
+
+        expect(m.hidden().map((w) => w.id)).toEqual([bg.id]);
+        // Still there, still tracked -- setForeground is a visibility switch, not closeOwnedBy.
+        expect(m.windows().map((w) => w.id)).toContain(bg.id);
+    });
+
+    it('switching foreground back makes the other Application visible again, unchanged', () => {
+        const m = new WindowManager();
+        const a = open(m, 'p1');
+        const b = open(m, 'p2');
+
+        m.setForeground(new Set(['p1']));
+        m.setForeground(new Set(['p2']));
+
+        expect(m.visible().map((w) => w.id)).toEqual([b.id]);
+        expect(m.get(a.id)!.rect).toEqual(m.get(a.id)!.rect); // still a real record, not disposed
+    });
+
+    it('windows() and stacked() stay unfiltered -- a window switcher sees everyone regardless', () => {
+        const m = new WindowManager();
+        open(m, 'p1');
+        open(m, 'p2');
+        m.setForeground(new Set(['p1']));
+
+        expect(m.windows()).toHaveLength(2);
+        expect(m.stacked()).toHaveLength(2);
+    });
+
+    it('tiled mode only grids the foreground Application\'s windows', () => {
+        const m = new WindowManager({ width: 1000, height: 800 });
+        m.setMode('tiled');
+        open(m, 'p1');
+        open(m, 'p1');
+        open(m, 'p2');
+
+        m.setForeground(new Set(['p1']));
+
+        expect(m.visible()).toHaveLength(2);
+        expect(m.visible().every((w) => w.owner === 'p1')).toBe(true);
+    });
+});
+
+/**
  * The four window defects a real desktop found, all on one page.
  *
  * Six windows from two Applications is the first time anything ran more than two, and all four of

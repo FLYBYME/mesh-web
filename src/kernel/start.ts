@@ -60,6 +60,7 @@ import { pageWindowMode, windowPersistence } from '../window/persistence.js';
 import type { RememberedWindow, WindowPersistence } from '../window/persistence.js';
 import { windowSink } from '../window/sink.js';
 import { WindowManager } from '../window/manager.js';
+import { browserHistory, routerSink } from '../router/router.js';
 import type { Action, IntentValue } from '../description/types.js';
 import type { Dispatcher } from '../render/dom.js';
 import { bindingTable } from '../input/keys.js';
@@ -419,13 +420,29 @@ export function start(composition: Composition): Started {
     // @ts-ignore
     window.kernel = kernel;
 
+    /**
+     * The router only wires once every Application has started (`open`, below) — it needs
+     * `kernel.applications`/`kernel.processes` to mean something, and `syncFromLocation`'s pid lookup
+     * would find nothing before then. `kernel.services.router` stays the `recordingRouter()` default
+     * from `createServices` until this resolves, which is the correct answer for a headless run: no
+     * `doc.defaultView` means no browser to route in, and the default is exactly a no-op.
+     */
+    let router: ReturnType<typeof routerSink> | undefined;
+    const ready = open(kernel, composition, manager, persistence, log, unconstructed).then(() => {
+        const win = doc.defaultView;
+        if (win === null) return;
+        router = routerSink(kernel, manager, browserHistory(win));
+        kernel.services.router = router;
+    });
+
     return {
         kernel, manager, page, settings, components, logViewer,
-        ready: open(kernel, composition, manager, persistence, log, unconstructed),
+        ready,
         dispose() {
             stopPersisting();
             stopTracking();
             keys();
+            router?.dispose();
             page.dispose();
             notifications.remove();
             logViewer.dispose();

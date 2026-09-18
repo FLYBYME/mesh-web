@@ -249,6 +249,12 @@ export interface Declarations {
     readonly consumes?: ProviderTokens;
     readonly provides?: ProviderToken<unknown> | undefined;
     /**
+     * A human-readable name, for anything that lists this part rather than running it — a router's
+     * switcher, chiefly. Absent means "use the manifest id" (e.g. `platform/repo`), which is always
+     * legible enough to fall back to; this exists for the cases where it should not have to be.
+     */
+    readonly title?: string;
+    /**
      * Whether this contribution requires an authenticated session.
      *
      * 'required' means the contribution is unusable without a session (e.g. catalog).

@@ -211,6 +211,43 @@ export interface Chrome {
     setMode(mode: WindowMode): void;
 }
 
+// ---------------------------------------------------------------------------- router
+
+/** One Application a router can switch to, as the switcher sees it. */
+export interface RouterApplication {
+    readonly id: string;
+    readonly title: string;
+}
+
+/**
+ * Which Application is in front, and how to change that.
+ *
+ * A composition may run several Applications at once (background processes, exactly as the kernel
+ * already allows), but only one of them is on screen. Nothing decided *which* before this: every
+ * Application that started opened its own windows, and `WindowManager.visible()` had no concept of
+ * "application" to filter by, so a site composing several showed all of them at once. This is the
+ * capability that makes "one foreground, the rest running underneath" an actual answer instead of a
+ * placeholder — see `applyLayout` in `kernel/start.ts`, which has named this exact gap since before
+ * this existed.
+ *
+ * Narrow, like `Chrome`: a shell asks `needs('router')` to build a switcher, and that declaration is
+ * what makes "this part can move other Applications on and off screen" visible in a manifest rather
+ * than ambient.
+ */
+export interface Router {
+    /** Every Application this site could switch to, in composition order. */
+    applications(): readonly RouterApplication[];
+    /** The foreground Application's id, or `undefined` before the first navigation resolves. */
+    current(): string | undefined;
+    /**
+     * Bring an Application to the front, updating the URL. `view`/`params` are carried through to a
+     * future per-view deep link; this pass only acts on `applicationId`.
+     */
+    navigate(applicationId: string, view?: string, params?: Readonly<Record<string, Json>>): void;
+    /** Equivalent to the browser's own back button, for a switcher that wants to offer one. */
+    back(): void;
+}
+
 // ---------------------------------------------------------------------------- credentials
 
 /**
@@ -418,6 +455,7 @@ export interface CapabilityMap {
     readonly display: Display;
     readonly credentials: Credentials;
     readonly chrome: Chrome;
+    readonly router: Router;
     readonly http: Http;
     readonly storage: Storage;
     readonly dom: Dom;

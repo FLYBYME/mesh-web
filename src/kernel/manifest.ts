@@ -50,6 +50,8 @@ export interface Manifest {
      * (spec/application.md §6).
      */
     readonly layouts: ReadonlyMap<string, LayoutNode>;
+    /** Each contribution's declared `title`, by id. Absent means the id itself is the best name there is. */
+    readonly titles: ReadonlyMap<string, string>;
     readonly settings: ReadonlyMap<string, Contributed<SettingDecl>>;
     readonly stores: ReadonlyMap<string, Contributed<StoreDecl>>;
     /** Keyed `<contributor>/<view id>`; view ids are scoped, so two Applications may both have `main`. */
@@ -76,6 +78,7 @@ export function mergeManifests(
     const menus: Contributed<MenuDecl>[] = [];
     const apis: Contributed<Api<Record<string, AnyApiCall>>>[] = [];
     const layouts = new Map<string, LayoutNode>();
+    const titles = new Map<string, string>();
     const settings = new Map<string, Contributed<SettingDecl>>();
     const stores = new Map<string, Contributed<StoreDecl>>();
     const views = new Map<string, Contributed<ViewDecl>>();
@@ -154,6 +157,10 @@ export function mergeManifests(
         // whichever is in the foreground supplies the one in force. Nothing collides.
         if (declarations.layout !== undefined) layouts.set(id, declarations.layout);
 
+        // Keyed by contributor for the same reason layouts is: a title belongs to whoever declared
+        // it, not to a name two contributions could collide on.
+        if (declarations.title !== undefined) titles.set(id, declarations.title);
+
         for (const decl of declarations.settings ?? []) {
             claim(settings, decl.path, id, decl, 'setting', (key, first, second) =>
                 `Setting "${key}" is declared by both ${first} and ${second}.`);
@@ -215,7 +222,10 @@ export function mergeManifests(
         }
     }
 
-    return { commands, bindings, menus, apis, layouts, settings, stores, views, components, sessions, conflicts };
+    return {
+        commands, bindings, menus, apis, layouts, titles, settings, stores, views, components, sessions,
+        conflicts,
+    };
 }
 
 /**

@@ -24,7 +24,7 @@ import type { Json, Node, Reactive } from '../description/types.js';
 import type {
     CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Confirmation,
     ConfirmOptions, Credentials, Dom, Http, HttpRequest, HttpResponse, Log, NotificationHandle,
-    Notifications, State, Storage, SurfaceOptions, WindowHandle, Windows,
+    Notifications, Router, RouterApplication, State, Storage, SurfaceOptions, WindowHandle, Windows,
 } from '../contribution/capabilities.js';
 import type { ResizeEdge } from '../window/geometry.js';
 import { windowHost } from '../window/page.js';
@@ -101,6 +101,19 @@ export interface WindowSink {
 }
 
 /**
+ * What the `router` capability does, without the broker knowing what a URL is.
+ *
+ * The kernel supplies this, backed by the real window manager plus `history`/`location`. Same reason
+ * `WindowSink` exists: a headless test runs a kernel with no browser at all.
+ */
+export interface RouterSink {
+    applications(): readonly RouterApplication[];
+    current(): string | undefined;
+    navigate(applicationId: string, view?: string, params?: Readonly<Record<string, Json>>): void;
+    back(): void;
+}
+
+/**
  * The host services the broker hands out slices of.
  *
  * Everything here is kernel-owned and shared; what a contributor receives is a view onto it that
@@ -111,6 +124,7 @@ export interface KernelServices {
     /** A signal, so a notification host can render them. See NotificationRecord. */
     readonly notifications: Signal<readonly NotificationRecord[]>;
     windows: WindowSink;
+    router: RouterSink;
 
     /**
      * How much room there is to draw in, as a signal.
@@ -228,6 +242,34 @@ export function recordingWindows(): WindowSink & { readonly opened: { id: string
     };
 }
 
+/**
+ * A router that records instead of touching `history`/`location`.
+ *
+ * The default, for the same reason `recordingWindows` is: most of the kernel's own tests boot with no
+ * browser, and a site with one Application has nothing to route between anyway.
+ */
+export function recordingRouter(): RouterSink & {
+    readonly navigated: { applicationId: string; view: string | undefined; params: Readonly<Record<string, Json>> | undefined }[];
+    /** Test seam: what `applications()` answers, since a recording router has no manifest to read. */
+    seed(apps: readonly RouterApplication[]): void;
+} {
+    const navigated: { applicationId: string; view: string | undefined; params: Readonly<Record<string, Json>> | undefined }[] = [];
+    let apps: readonly RouterApplication[] = [];
+    let current: string | undefined;
+
+    return {
+        navigated,
+        seed(next) { apps = next; },
+        applications: () => apps,
+        current: () => current,
+        navigate(applicationId, view, params) {
+            current = applicationId;
+            navigated.push({ applicationId, view, params });
+        },
+        back() {},
+    };
+}
+
 export interface ServiceOptions {
     /**
      * Where `mesh` sends requests — roadmap A3.1, spec/hosting.md §5.
@@ -267,6 +309,7 @@ export function defaultHives(): HiveBindings {
 export function createServices(
     windows: WindowSink = recordingWindows(),
     options: ServiceOptions = {},
+    router: RouterSink = recordingRouter(),
 ): KernelServices {
     const sessionHolder = signal<ReadonlySignal<Session | null> | undefined>(options.session);
     const kernelSession = computed<Session | null>(() => {
@@ -304,6 +347,7 @@ export function createServices(
         confirm: options.confirm ?? (async () => false),
         eventSource: options.eventSource,
         windows,
+        router,
         commands: new Map(),
         declaredCommands: new Map(),
         credentials,
@@ -511,6 +555,9 @@ export function createContext(
                 break;
             case 'chrome':
                 capabilities.chrome = makeChrome(services);
+                break;
+            case 'router':
+                capabilities.router = makeRouter(services);
                 break;
             case 'confirmation':
                 // `declaredBy`, not `id`. `id` is the running instance — a pid like `p1` — and
@@ -831,6 +878,21 @@ function makeChrome(services: KernelServices): Chrome {
         move: (id, dx, dy) => { sink.move(id, dx, dy); },
         resize: (id, edge, dx, dy) => { sink.resize(id, edge, dx, dy); },
         setMode: (mode) => { sink.setMode(mode); },
+    };
+}
+
+/**
+ * Router: same shape as chrome — no `owner`, because a switcher's job is every Application, not just
+ * the one asking. `needs('router')` is what makes that visible in a manifest.
+ */
+function makeRouter(services: KernelServices): Router {
+    const sink = services.router;
+
+    return {
+        applications: () => sink.applications(),
+        current: () => sink.current(),
+        navigate: (applicationId, view, params) => { sink.navigate(applicationId, view, params); },
+        back: () => { sink.back(); },
     };
 }
 
