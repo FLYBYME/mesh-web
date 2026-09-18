@@ -95,6 +95,41 @@ describe('routerSink', () => {
         expect(router.current()).toBe('platform/repo');
     });
 
+    it('does not restrict foreground when nothing has actually navigated', async () => {
+        // The regression this guards: a composition with several Applications and no chrome/switcher
+        // at all -- sharing one ordinary window pool, exactly like `single.browser.test.ts`'s two
+        // Applications -- must see every window stay visible until something explicitly picks one.
+        // An unmatched URL used to restrict to the first Application unconditionally, which hid the
+        // second Application's windows on every multi-Application boot whether anything asked for
+        // app-switching or not.
+        const { kernel, manager } = await twoApps();
+        const router = routerSink(kernel, manager, fakeHistory('/nowhere'));
+        router.resync();
+
+        expect(router.current()).toBe('platform/repo');
+        expect(manager.foreground()).toBeUndefined();
+    });
+
+    it('navigate() restricts foreground for real, even from an unmatched initial URL', async () => {
+        const { kernel, manager } = await twoApps();
+        const router = routerSink(kernel, manager, fakeHistory('/nowhere'));
+        router.resync();
+
+        router.navigate('platform/repo');
+
+        const repoPid = kernel.processes.find((p) => p.applicationId === 'platform/repo')!.pid;
+        expect(manager.foreground()).toEqual(new Set([repoPid]));
+    });
+
+    it('a URL that explicitly names an Application restricts foreground on resync too', async () => {
+        const { kernel, manager } = await twoApps();
+        const router = routerSink(kernel, manager, fakeHistory('/platform/gitserver'));
+        router.resync();
+
+        const gitserverPid = kernel.processes.find((p) => p.applicationId === 'platform/gitserver')!.pid;
+        expect(manager.foreground()).toEqual(new Set([gitserverPid]));
+    });
+
     it('resolves the current Application from the initial URL', async () => {
         const { kernel, manager } = await twoApps();
         const router = routerSink(kernel, manager, fakeHistory('/platform/gitserver'));

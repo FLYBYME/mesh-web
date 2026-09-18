@@ -76,17 +76,31 @@ export function routerSink(
             .map((p) => p.pid),
     );
 
-    const applyCurrent = (applicationId: string | undefined): void => {
+    /**
+     * `restrict` is the difference between *reporting* a current Application and *hiding everyone
+     * else's windows over it* — found live, by a pre-existing test that composes two Applications
+     * with no chrome and no switcher, and means for both to share one ordinary window pool (single
+     * mode's "most recently focused wins", across both). Restricting on every multi-Application boot
+     * regardless of whether anything asked to switch between them broke exactly that: a composition
+     * nobody has navigated in yet is not the same thing as a composition that chose an Application.
+     *
+     * So an unmatched URL (a first boot with nothing router-aware linking anywhere, which is what
+     * `single.browser.test.ts`'s composition is) still reports the first Application as `current` --
+     * a switcher needs *something* to highlight -- but leaves every window visible, matching the
+     * behavior every composition had before this existed. Only a URL that actually names an
+     * Application, or an explicit `navigate()` (a switcher button, a link), narrows `foreground` for
+     * real.
+     */
+    const applyCurrent = (applicationId: string | undefined, restrict: boolean): void => {
         current.set(applicationId);
-        manager.setForeground(applicationId === undefined ? undefined : pidsOf(applicationId));
+        manager.setForeground(
+            restrict && applicationId !== undefined ? pidsOf(applicationId) : undefined,
+        );
     };
 
-    // No route in the URL yet (a first boot, or a site not yet linking anywhere) falls back to the
-    // first Application — the same "first wins" precedent `applyLayout` already sets for a
-    // composition's declared layouts, so a site with no router-aware links behaves as it always has.
     const syncFromLocation = (): void => {
         const match = parsePath(history.pathname(), history.search(), kernel.applications);
-        applyCurrent(match?.applicationId ?? kernel.applications[0]);
+        applyCurrent(match?.applicationId ?? kernel.applications[0], match !== undefined);
     };
 
     const unsubscribe = history.onChange(syncFromLocation);
@@ -104,7 +118,7 @@ export function routerSink(
                 );
             }
             history.push(formatPath(applicationId, view, params));
-            applyCurrent(applicationId);
+            applyCurrent(applicationId, true);
         },
         back: () => { history.back(); },
         resync: syncFromLocation,
