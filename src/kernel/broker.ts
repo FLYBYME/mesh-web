@@ -884,15 +884,22 @@ function makeChrome(services: KernelServices): Chrome {
 /**
  * Router: same shape as chrome — no `owner`, because a switcher's job is every Application, not just
  * the one asking. `needs('router')` is what makes that visible in a manifest.
+ *
+ * **Reads `services.router` fresh on every call, unlike `makeChrome`/`makeWindows` capturing `sink`
+ * once.** Those are safe to capture because `windowSink` is wired before `kernel.boot()` runs, so no
+ * Extension's `activate()` can observe it change. The router is different by necessity: it needs
+ * `kernel.applications`/`kernel.processes` to mean something, which is only true *after* `open()` has
+ * started every Application — itself after `boot()`. So `services.router` is still the
+ * `recordingRouter()` default while `ConsoleChrome.activate()` runs, and is only replaced with the
+ * real one once `start()`'s `ready` resolves (`start.ts`). Capturing it here at activation time would
+ * permanently bind the capability to the fake that was true a moment before the real one existed.
  */
 function makeRouter(services: KernelServices): Router {
-    const sink = services.router;
-
     return {
-        applications: () => sink.applications(),
-        current: () => sink.current(),
-        navigate: (applicationId, view, params) => { sink.navigate(applicationId, view, params); },
-        back: () => { sink.back(); },
+        applications: () => services.router.applications(),
+        current: () => services.router.current(),
+        navigate: (applicationId, view, params) => { services.router.navigate(applicationId, view, params); },
+        back: () => { services.router.back(); },
     };
 }
 

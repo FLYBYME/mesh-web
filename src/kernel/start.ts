@@ -245,6 +245,18 @@ export function start(composition: Composition): Started {
     kernel.services.windows = windowSink(manager, (owner, view) => kernel.viewOf(owner, view));
 
     /**
+     * Wired here, before `boot()`, for the same reason `windowSink` is: `services.router` must never
+     * change identity after an Extension's `activate()` has captured it (see `routerSink`'s own
+     * comment for the render-reactivity bug that found this the hard way). `doc.defaultView` is
+     * `null` for a document with no browsing context (most of this repository's own tests), which
+     * leaves `services.router` at the `recordingRouter()` default from `createServices` — the
+     * correct no-op for a headless run.
+     */
+    const win = doc.defaultView;
+    const router = win === null ? undefined : routerSink(kernel, manager, browserHistory(win));
+    if (router !== undefined) kernel.services.router = router;
+
+    /**
      * How a declared API becomes a client, and the one place a credential could be handled.
      *
      * It is not handled here either: `withHeaders` takes a *function*, and the auth Extension fills
@@ -421,18 +433,13 @@ export function start(composition: Composition): Started {
     window.kernel = kernel;
 
     /**
-     * The router only wires once every Application has started (`open`, below) — it needs
-     * `kernel.applications`/`kernel.processes` to mean something, and `syncFromLocation`'s pid lookup
-     * would find nothing before then. `kernel.services.router` stays the `recordingRouter()` default
-     * from `createServices` until this resolves, which is the correct answer for a headless run: no
-     * `doc.defaultView` means no browser to route in, and the default is exactly a no-op.
+     * The router itself is wired above, before `boot()`. What waits for `open()` is only its
+     * *first real value* — `kernel.processes` (which `current`'s foreground lookup depends on) is
+     * empty until every Application named in `open` has actually started, so a `resync()` any earlier
+     * would just seed `current` with nothing running yet.
      */
-    let router: ReturnType<typeof routerSink> | undefined;
     const ready = open(kernel, composition, manager, persistence, log, unconstructed).then(() => {
-        const win = doc.defaultView;
-        if (win === null) return;
-        router = routerSink(kernel, manager, browserHistory(win));
-        kernel.services.router = router;
+        router?.resync();
     });
 
     return {

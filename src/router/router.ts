@@ -37,8 +37,24 @@ export function browserHistory(win: Window): HistoryLike {
 }
 
 /**
- * Builds the real `RouterSink`: parses the current location against `kernel.applications` on
- * construction and on every `popstate`, and drives `WindowManager.setForeground` from the result.
+ * Builds the real `RouterSink`. Wired once, before `kernel.boot()` — the same moment `windowSink` is
+ * (`start.ts`) — and never replaced afterward, unlike an earlier version of this that constructed it
+ * only after every Application had started and swapped it into `kernel.services.router` then.
+ *
+ * **That swap was a real bug, not just late wiring.** `ConsoleChrome`'s switcher reads `cx.router`
+ * during its first render, which happens after `boot()` but before `open()` has started anything —
+ * so it captured the *pre-swap* capability. Reassigning `services.router` to a new object afterward
+ * changed what the capability's own functions read, but nothing re-runs the render tree just because
+ * a plain property was reassigned elsewhere — only a `Signal` write does that, and the swap was not
+ * one. The switcher rendered once, against a router that would never again be read from.
+ *
+ * The fix is the same shape every other capability here already uses: **one object, whose signals
+ * are written in place.** `applications()` stays a live read of `kernel.applications` (accurate
+ * whenever called, even before `resync()` — `boot()` has already populated it). `current` is a
+ * `Signal`, seeded empty here and given its first real value by an explicit `resync()` call once
+ * `kernel.processes` means something — `start.ts` calls it right after `open()`'s Applications have
+ * started. A `popstate` after that calls the same `syncFromLocation` through the listener registered
+ * here.
  *
  * `dispose()` (beyond the `RouterSink` surface itself) drops the `popstate` listener — `start.ts`'s
  * `dispose()` calls it alongside everything else it tears down.
@@ -47,7 +63,7 @@ export function routerSink(
     kernel: Kernel,
     manager: WindowManager,
     history: HistoryLike,
-): RouterSink & { dispose(): void } {
+): RouterSink & { resync(): void; dispose(): void } {
     // A signal, not a plain variable: `Router.current()` is read inside `each`/`when`/`text` in a
     // switcher's render tree (same reason `Chrome.focused()` wraps `WindowManager.focused`, a real
     // Signal, rather than a snapshot) -- a plain variable would leave the switcher showing whichever
@@ -73,7 +89,6 @@ export function routerSink(
         applyCurrent(match?.applicationId ?? kernel.applications[0]);
     };
 
-    syncFromLocation();
     const unsubscribe = history.onChange(syncFromLocation);
 
     return {
@@ -92,6 +107,7 @@ export function routerSink(
             applyCurrent(applicationId);
         },
         back: () => { history.back(); },
+        resync: syncFromLocation,
         dispose: unsubscribe,
     };
 }

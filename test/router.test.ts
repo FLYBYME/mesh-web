@@ -4,6 +4,10 @@
  * `foreground`, and a recording sink has nothing to be right or wrong about there). `history` is
  * faked, the same way `Composition.window` is injectable in `start.ts` — a test that would rather not
  * touch a real `location`.
+ *
+ * `current()` is `undefined` until `resync()` is called (see `routerSink`'s own comment for why
+ * construction no longer does this eagerly) — tests that check `current()` call it explicitly, the
+ * same way `start.ts` does once `open()`'s Applications have actually started.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -73,9 +77,20 @@ describe('routerSink', () => {
         expect(router.applications()).toEqual([{ id: 'platform/repo', title: 'Repos' }]);
     });
 
+    it('current() is undefined until resync() gives it a first value', async () => {
+        const { kernel, manager } = await twoApps();
+        const router = routerSink(kernel, manager, fakeHistory('/platform/gitserver'));
+
+        // Not resolved yet: `kernel.processes` isn't consulted until something asks it to be --
+        // exactly the boundary `start.ts` calls `resync()` on, once `open()` has actually started
+        // every Application named in the composition.
+        expect(router.current()).toBeUndefined();
+    });
+
     it('falls back to the first Application when the URL names none', async () => {
         const { kernel, manager } = await twoApps();
         const router = routerSink(kernel, manager, fakeHistory('/nowhere'));
+        router.resync();
 
         expect(router.current()).toBe('platform/repo');
     });
@@ -83,6 +98,7 @@ describe('routerSink', () => {
     it('resolves the current Application from the initial URL', async () => {
         const { kernel, manager } = await twoApps();
         const router = routerSink(kernel, manager, fakeHistory('/platform/gitserver'));
+        router.resync();
 
         expect(router.current()).toBe('platform/gitserver');
     });
@@ -110,6 +126,7 @@ describe('routerSink', () => {
         const { kernel, manager } = await twoApps();
         const history = fakeHistory('/platform/repo');
         const router = routerSink(kernel, manager, history);
+        router.resync();
 
         expect(router.current()).toBe('platform/repo');
         history.fire('/platform/gitserver');
@@ -120,6 +137,7 @@ describe('routerSink', () => {
         const { kernel, manager } = await twoApps();
         const history = fakeHistory('/platform/repo');
         const router = routerSink(kernel, manager, history);
+        router.resync();
 
         router.dispose();
         history.fire('/platform/gitserver');
