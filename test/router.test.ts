@@ -5,9 +5,12 @@
  * faked, the same way `Composition.window` is injectable in `start.ts` — a test that would rather not
  * touch a real `location`.
  *
- * `current()` is `undefined` until `resync()` is called (see `routerSink`'s own comment for why
- * construction no longer does this eagerly) — tests that check `current()` call it explicitly, the
- * same way `start.ts` does once `open()`'s Applications have actually started.
+ * `current()` resolves immediately -- `explicit ?? matchFromURL() ?? kernel.applications[0]` -- and
+ * never needs `resync()` called first (a prior version of this required it, and that requirement was
+ * itself the bug `ConsoleChrome` tripped: it checked `current() === undefined` to mean "nothing has
+ * chosen yet," which was **always** true before the first `resync()`, whatever the real URL said).
+ * `resync()` still exists for the one thing that genuinely needs re-applying once
+ * `kernel.processes` has real pids in it: `manager.foreground()`, not `current()`.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -77,20 +80,16 @@ describe('routerSink', () => {
         expect(router.applications()).toEqual([{ id: 'platform/repo', title: 'Repos' }]);
     });
 
-    it('current() is undefined until resync() gives it a first value', async () => {
+    it('resolves the current Application from the initial URL immediately, with no resync() needed', async () => {
         const { kernel, manager } = await twoApps();
         const router = routerSink(kernel, manager, fakeHistory('/platform/gitserver'));
 
-        // Not resolved yet: `kernel.processes` isn't consulted until something asks it to be --
-        // exactly the boundary `start.ts` calls `resync()` on, once `open()` has actually started
-        // every Application named in the composition.
-        expect(router.current()).toBeUndefined();
+        expect(router.current()).toBe('platform/gitserver');
     });
 
     it('falls back to the first Application when the URL names none', async () => {
         const { kernel, manager } = await twoApps();
         const router = routerSink(kernel, manager, fakeHistory('/nowhere'));
-        router.resync();
 
         expect(router.current()).toBe('platform/repo');
     });
@@ -104,16 +103,22 @@ describe('routerSink', () => {
         // app-switching or not.
         const { kernel, manager } = await twoApps();
         const router = routerSink(kernel, manager, fakeHistory('/nowhere'));
-        router.resync();
 
         expect(router.current()).toBe('platform/repo');
         expect(manager.foreground()).toBeUndefined();
     });
 
+    it('a URL that explicitly names an Application restricts foreground immediately', async () => {
+        const { kernel, manager } = await twoApps();
+        routerSink(kernel, manager, fakeHistory('/platform/gitserver'));
+
+        const gitserverPid = kernel.processes.find((p) => p.applicationId === 'platform/gitserver')!.pid;
+        expect(manager.foreground()).toEqual(new Set([gitserverPid]));
+    });
+
     it('navigate() restricts foreground for real, even from an unmatched initial URL', async () => {
         const { kernel, manager } = await twoApps();
         const router = routerSink(kernel, manager, fakeHistory('/nowhere'));
-        router.resync();
 
         router.navigate('platform/repo');
 
@@ -121,20 +126,18 @@ describe('routerSink', () => {
         expect(manager.foreground()).toEqual(new Set([repoPid]));
     });
 
-    it('a URL that explicitly names an Application restricts foreground on resync too', async () => {
+    it('navigate() to where the URL already resolves is a no-op on history (no duplicate entry)', async () => {
         const { kernel, manager } = await twoApps();
-        const router = routerSink(kernel, manager, fakeHistory('/platform/gitserver'));
-        router.resync();
+        const history = fakeHistory('/platform/gitserver');
+        const router = routerSink(kernel, manager, history);
+        let pushed = 0;
+        const originalPush = history.push;
+        history.push = (path) => { pushed++; originalPush(path); };
 
-        const gitserverPid = kernel.processes.find((p) => p.applicationId === 'platform/gitserver')!.pid;
-        expect(manager.foreground()).toEqual(new Set([gitserverPid]));
-    });
+        // ConsoleChrome's own activation does exactly this: navigate(current()) unconditionally.
+        router.navigate(router.current()!);
 
-    it('resolves the current Application from the initial URL', async () => {
-        const { kernel, manager } = await twoApps();
-        const router = routerSink(kernel, manager, fakeHistory('/platform/gitserver'));
-        router.resync();
-
+        expect(pushed).toBe(0);
         expect(router.current()).toBe('platform/gitserver');
     });
 
@@ -146,6 +149,7 @@ describe('routerSink', () => {
         router.navigate('platform/gitserver');
 
         expect(router.current()).toBe('platform/gitserver');
+        expect(history.pathname()).toBe('/platform/gitserver');
         const gitserverPid = kernel.processes.find((p) => p.applicationId === 'platform/gitserver')!.pid;
         expect(manager.foreground()).toEqual(new Set([gitserverPid]));
     });
@@ -161,22 +165,48 @@ describe('routerSink', () => {
         const { kernel, manager } = await twoApps();
         const history = fakeHistory('/platform/repo');
         const router = routerSink(kernel, manager, history);
-        router.resync();
 
         expect(router.current()).toBe('platform/repo');
         history.fire('/platform/gitserver');
         expect(router.current()).toBe('platform/gitserver');
     });
 
-    it('dispose() stops reacting to further changes', async () => {
+    it('dispose() stops applying foreground automatically on further changes', async () => {
+        // `current()` itself stays a live read of the URL even after dispose() -- there is no cached
+        // value left to freeze, which is the fix this file is named after. What dispose() actually
+        // stops is the popstate-driven side effect: manager.foreground() no longer follows along.
         const { kernel, manager } = await twoApps();
         const history = fakeHistory('/platform/repo');
         const router = routerSink(kernel, manager, history);
-        router.resync();
+        const repoPid = kernel.processes.find((p) => p.applicationId === 'platform/repo')!.pid;
+        expect(manager.foreground()).toEqual(new Set([repoPid]));
 
         router.dispose();
         history.fire('/platform/gitserver');
 
-        expect(router.current()).toBe('platform/repo');
+        expect(router.current()).toBe('platform/gitserver');
+        expect(manager.foreground()).toEqual(new Set([repoPid]));
+    });
+
+    it('resync() re-applies foreground once kernel.processes has real pids to find', async () => {
+        // Simulates start.ts's real ordering: the router is constructed before boot(), when
+        // kernel.applications is still empty, so the eager apply at construction is a no-op; resync()
+        // is what start.ts calls once open() has actually started every Application.
+        const manager = new WindowManager();
+        const kernel = new Kernel();
+        const router = routerSink(kernel, manager, fakeHistory('/platform/gitserver'));
+        expect(manager.foreground()).toBeUndefined();
+
+        kernel.boot([
+            { id: 'platform/repo', contribution: new App() as never },
+            { id: 'platform/gitserver', contribution: new App() as never },
+        ]);
+        await kernel.start('platform/repo');
+        await kernel.start('platform/gitserver');
+
+        router.resync();
+
+        const gitserverPid = kernel.processes.find((p) => p.applicationId === 'platform/gitserver')!.pid;
+        expect(manager.foreground()).toEqual(new Set([gitserverPid]));
     });
 });

@@ -38,37 +38,46 @@ export function browserHistory(win: Window): HistoryLike {
 
 /**
  * Builds the real `RouterSink`. Wired once, before `kernel.boot()` — the same moment `windowSink` is
- * (`start.ts`) — and never replaced afterward, unlike an earlier version of this that constructed it
- * only after every Application had started and swapped it into `kernel.services.router` then.
+ * (`start.ts`) — and never replaced afterward. An earlier version constructed it only after every
+ * Application had started and swapped it into `kernel.services.router` then, which broke the
+ * switcher's own reactivity (a plain property reassignment doesn't re-run anything that already
+ * rendered) — see the git history on this file for that one.
  *
- * **That swap was a real bug, not just late wiring.** `ConsoleChrome`'s switcher reads `cx.router`
- * during its first render, which happens after `boot()` but before `open()` has started anything —
- * so it captured the *pre-swap* capability. Reassigning `services.router` to a new object afterward
- * changed what the capability's own functions read, but nothing re-runs the render tree just because
- * a plain property was reassigned elsewhere — only a `Signal` write does that, and the swap was not
- * one. The switcher rendered once, against a router that would never again be read from.
- *
- * The fix is the same shape every other capability here already uses: **one object, whose signals
- * are written in place.** `applications()` stays a live read of `kernel.applications` (accurate
- * whenever called, even before `resync()` — `boot()` has already populated it). `current` is a
- * `Signal`, seeded empty here and given its first real value by an explicit `resync()` call once
- * `kernel.processes` means something — `start.ts` calls it right after `open()`'s Applications have
- * started. A `popstate` after that calls the same `syncFromLocation` through the listener registered
- * here.
- *
- * `dispose()` (beyond the `RouterSink` surface itself) drops the `popstate` listener — `start.ts`'s
- * `dispose()` calls it alongside everything else it tears down.
+ * **`current()` is computed fresh from the URL on every call, not a value `resync()` sets.** A second
+ * bug lived here after the first was fixed: `current` used to start `undefined` and stay that way
+ * until something explicitly called `resync()`/`navigate()`. `ConsoleChrome` (mesh-core) uses
+ * `current() === undefined` as its signal for "nothing has picked an Application yet, so pick the
+ * first one" -- and that check ran during its own `activate()`, before anything had ever resynced,
+ * so it *always* saw `undefined` and *always* overwrote whatever the page's real URL already said.
+ * Loading `/platform/gitserver` directly bounced to `/platform/domains` every time. Fixed by making
+ * `current()` itself resolve `explicit ?? matchFromURL() ?? kernel.applications[0]` on every read --
+ * by the time anything can call it (after `kernel.boot()`, which populates `kernel.applications`
+ * before activating a single Extension), a real URL match is already there to find, so a chrome
+ * checking "has anything chosen yet" gets a true answer instead of a stale default.
  */
 export function routerSink(
     kernel: Kernel,
     manager: WindowManager,
     history: HistoryLike,
 ): RouterSink & { resync(): void; dispose(): void } {
-    // A signal, not a plain variable: `Router.current()` is read inside `each`/`when`/`text` in a
-    // switcher's render tree (same reason `Chrome.focused()` wraps `WindowManager.focused`, a real
-    // Signal, rather than a snapshot) -- a plain variable would leave the switcher showing whichever
-    // Application was current when it first rendered.
-    const current = signal<string | undefined>(undefined);
+    /** Set only by `navigate()`. `undefined` means "nothing has explicitly chosen; read the URL." */
+    let explicit: string | undefined;
+
+    /**
+     * Bumped by `navigate()` and by a browser back/forward, for no reason but to be *read* by
+     * `current()` below -- an invalidation tick, not a value anyone consumes. `current()`'s own
+     * computation reads `history.pathname()` and `kernel.applications`, neither of which is a
+     * `Signal`, so nothing would tell a switcher's `each`/`when`/`text` to look again without this.
+     */
+    const tick = signal(0);
+
+    const matchFromURL = (): string | undefined =>
+        parsePath(history.pathname(), history.search(), kernel.applications)?.applicationId;
+
+    const currentValue = (): string | undefined => explicit ?? matchFromURL() ?? kernel.applications[0];
+
+    /** Whether `currentValue()` came from something that actually chose it, not just a fallback. */
+    const shouldRestrict = (): boolean => explicit !== undefined || matchFromURL() !== undefined;
 
     const pidsOf = (applicationId: string): ReadonlySet<string> => new Set(
         kernel.processes
@@ -77,51 +86,58 @@ export function routerSink(
     );
 
     /**
-     * `restrict` is the difference between *reporting* a current Application and *hiding everyone
-     * else's windows over it* — found live, by a pre-existing test that composes two Applications
-     * with no chrome and no switcher, and means for both to share one ordinary window pool (single
-     * mode's "most recently focused wins", across both). Restricting on every multi-Application boot
-     * regardless of whether anything asked to switch between them broke exactly that: a composition
-     * nobody has navigated in yet is not the same thing as a composition that chose an Application.
-     *
-     * So an unmatched URL (a first boot with nothing router-aware linking anywhere, which is what
-     * `single.browser.test.ts`'s composition is) still reports the first Application as `current` --
-     * a switcher needs *something* to highlight -- but leaves every window visible, matching the
-     * behavior every composition had before this existed. Only a URL that actually names an
-     * Application, or an explicit `navigate()` (a switcher button, a link), narrows `foreground` for
-     * real.
+     * The difference between *reporting* a current Application and *hiding everyone else's windows
+     * over it* -- found live, by a pre-existing test that composes two Applications with no chrome
+     * and no switcher, meaning both to share one ordinary window pool (single mode's "most recently
+     * focused wins", across both). Restricting on every multi-Application boot regardless of whether
+     * anything asked to switch between them broke exactly that. So `shouldRestrict()` -- a URL that
+     * actually names an Application, or an explicit `navigate()` -- gates this; the fallback-to-first
+     * case above still reports something for a switcher to highlight, but leaves every window visible.
      */
-    const applyCurrent = (applicationId: string | undefined, restrict: boolean): void => {
-        current.set(applicationId);
-        manager.setForeground(
-            restrict && applicationId !== undefined ? pidsOf(applicationId) : undefined,
-        );
+    const applyForeground = (): void => {
+        const id = currentValue();
+        manager.setForeground(shouldRestrict() && id !== undefined ? pidsOf(id) : undefined);
     };
 
-    const syncFromLocation = (): void => {
-        const match = parsePath(history.pathname(), history.search(), kernel.applications);
-        applyCurrent(match?.applicationId ?? kernel.applications[0], match !== undefined);
+    const onLocationChange = (): void => {
+        applyForeground();
+        tick.set(tick() + 1);
     };
 
-    const unsubscribe = history.onChange(syncFromLocation);
+    // Harmless when `kernel.applications` is still empty (real `start.ts` usage, constructed before
+    // `kernel.boot()`): `matchFromURL()` finds nothing, `currentValue()` is `undefined`,
+    // `setForeground(undefined)` is already the default. Correct immediately, though, wherever
+    // applications already exist at construction time -- every test in this file.
+    applyForeground();
+    const unsubscribe = history.onChange(onLocationChange);
 
     return {
         applications: (): readonly RouterApplication[] => kernel.applications.map((id) => ({
             id,
             title: kernel.manifest.titles.get(id) ?? id,
         })),
-        current: () => current(),
+        current: () => { tick(); return currentValue(); },
         navigate(applicationId, view?: string, params?: Readonly<Record<string, Json>>) {
             if (!kernel.applications.includes(applicationId)) {
                 throw new Error(
                     `Cannot navigate to "${applicationId}": no Application by that id is loaded.`,
                 );
             }
-            history.push(formatPath(applicationId, view, params));
-            applyCurrent(applicationId, true);
+            const path = formatPath(applicationId, view, params);
+            // Skip a redundant history entry when this is exactly where the URL already resolves to
+            // -- ConsoleChrome calls navigate(current()) unconditionally on activation (see its own
+            // comment), and a page loaded at a real deep link should not gain a duplicate back-stop.
+            if (path !== `${history.pathname()}${history.search()}`) history.push(path);
+            explicit = applicationId;
+            applyForeground();
+            tick.set(tick() + 1);
         },
         back: () => { history.back(); },
-        resync: syncFromLocation,
+        // `resync`: re-applies foreground now that `kernel.processes` means something -- called once
+        // by `start.ts` right after `open()`'s Applications have actually started. `current()`/
+        // `applications()` never needed this (both compute fresh on every call already); only
+        // `manager.setForeground`, an imperative call nothing else re-triggers, does.
+        resync: applyForeground,
         dispose: unsubscribe,
     };
 }
