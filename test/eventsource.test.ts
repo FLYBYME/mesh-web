@@ -167,23 +167,81 @@ describe('createFetchEventSource', () => {
         expect(attempt).toBeGreaterThanOrEqual(2);
     });
 
+    it('stops for good on a 403 instead of asking again forever, and says why', async () => {
+        const fetchMock = vi.fn(async () => new Response('Requires role "operator".', { status: 403 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const errors: string[] = [];
+        const closes: string[] = [];
+        const es = createFetchEventSource('/events', { retryDelay: 5, maxDelay: 5 });
+        es.addEventListener('error', (e) => { if (e.data) errors.push(e.data); });
+        es.addEventListener('close', (e) => { if (e.data) closes.push(e.data); });
+
+        await vi.waitFor(() => expect(closes).toHaveLength(1));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(errors[0]).toBe('events 403: Requires role "operator".');
+        expect(closes[0]).toBe(errors[0]);
+    });
+
+    it('reopens a connection that went silent without closing', async () => {
+        let attempt = 0;
+        vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+            attempt++;
+            if (attempt === 1) {
+                // Opens, then never sends another byte and never ends -- a dead route.
+                const stream = new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode(': open\n\n'));
+                        init?.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+                    },
+                });
+                return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+            }
+            return createStreamResponse(['data: back\n\n']);
+        }));
+
+        const errors: string[] = [];
+        const messages: string[] = [];
+        const es = createFetchEventSource('/events', { retryDelay: 5, maxDelay: 5, idleTimeoutMs: 40 });
+        es.addEventListener('error', (e) => { if (e.data) errors.push(e.data); });
+        es.addEventListener('message', (e) => { if (e.data) { messages.push(e.data); es.close(); } });
+
+        await vi.waitFor(() => expect(messages).toEqual(['back']));
+        expect(errors[0]).toContain('nothing received for 40ms');
+    });
+
     it('aborts active fetch and clears listeners on close()', async () => {
         let aborted = false;
 
-        vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+        const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
             init?.signal?.addEventListener('abort', () => {
                 aborted = true;
             });
             return new Promise<Response>(() => {
                 // Hang indefinitely until aborted
             });
-        }));
+        });
+        vi.stubGlobal('fetch', fetchMock);
 
+        // Connecting starts on the next tick, so wait for the request to be in flight.
         const es = createFetchEventSource('/events');
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
         expect(aborted).toBe(false);
 
         es.close();
         expect(aborted).toBe(true);
+    });
+
+    it('makes no request at all when closed before it started', async () => {
+        const fetchMock = vi.fn(async () => createStreamResponse(['data: x\n\n']));
+        vi.stubGlobal('fetch', fetchMock);
+
+        createFetchEventSource('/events').close();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('removes event listeners via removeEventListener', async () => {

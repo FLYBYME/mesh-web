@@ -35,7 +35,22 @@ export interface FetchEventSourceOptions {
     /** Milliseconds before a dropped connection is retried. Backs off to `maxDelay`. */
     readonly retryDelay?: number;
     readonly maxDelay?: number;
+    /**
+     * Milliseconds with no bytes at all before the connection is treated as dead and reopened.
+     * mesh-serve sends a `: keepalive` comment every 20s, so silence well past that is a connection
+     * that died without closing -- a dropped route, a proxy that lost it -- which would otherwise
+     * wait forever, looking connected and delivering nothing. `0` disables it.
+     */
+    readonly idleTimeoutMs?: number;
 }
+
+/**
+ * Statuses that retrying cannot change: refused by the gate (403), or nothing served here (404).
+ * Everything else -- a network drop, a 5xx, a 401 a ticket refresh may fix -- is retried.
+ */
+const PERMANENT_REFUSALS = new Set([403, 404]);
+
+class RefusedError extends Error {}
 
 /**
  * One SSE frame.
@@ -61,6 +76,7 @@ export function createFetchEventSource(
 
     const retryDelay = options.retryDelay ?? 1000;
     const maxDelay = options.maxDelay ?? 30_000;
+    const idleTimeoutMs = options.idleTimeoutMs ?? 50_000;
     let delay = retryDelay;
 
     const emit = (event: string, data: string | undefined): void => {
@@ -82,62 +98,95 @@ export function createFetchEventSource(
      * — a node restarting is the ordinary case, and the models layer refetches when we come back.
      */
     async function pump(): Promise<void> {
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: { accept: 'text/event-stream', ...(options.headers?.() ?? {}) },
-            signal: controller.signal,
-        });
+        // One controller per attempt, so the idle watchdog can drop a dead connection without
+        // closing the source; `close()` aborts whichever attempt is live.
+        const attempt = new AbortController();
+        const abortAttempt = (): void => attempt.abort();
+        controller.signal.addEventListener('abort', abortAttempt);
 
-        if (!response.ok || response.body === null) {
-            // A refusal is data, not a transport failure: the body says which event was refused and
-            // why. Surfacing it as `error` lets a page log the reason rather than a status code.
-            const detail = await response.text().catch(() => '');
-            throw new Error(`events ${response.status}${detail === '' ? '' : `: ${detail.slice(0, 400)}`}`);
-        }
+        let idle: ReturnType<typeof setTimeout> | undefined;
+        const armWatchdog = (): void => {
+            if (idleTimeoutMs <= 0) return;
+            if (idle !== undefined) clearTimeout(idle);
+            idle = setTimeout(abortAttempt, idleTimeoutMs);
+        };
 
-        // Connected and accepted. Anything after this is a normal end or a genuine drop, so the
-        // backoff starts over.
-        delay = retryDelay;
-        emit('open', undefined);
+        try {
+            armWatchdog();
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: { accept: 'text/event-stream', ...(options.headers?.() ?? {}) },
+                signal: attempt.signal,
+            });
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let frame = emptyFrame();
-
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            // Frames end at a newline; anything after the last one is a partial line held for the
-            // next chunk. Splitting on \n and keeping the tail is what makes a chunk boundary
-            // mid-field harmless.
-            let newline = buffer.indexOf('\n');
-            while (newline !== -1) {
-                const line = buffer.slice(0, newline).replace(/\r$/, '');
-                buffer = buffer.slice(newline + 1);
-                newline = buffer.indexOf('\n');
-
-                if (line === '') {
-                    dispatch(frame);
-                    frame = emptyFrame();
-                    continue;
-                }
-                if (line.startsWith(':')) continue;   // a comment; the usual keep-alive
-
-                const colon = line.indexOf(':');
-                const field = colon === -1 ? line : line.slice(0, colon);
-                const raw = colon === -1 ? '' : line.slice(colon + 1);
-                const value_ = raw.startsWith(' ') ? raw.slice(1) : raw;
-
-                if (field === 'event') frame.event = value_;
-                else if (field === 'data') frame.data.push(value_);
-                // `id` and `retry` are parsed away deliberately: see the note at the top of the file.
+            if (!response.ok || response.body === null) {
+                // A refusal is data, not a transport failure: the body says which event was refused
+                // and why. Surfacing it as `error` lets a page log the reason rather than a status.
+                const detail = await response.text().catch(() => '');
+                const message = `events ${response.status}${detail === '' ? '' : `: ${detail.slice(0, 400)}`}`;
+                throw PERMANENT_REFUSALS.has(response.status) ? new RefusedError(message) : new Error(message);
             }
+
+            // Connected and accepted. Anything after this is a normal end or a genuine drop, so the
+            // backoff starts over.
+            delay = retryDelay;
+            emit('open', undefined);
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let frame = emptyFrame();
+
+            for (;;) {
+                armWatchdog();
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // Frames end at a newline; anything after the last one is a partial line held for
+                // the next chunk. Splitting on \n and keeping the tail is what makes a chunk
+                // boundary mid-field harmless.
+                let newline = buffer.indexOf('\n');
+                while (newline !== -1) {
+                    const line = buffer.slice(0, newline).replace(/\r$/, '');
+                    buffer = buffer.slice(newline + 1);
+                    newline = buffer.indexOf('\n');
+
+                    if (line === '') {
+                        dispatch(frame);
+                        frame = emptyFrame();
+                        continue;
+                    }
+                    if (line.startsWith(':')) continue;   // a comment; the usual keep-alive
+
+                    const colon = line.indexOf(':');
+                    const field = colon === -1 ? line : line.slice(0, colon);
+                    const raw = colon === -1 ? '' : line.slice(colon + 1);
+                    const value_ = raw.startsWith(' ') ? raw.slice(1) : raw;
+
+                    if (field === 'event') frame.event = value_;
+                    else if (field === 'data') frame.data.push(value_);
+                    // `id` and `retry` are parsed away deliberately: see the note at the top of the file.
+                }
+            }
+        } catch (error) {
+            // The watchdog's abort surfaces here as an AbortError on a source that is still open.
+            if (attempt.signal.aborted && !controller.signal.aborted) {
+                throw new Error(`events: nothing received for ${idleTimeoutMs}ms, reconnecting`);
+            }
+            throw error;
+        } finally {
+            if (idle !== undefined) clearTimeout(idle);
+            controller.signal.removeEventListener('abort', abortAttempt);
         }
     }
+
+    const stop = (): void => {
+        closed = true;
+        controller.abort();
+        listeners.clear();
+    };
 
     async function run(): Promise<void> {
         while (!closed) {
@@ -146,6 +195,13 @@ export function createFetchEventSource(
             } catch (error) {
                 if (closed || controller.signal.aborted) return;
                 emit('error', error instanceof Error ? error.message : String(error));
+                if (error instanceof RefusedError) {
+                    // Retrying cannot change a gate's answer, so stop -- rather than asking again
+                    // every 30s for as long as the page stays open. `close` says it is over.
+                    emit('close', error.message);
+                    stop();
+                    return;
+                }
             }
 
             if (closed) return;
@@ -154,7 +210,9 @@ export function createFetchEventSource(
         }
     }
 
-    void run();
+    // Next tick, not inside this constructor: whoever created the source attaches its listeners
+    // first, so not even the earliest `open` or `error` can be missed.
+    setTimeout(() => { void run(); }, 0);
 
     return {
         addEventListener(event, listener) {
@@ -166,9 +224,7 @@ export function createFetchEventSource(
             listeners.get(event)?.delete(listener);
         },
         close() {
-            closed = true;
-            controller.abort();
-            listeners.clear();
+            stop();
         },
     };
 }
