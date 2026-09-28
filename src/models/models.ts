@@ -10,8 +10,10 @@
 
 import { isCollectionStreamed, type AnyApiCall, type Api, type Gate } from '../net/api.js';
 import type { CallError } from '../net/result.js';
+import { effect } from '../reactivity/index.js';
 import { runDetached } from '../reactivity/scope.js';
 import type { ReadonlySignal } from '../reactivity/types.js';
+import type { Session } from '../contribution/session.js';
 import { CollectionQueryImpl, type QueryFetcher, type SessionSource } from './query.js';
 import type {
     CallsOf,
@@ -58,6 +60,7 @@ export interface EventStreamClient {
 export function createEventStreamClient(
     url: string,
     factory?: EventSourceFactory,
+    sessionSource?: SessionSource,
 ): EventStreamClient {
     if (!factory) {
         return {
@@ -70,11 +73,42 @@ export function createEventStreamClient(
 
     let es: EventSourceLike | null = null;
     let openedOnce = false;
+    let isDisposed = false;
     const eventListeners = new Map<string, Set<(payload: unknown) => void>>();
     const reconnectListeners = new Set<() => void>();
 
-    function ensureConnected(): EventSourceLike {
+    function getSessionSignal(): ReadonlySignal<Session | null> | undefined {
+        if (!sessionSource) return undefined;
+        if ('peek' in sessionSource && typeof sessionSource.peek === 'function') {
+            return sessionSource as ReadonlySignal<Session | null>;
+        }
+        if (typeof sessionSource === 'function') {
+            return (sessionSource as () => ReadonlySignal<Session | null> | undefined)();
+        }
+        return undefined;
+    }
+
+    function shouldConnect(): boolean {
+        const sig = getSessionSignal();
+        if (sig === undefined) {
+            return true;
+        }
+        return sig.peek() !== null;
+    }
+
+    function disconnect(): void {
+        if (es !== null) {
+            es.close();
+            es = null;
+        }
+        openedOnce = false;
+    }
+
+    function ensureConnected(): EventSourceLike | null {
+        if (isDisposed) return null;
         if (es !== null) return es;
+        if (!shouldConnect()) return null;
+
         const source = factory!(url);
         es = source;
 
@@ -94,6 +128,12 @@ export function createEventStreamClient(
             source.addEventListener('reconnect', () => {
                 for (const r of Array.from(reconnectListeners)) {
                     r();
+                }
+            });
+            source.addEventListener('close', () => {
+                if (es === source) {
+                    es = null;
+                    openedOnce = false;
                 }
             });
         } else {
@@ -117,6 +157,14 @@ export function createEventStreamClient(
             }
         };
 
+        for (const [eventName] of eventListeners) {
+            if (typeof source.addEventListener === 'function') {
+                source.addEventListener(eventName, (event: any) => {
+                    handleIncoming(eventName, event?.data);
+                });
+            }
+        }
+
         source.onmessage = (event: any) => {
             const evType = event?.type || 'message';
             if (evType !== 'message') {
@@ -137,15 +185,67 @@ export function createEventStreamClient(
         return source;
     }
 
+    let sessionEffectDispose: (() => void) | null = null;
+    if (sessionSource !== undefined) {
+        sessionEffectDispose = runDetached(() => {
+            let prevSession: Session | null | undefined = undefined;
+
+            return effect(() => {
+                const signal = getSessionSignal();
+                const currentSession = signal ? signal() : null;
+
+                if (prevSession === undefined) {
+                    prevSession = currentSession;
+                    if (currentSession !== null && (eventListeners.size > 0 || reconnectListeners.size > 0)) {
+                        ensureConnected();
+                    }
+                    return;
+                }
+
+                const hadSession = prevSession !== null;
+                const hasSession = currentSession !== null;
+                const userChanged = prevSession !== null && currentSession !== null && prevSession.userId !== currentSession.userId;
+                prevSession = currentSession;
+
+                if (!hadSession && hasSession) {
+                    // Session arrived (sign-in or restore from storage)
+                    if (eventListeners.size > 0 || reconnectListeners.size > 0) {
+                        ensureConnected();
+                        for (const r of Array.from(reconnectListeners)) {
+                            r();
+                        }
+                    }
+                } else if (hadSession && !hasSession) {
+                    // Sign-out
+                    disconnect();
+                } else if (userChanged) {
+                    // Switched user
+                    disconnect();
+                    if (eventListeners.size > 0 || reconnectListeners.size > 0) {
+                        ensureConnected();
+                        for (const r of Array.from(reconnectListeners)) {
+                            r();
+                        }
+                    }
+                }
+            });
+        });
+    }
+
     return {
         isAvailable: true,
         subscribe(eventName: string, handler: (payload: unknown) => void) {
             let listeners = eventListeners.get(eventName);
+            const isFirst = !listeners;
             if (!listeners) {
                 listeners = new Set();
                 eventListeners.set(eventName, listeners);
+            }
+            listeners.add(handler);
+
+            if (isFirst) {
                 const source = ensureConnected();
-                if (typeof source.addEventListener === 'function') {
+                if (source && typeof source.addEventListener === 'function') {
                     source.addEventListener(eventName, (event: any) => {
                         let data = event?.data;
                         if (typeof event?.data === 'string') {
@@ -164,7 +264,6 @@ export function createEventStreamClient(
                     });
                 }
             }
-            listeners.add(handler);
 
             return () => {
                 const current = eventListeners.get(eventName);
@@ -184,13 +283,14 @@ export function createEventStreamClient(
             };
         },
         close() {
-            if (es) {
-                es.close();
-                es = null;
+            isDisposed = true;
+            if (sessionEffectDispose !== null) {
+                sessionEffectDispose();
+                sessionEffectDispose = null;
             }
+            disconnect();
             eventListeners.clear();
             reconnectListeners.clear();
-            openedOnce = false;
         },
     };
 }
@@ -441,7 +541,7 @@ export function createModels<A>(
             ? (u: string) => new (globalThis as any).EventSource(u)
             : undefined);
 
-    const streamClient = createEventStreamClient(eventsUrl, factory);
+    const streamClient = createEventStreamClient(eventsUrl, factory, session);
     if (onDispose !== undefined) {
         onDispose(() => {
             streamClient.close();

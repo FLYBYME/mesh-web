@@ -1426,6 +1426,60 @@ describe('session-aware collections', () => {
             expect(fetchCount).toBe(2);
             expect(parts.rows()[0]?.name).toBe('Fetch 2');
         });
+
+        it('does not open event stream before login, connects on session arrival, and closes on sign-out', async () => {
+            MockEventSource.instances = [];
+            const fake = createFakeTransport((req) => {
+                if (req.url.startsWith('/api/parts')) {
+                    return jsonResponse(200, [{ id: 'p1', name: 'Initial Part', tag: 't1' }]);
+                }
+                return jsonResponse(404, {});
+            });
+
+            const sessionSignal = signal<Session | null>(null);
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, sessionSignal, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const parts = models('part');
+            expect(parts.loading()).toBe(true);
+            await new Promise((r) => setTimeout(r, 20));
+
+            // While session is null (logged out), NO EventSource connection should be created!
+            expect(MockEventSource.instances.length).toBe(0);
+
+            // Now log in (session arrives)
+            sessionSignal.set({ userId: 'user-1', displayName: 'User One', roles: ['operator'], expiresAt: Date.now() + 60000 });
+            await new Promise((r) => setTimeout(r, 20));
+
+            // Now connection is established!
+            expect(MockEventSource.instances.length).toBe(1);
+            const es = MockEventSource.instances[0]!;
+            expect(es.closed).toBe(false);
+
+            // Streamed events work
+            es.emit('part.created', { id: 'p2', name: 'Second Part', tag: 't1' });
+            expect(parts.rows().length).toBe(2);
+
+            // Log out (session becomes null)
+            sessionSignal.set(null);
+            await new Promise((r) => setTimeout(r, 20));
+
+            // Connection should be closed!
+            expect(es.closed).toBe(true);
+            expect(parts.rows()).toEqual([]);
+
+            // Log in as user 2
+            sessionSignal.set({ userId: 'user-2', displayName: 'User Two', roles: ['operator'], expiresAt: Date.now() + 60000 });
+            await new Promise((r) => setTimeout(r, 20));
+
+            // A new EventSource connection should be created
+            expect(MockEventSource.instances.length).toBe(2);
+            const es2 = MockEventSource.instances[1]!;
+            expect(es2.closed).toBe(false);
+        });
     });
 });
 
