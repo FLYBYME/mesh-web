@@ -162,6 +162,13 @@ export interface ViewContext<
      */
     readonly off: (action: Action) => void;
 
+    /**
+     * The window this view instance is in. **A bridge, and temporary**, like `off`: an app-model
+     * desktop (`src/app/desktop.ts`) mounts each route in a window through one of these views and
+     * scopes that window's commands by it, so a key reaches only the window in front.
+     */
+    readonly windowId: string;
+
     setTitle(title: string): void;
     close(): void;
     onDispose(fn: () => void): void;

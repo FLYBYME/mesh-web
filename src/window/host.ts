@@ -102,6 +102,7 @@ export function mountView(host: Element, options: ViewHostOptions): ViewInstance
          */
         on: (fn) => handlers.on(fn),
         off: (action) => handlers.remove(action),
+        windowId: options.windowId,
 
         setTitle: (title) => options.windows.setTitle(options.windowId, title),
         close: () => options.windows.close(options.windowId),

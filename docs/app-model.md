@@ -464,3 +464,23 @@ one service, `AuthService`, one `LoginForm` mounted in two places, three pages a
   page's own title (and restores it on dispose). The first regression test for it passed with the
   bug still in — another test had left the title set — and was only made to fail by giving it a
   title nothing else could produce.
+
+## 18. Phase 5b findings (2026-09-29)
+
+Phase 5b added `src/app/desktop.ts` and `test/browser/app-desktop.browser.test.ts`.
+
+- **`mountDesktop(App, …)`: the same App, its routes as windows.** Navigating opens a window, or
+  focuses the one already showing that route with those params; back/forward do the same;
+  `Router.current` is the focused window's route. Two windows on one route are two instances.
+- **Built on the existing window layer**, not beside it: the real `WindowManager` and `mountPage`
+  shell, which mount a window through `viewOf(owner, view)` → `ViewDecl`. Each route is handed to it
+  as a `ViewDecl` whose `render` mounts the route's view through the runtime, in that window's handler
+  table. A second temporary bridge on `ViewContext`, `windowId`, lets it say which window.
+- **A key reaches the window in front and no other.** A root mount carries a scope (its window) that
+  every component beneath it inherits; the registry, told which window is focused (`inFront`), skips
+  commands scoped to any other. Services' and the app's commands have no scope and always answer.
+  Mutation-checked: drop the filter and the browser test fails with the keys in the wrong window.
+- **`start()` picks by policy.** An App is a single-page site unless the site's `window-manager/mode`
+  policy is `windowed` or `tiled` — the reverse of the legacy kernel's default, on purpose.
+- Not done: the URL does not follow focus (clicking a different window leaves the address bar on the
+  last navigation); `HistoryLike` has no `replace`. Window geometry is not persisted for Apps yet.

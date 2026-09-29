@@ -19,6 +19,11 @@ export interface LiveCommand {
     /** The class that owns it, for a palette and for errors. */
     readonly owner: string;
     readonly command: AnyCommand;
+    /**
+     * The window it lives in, for a view or component mounted in one. Absent for a service's or the
+     * app's, which belong to the page and answer whichever window is in front.
+     */
+    readonly scope?: string;
 }
 
 /** What a key listener hands over. A `KeyboardEvent` is one; so is a test's plain object. */
@@ -41,13 +46,19 @@ export interface CommandRegistryOptions {
     readonly reserved?: readonly string[];
     /** A keyed command that failed. Never left as an unhandled rejection. Defaults to `console.error`. */
     readonly onError?: (error: unknown, command: LiveCommand) => void;
+    /**
+     * Which window is in front, on a desktop. When given, a key reaches only the commands of that
+     * window and the page's own (services, the app) — never a window behind it. Absent on a
+     * single-page site, where the newest owner of a key is the one in front.
+     */
+    readonly inFront?: () => string | undefined;
 }
 
 export interface CommandRegistry {
     /** Every live command, oldest first. A palette reads this. */
     readonly live: ReadonlySignal<readonly LiveCommand[]>;
-    /** Make an instance's commands live. Returns the function that makes them not. */
-    add(owner: string, instance: object): () => void;
+    /** Make an instance's commands live, in a window if `scope` names one. Returns the function that makes them not. */
+    add(owner: string, instance: object, scope?: string): () => void;
     /** The command a key press would run, if any. */
     resolve(press: KeyPress): LiveCommand | undefined;
     /** Run the command bound to this key press. Returns whether one was bound. */
@@ -68,10 +79,14 @@ export function createCommandRegistry(options: CommandRegistryOptions = {}): Com
 
     const resolve = (press: KeyPress): LiveCommand | undefined => {
         const chord = formatBinding(chordOf(press));
+        const front = options.inFront?.();
         const entries = live();
         for (let i = entries.length - 1; i >= 0; i--) {
             const entry = entries[i];
-            if (entry?.command.key === chord) return entry;
+            if (entry?.command.key !== chord) continue;
+            // On a desktop, a window behind the focused one does not hear keys.
+            if (options.inFront !== undefined && entry.scope !== undefined && entry.scope !== front) continue;
+            return entry;
         }
         return undefined;
     };
@@ -94,7 +109,7 @@ export function createCommandRegistry(options: CommandRegistryOptions = {}): Com
 
     return {
         live,
-        add(owner, instance) {
+        add(owner, instance, scope) {
             const commands = Object.values(instance).filter(isCommand);
             if (commands.length === 0) return () => undefined;
 
@@ -108,7 +123,7 @@ export function createCommandRegistry(options: CommandRegistryOptions = {}): Com
                 }
             }
 
-            const added = commands.map((command): LiveCommand => ({ owner, command }));
+            const added = commands.map((command): LiveCommand => (scope === undefined ? { owner, command } : { owner, command, scope }));
             live.set([...live(), ...added]);
             return () => {
                 live.set(live().filter((entry) => !added.includes(entry)));

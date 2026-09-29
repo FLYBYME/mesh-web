@@ -46,10 +46,13 @@ export interface AppRuntime {
     readonly app: object;
     /** Every command on a live unit — services and the app for the page's life, views and components while mounted. */
     readonly commands: CommandRegistry;
-    /** A root node for a view, with raw params (from a URL) parsed through the view's schema. */
-    view(view: ViewClass, rawParams: unknown, handlers: HandlerRegistry): MountNode;
+    /**
+     * A root node for a view, with raw params (from a URL) parsed through the view's schema.
+     * `scope` names the window it is in, on a desktop; everything mounted beneath it inherits it.
+     */
+    view(view: ViewClass, rawParams: unknown, handlers: HandlerRegistry, scope?: string): MountNode;
     /** A root node for a component. */
-    component(component: ComponentClass, props: unknown, handlers: HandlerRegistry): MountNode;
+    component(component: ComponentClass, props: unknown, handlers: HandlerRegistry, scope?: string): MountNode;
     /** The page is going: every service's `onDispose` and `dispose()`, last constructed first. */
     dispose(): void;
 }
@@ -140,6 +143,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
         handlers: HandlerRegistry,
         hostNeeds: readonly CapabilityName[],
         hostName: string,
+        scope: string | undefined,
     ): MountNode => {
         const needs = needsOf(Class.spec);
         refuse(Class.name, needs, hostNeeds, hostName);
@@ -171,7 +175,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                         return action;
                     },
                     mount(child, props) {
-                        return mount(child, { props }, handlers, needs, Class.name);
+                        return mount(child, { props }, handlers, needs, Class.name, scope);
                     },
                 };
 
@@ -182,7 +186,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                         host,
                         ...extra,
                     });
-                    retire = commands.add(Class.name, instance);
+                    retire = commands.add(Class.name, instance, scope);
                     const node: Node = instance.render();
                     return { node, dispose: teardown };
                 } catch (error) {
@@ -202,7 +206,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
     return {
         app,
         commands,
-        view(view, rawParams, handlers) {
+        view(view, rawParams, handlers, scope) {
             const schema = view.spec.params;
             let params: unknown = {};
             if (schema !== undefined) {
@@ -210,10 +214,10 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                 if (!parsed.success) throw new Error(`${view.name}: params rejected — ${parsed.error.message}`);
                 params = parsed.data;
             }
-            return mount(view, { params }, handlers, grant, `the app (${App.name})`);
+            return mount(view, { params }, handlers, grant, `the app (${App.name})`, scope);
         },
-        component(component, props, handlers) {
-            return mount(component, { props }, handlers, grant, `the app (${App.name})`);
+        component(component, props, handlers, scope) {
+            return mount(component, { props }, handlers, grant, `the app (${App.name})`, scope);
         },
         dispose() {
             retireApp();

@@ -88,6 +88,23 @@ describe('start() boots an App', () => {
         expect([...root.querySelectorAll('.mesh-notice')].map((n) => n.textContent)).toContain('booted: Saved 1');
     });
 
+    it('as a desktop when the site\'s policy asks for windows', async () => {
+        const started = start({
+            application: 'booted',
+            root,
+            policy: { 'window-manager/mode': 'windowed' },
+            parts: [{ id: 'booted', contribution: Booted }],
+        });
+        stop = () => started.dispose();
+        expect(started.kind).toBe('app');
+        await frame();
+
+        // The window layer is mounted, in windowed mode, with the route open as a window in it.
+        expect(root.getAttribute('data-mesh-window-mode')).toBe('windowed');
+        expect(root.querySelector('[data-api]')?.textContent).toBe('site');
+        expect(started.kind === 'app' && 'manager' in started.site ? started.site.manager.stacked().length : 0).toBe(1);
+    });
+
     it('refuses to boot an App whose service needs what the App was not granted', () => {
         class Greedy extends Service({ needs: needs('storage') }) {}
         class Uses extends View({ inject: { greedy: Greedy } }) {

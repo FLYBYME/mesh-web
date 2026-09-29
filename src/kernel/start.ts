@@ -71,6 +71,7 @@ import type { Action, IntentValue } from '../description/types.js';
 import { bindingTable, KERNEL_WINDOW_BINDINGS } from '../input/keys.js';
 import { createContext, createServices } from './broker.js';
 import { mountSite, type MountedApp } from '../app/site.js';
+import { mountDesktop, type MountedDesktop } from '../app/desktop.js';
 import type { AppClass } from '../app/runtime.js';
 import { Kernel, type Loaded } from './kernel.js';
 import { kernelLog, mountLogViewer, reasonOf, type KernelLog, type LogViewer } from './logs.js';
@@ -553,7 +554,8 @@ function createPageKernel(composition: Composition, doc: Document, api: string):
 export interface StartedApp {
     readonly kind: 'app';
     readonly kernel: Kernel;
-    readonly site: MountedApp;
+    /** The single-page site, or — when the policy asks for windows — the desktop (it has a `manager`). */
+    readonly site: MountedApp | MountedDesktop;
     /** Resolved: an App's first view is mounted synchronously. Here so both boot results can be awaited alike. */
     readonly ready: Promise<void>;
     dispose(): void;
@@ -576,14 +578,15 @@ function isAppPart(part: PartRef | AppPartRef): part is AppPartRef {
 }
 
 /**
- * Boot an App as a single-page site (docs/app-model.md, phase 5a).
+ * Boot an App (docs/app-model.md, phases 5a and 5b).
  *
  * The App's `needs` become a real context through `createContext` — the same broker a legacy part
  * went through — so `cx.mesh` is a client for the App's declared API with the page's credentials,
  * `cx.storage` is the page's hives, `cx.notifications` reaches the kernel's own surface below. That
  * context is the grant the runtime projects to every service, view and component.
  *
- * Windowed mode for Apps is phase 5b. Until then an App always boots as a website.
+ * A website by default; the site's `window-manager/mode` policy set to `windowed` or `tiled` boots
+ * the same App as a desktop instead (`mountDesktop`), its routes as windows.
  */
 function startApp(App: AppClass, partId: string, composition: Composition, doc: Document, root: Element, api: string): StartedApp {
     const kernel = createPageKernel(composition, doc, api);
@@ -599,9 +602,14 @@ function startApp(App: AppClass, partId: string, composition: Composition, doc: 
         App.spec.api,
     );
 
-    let site: MountedApp;
+    // A website unless the site's policy asks for the desktop: single-page is the default for an
+    // App, the reverse of the legacy kernel's, and the reason this path exists.
+    const mode = composition.policy?.['window-manager/mode'];
+    let site: MountedApp | MountedDesktop;
     try {
-        site = mountSite(App, { root, granted: handle.context, keys: doc });
+        site = mode === 'windowed' || mode === 'tiled'
+            ? mountDesktop(App, { root, granted: handle.context, keys: doc, mode, io: kernel.io })
+            : mountSite(App, { root, granted: handle.context, keys: doc });
     } catch (cause) {
         log.error(`${partId} could not start: ${reasonOf(cause)}`, { part: partId });
         handle.dispose();
