@@ -294,6 +294,11 @@ of the router), `net`, `models`, capabilities.
 
 ## 11. Open questions
 
+**Settled, not open: no JSX, ever** (owner, 2026-09-29). Pages are built with `element(...)`,
+`when`/`each`, kit pieces and functions returning nodes. Verbosity is answered inside that model
+(better kit pieces, helpers, static or prerendered content for marketing pages), never with JSX,
+`.tsx`, a JSX runtime or a template syntax.
+
 - **The word "service".** In this codebase a service is already a server-side `ServiceModule`
   (`@flybyme/mesh`), and `*.site.json` has `kind: 'service'` for exactly that. A browser-side
   `Service` is a different thing with the same name. Keep it and qualify where needed, or pick
