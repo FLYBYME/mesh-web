@@ -485,6 +485,10 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
         },
         find: (query?: TQuery | (() => TQuery)) => instantiateQuery(query),
         invalidate,
+        // A write that went around this handle — a tool call such as `dns.record_create` — changed
+        // rows the open lists hold. With a stream, its events bring the change; without one, the
+        // lists must be refetched.
+        afterWrite: () => (isStreamed ? Promise.resolve() : invalidate()),
 
         // A live collection's own writes are applied to its open lists from the result, and not
         // refetched: the event the write causes arrives next and is de-duplicated by id. Refetching

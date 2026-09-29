@@ -1435,6 +1435,28 @@ describe('session-aware collections', () => {
             expect(list.live()).toBe(false);
             await recs.create({ zone: 'z1', name: 'x' });
             expect(finds).toBe(2);
+            // A write made around the handle (a tool call): refetched too, with nothing to say so.
+            await recs.afterWrite();
+            expect(finds).toBe(3);
+            list.dispose();
+        });
+
+        it('leaves a write made around a live handle to the event stream', async () => {
+            MockEventSource.instances = [];
+            let finds = 0;
+            const fake = createFakeTransport(() => { finds++; return jsonResponse(200, []); });
+            const client = createClient(crudApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof crudApi>(client, undefined, undefined, crudApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+            const recs = models('rec');
+            const list = recs.find({ query: { zone: 'z1' } });
+            await new Promise((r) => setTimeout(r, 20));
+            await recs.afterWrite();
+            expect(finds).toBe(1);
+            MockEventSource.instances[0]!.emit('rec.created', { id: 'r1', zone: 'z1', name: 'by a tool', createdAt: '2026-01-01' });
+            expect(list.rows().map((r) => r.name)).toEqual(['by a tool']);
             list.dispose();
         });
 

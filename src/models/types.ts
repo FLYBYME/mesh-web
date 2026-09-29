@@ -76,7 +76,14 @@ export interface CollectionHandle<TCalls extends Record<string, AnyApiCall>, C e
     find(
         query?: QueryOf<TCalls, C> | (() => QueryOf<TCalls, C>),
     ): CollectionQuery<ItemOf<TCalls, C>, QueryOf<TCalls, C>>;
+    /** Refetches every open list of this collection. */
     invalidate(): Promise<void>;
+    /**
+     * Call after a write that did not go through this handle (a tool such as `repo.repo_create`
+     * that writes the collection itself). A live collection hears about it from the event stream
+     * and does nothing here; one without a stream refetches its open lists.
+     */
+    afterWrite(): Promise<void>;
     /**
      * These throw MeshCallError on failure, matching `.call()` -- a write you directly await, same
      * as any other network call. `.rows()`/`.status()`/`.error()` above stay inspectable values:
