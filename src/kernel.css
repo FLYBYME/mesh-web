@@ -1,58 +1,66 @@
 /**
- * @flybyme/mesh-web kernel stylesheet.
+ * @flybyme/mesh-web kernel stylesheet — **structure, not a look.**
  *
- * The kernel owns the rules; the site owns the values (spec/serving.md §3).
+ * Loaded on every page. It holds only what the kernel's own machinery needs to work — the window
+ * layer's layout, drag and resize handles, hiding — and the layout of the kernel's own widgets
+ * (notifications, the log panel, the confirm dialog, window frames). It sets no page background, no
+ * font, and nothing on a site's own elements.
  *
- * Every colour is a custom property token with a fallback so un-themed pages
- * remain legible. The tokens a site or theme can set on :root or on a window host:
+ * Until v0.20.1 it also carried a dark palette as the fallback of every colour, a page background,
+ * and defaults for every `button`, `input`, `h1`–`h6`, `ul` … on the page — so every site was dark
+ * whether it asked to be or not, and lost its list bullets. That look is now `themes/dark.css`,
+ * opt-in.
  *
- *   --page:            page / background color (default: #0d1117)
- *   --chrome:          title bar and frame chrome background (default: #161b22)
- *   --surface:         window background, cards, notifications (default: #161b22)
- *   --surface-hover:   hovered controls, buttons (default: #21262d)
- *   --ink:             primary text color (default: #e6edf3)
- *   --ink-dim:         muted text, labels, subtle controls (default: #8b949e)
- *   --edge:            borders and dividers (default: #30363d)
- *   --accent:          focus rings, active borders, highlights (default: #58a6ff)
- *   --on-accent:       text on accent background (default: #0d1117)
- *   --info:            info notice border and accent (default: #58a6ff)
- *   --warn:            warning notice border and accent (default: #d29922)
- *   --error:           error notice border and accent (default: #f85149)
- *   --shadow:          window and notice box shadows (default: rgba(0, 0, 0, 0.35))
+ * **Colours:** the kernel's widgets still read the tokens below, so a theme dresses them. Unset, a
+ * token falls back to a CSS *system colour* (`Canvas`, `CanvasText`, …), which follows the page's
+ * `color-scheme` — a light page gets light notifications, a dark one dark, with nothing to configure.
+ *
+ *   --page, --surface      backgrounds (fallback Canvas)
+ *   --chrome, --surface-hover   frame bars, hovered controls (fallback ButtonFace)
+ *   --ink, --ink-dim       text, muted text (fallback CanvasText, GrayText)
+ *   --edge                 borders (fallback ButtonBorder)
+ *   --accent, --on-accent  focus, emphasis, text on it (fallback Highlight, HighlightText)
+ *   --info, --warn, --error   notice and level colours
+ *   --shadow, --backdrop   window/notice shadows, modal backdrop
  */
 
-/* ---------------------------------------------------------------------------- page & hosts */
+/* ---------------------------------------------------------------------------- the desktop's page */
 
-html, body {
+/*
+ * Only in the desktop modes (windowed, tiled): the window area must be exactly the viewport, and the
+ * window manager measures it, so the page cannot scroll or carry a margin. A single-page site gets
+ * none of this — it is an ordinary page.
+ *
+ * These were written as "not single" (`:not([data-mesh-window-mode="single"])`), and a single-page
+ * site sets no mode at all — so every website was pinned to the viewport with `overflow: hidden`,
+ * and anything below the fold could not be scrolled to. Named positively now.
+ */
+:root:has([data-mesh-window-mode="windowed"], [data-mesh-window-mode="tiled"]),
+:root:has([data-mesh-window-mode="windowed"], [data-mesh-window-mode="tiled"]) body {
     margin: 0;
-    padding: 0;
     height: 100%;
-    background: var(--page, #0d1117);
-    color: var(--ink, #e6edf3);
-    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 #mesh-web-root {
     position: relative;
     width: 100%;
-    min-height: 100%;
 }
 
-#mesh-web-root:not([data-mesh-window-mode="single"]):not([data-window-mode="single"]) {
+#mesh-web-root:is([data-mesh-window-mode="windowed"], [data-mesh-window-mode="tiled"]) {
     height: 100%;
     overflow: hidden;
 }
 
 /*
- * The window host needs a height. The manager measures its host, and an auto-height
- * host is zero tall, clamping every window to nothing.
+ * The window host needs a height. The manager measures its host, and an auto-height host is zero
+ * tall, clamping every window to nothing.
  */
 [data-mesh-window-host] {
     position: relative;
     width: 100%;
 }
 
-[data-mesh-window-host]:not([data-mesh-window-mode="single"]):not([data-window-mode="single"]) {
+[data-mesh-window-host]:is([data-mesh-window-mode="windowed"], [data-mesh-window-mode="tiled"]) {
     height: 100%;
     flex: 1 1 auto;
     min-height: 0;
@@ -62,24 +70,24 @@ html, body {
 /* ---------------------------------------------------------------------------- window frame */
 
 /*
- * Position belongs to whoever writes left. The kernel writes geometry as inline styles,
- * so position is not forced here.
+ * Position belongs to whoever writes left: the shell writes geometry as inline styles, so position
+ * is not set here. What is set is what makes a frame a frame — a column whose content scrolls and
+ * whose bar does not — and enough of an edge to see where one window ends.
  */
 .window {
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    background: var(--surface, #161b22);
-    color: var(--ink, #e6edf3);
-    border: 1px solid var(--edge, #30363d);
-    border-radius: 6px;
     overflow: hidden;
-    box-shadow: 0 4px 16px var(--shadow, rgba(0, 0, 0, 0.25));
+    background: var(--surface, Canvas);
+    color: var(--ink, CanvasText);
+    border: 1px solid var(--edge, ButtonBorder);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px var(--shadow, rgba(0, 0, 0, 0.2));
 }
 
 .window.focused {
-    border-color: var(--accent, #58a6ff);
-    box-shadow: 0 8px 24px var(--shadow, rgba(0, 0, 0, 0.35));
+    border-color: var(--accent, Highlight);
 }
 
 .window.tiled {
@@ -117,9 +125,9 @@ html, body {
     justify-content: space-between;
     height: 28px;
     padding: 0 10px;
-    background: var(--chrome, #161b22);
-    color: var(--ink, #e6edf3);
-    border-bottom: 1px solid var(--edge, #30363d);
+    background: var(--chrome, ButtonFace);
+    color: var(--ink, CanvasText);
+    border-bottom: 1px solid var(--edge, ButtonBorder);
     flex: 0 0 auto;
     cursor: move;
     user-select: none;
@@ -129,17 +137,11 @@ html, body {
     /**
      * Without this a window cannot be dragged by touch at all.
      *
-     * The drag handler is already touch-correct — `pointerdown` plus `setPointerCapture`, which is
-     * exactly the modern shape — but the browser decides *before* the handler runs whether a
-     * gesture belongs to the page or the element. The default lets it claim the gesture for
-     * scrolling, so the first `pointermove` cancels the pointer and the window never moves.
-     *
-     * `.grip` had this from the beginning and the titlebar did not, so resizing worked under a
-     * finger and dragging did not. One property, and it was the whole of "I can't drag a window on
-     * mobile".
-     *
-     * It does not make windows *usable* on a phone — that needs a chrome that does not use windows
-     * — but a control that looks draggable and is not is worse than either.
+     * The drag handler is touch-correct — `pointerdown` plus `setPointerCapture` — but the browser
+     * decides *before* the handler runs whether a gesture belongs to the page or the element. The
+     * default lets it claim the gesture for scrolling, so the first `pointermove` cancels the
+     * pointer and the window never moves. `.grip` had this from the beginning and the titlebar did
+     * not, so resizing worked under a finger and dragging did not.
      */
     touch-action: none;
 }
@@ -170,16 +172,17 @@ html, body {
     margin: 0;
     border: none;
     background: transparent;
-    color: var(--ink-dim, #8b949e);
+    color: var(--ink-dim, GrayText);
     border-radius: 3px;
     cursor: pointer;
+    font: inherit;
     font-size: 13px;
     line-height: 1;
 }
 
 .titlebar .buttons button:hover {
-    background: var(--surface-hover, #21262d);
-    color: var(--ink, #e6edf3);
+    background: var(--surface-hover, ButtonFace);
+    color: var(--ink, CanvasText);
 }
 
 .content {
@@ -187,7 +190,6 @@ html, body {
     overflow: auto;
     min-height: 0;
     position: relative;
-    color: var(--ink, #e6edf3);
 }
 
 .grip {
@@ -217,27 +219,18 @@ html, body {
 
 .mesh-notice {
     padding: 8px 12px;
-    background: var(--surface, #161b22);
-    color: var(--ink, #e6edf3);
-    border: 1px solid var(--edge, #30363d);
+    background: var(--surface, Canvas);
+    color: var(--ink, CanvasText);
+    border: 1px solid var(--edge, ButtonBorder);
     border-radius: 6px;
-    font-size: 13px;
-    line-height: 1.4;
-    box-shadow: 0 4px 12px var(--shadow, rgba(0, 0, 0, 0.3));
+    font: 13px/1.4 system-ui, sans-serif;
+    box-shadow: 0 4px 12px var(--shadow, rgba(0, 0, 0, 0.2));
     pointer-events: auto;
 }
 
-.mesh-notice.info {
-    border-color: var(--info, #58a6ff);
-}
-
-.mesh-notice.warn {
-    border-color: var(--warn, #d29922);
-}
-
-.mesh-notice.error {
-    border-color: var(--error, #f85149);
-}
+.mesh-notice.info { border-color: var(--info, Highlight); }
+.mesh-notice.warn { border-color: var(--warn, #b7791f); }
+.mesh-notice.error { border-color: var(--error, #d1242f); }
 
 /* ---------------------------------------------------------------------------- log viewer (ctrl+alt+q) */
 
@@ -245,8 +238,8 @@ html, body {
     position: fixed;
     inset: 0;
     z-index: 20000;
-    background: var(--page, #0d1117);
-    color: var(--ink, #e6edf3);
+    background: var(--page, Canvas);
+    color: var(--ink, CanvasText);
     display: flex;
     flex-direction: column;
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -265,8 +258,8 @@ html, body {
     justify-content: space-between;
     gap: 12px;
     padding: 12px 16px;
-    background: var(--chrome, #161b22);
-    border-bottom: 1px solid var(--edge, #30363d);
+    background: var(--chrome, ButtonFace);
+    border-bottom: 1px solid var(--edge, ButtonBorder);
 }
 
 .mesh-log-title-group {
@@ -278,16 +271,15 @@ html, body {
 .mesh-log-title {
     font-size: 16px;
     font-weight: 600;
-    color: var(--ink, #e6edf3);
 }
 
 .mesh-log-stats {
     font-size: 12px;
-    color: var(--ink-dim, #8b949e);
+    color: var(--ink-dim, GrayText);
 }
 
 .mesh-log-stats .evicted {
-    color: var(--warn, #d29922);
+    color: var(--warn, #b7791f);
 }
 
 .mesh-log-controls {
@@ -302,31 +294,21 @@ html, body {
     align-items: center;
     gap: 4px;
     font-size: 12px;
-    color: var(--ink-dim, #8b949e);
+    color: var(--ink-dim, GrayText);
 }
 
 .mesh-log-controls select,
 .mesh-log-controls input {
-    background: var(--surface, #161b22);
-    color: var(--ink, #e6edf3);
-    border: 1px solid var(--edge, #30363d);
-    border-radius: 4px;
-    padding: 4px 8px;
+    font: inherit;
     font-size: 12px;
+    padding: 4px 8px;
 }
 
 .mesh-log-close {
-    background: var(--surface-hover, #21262d);
-    color: var(--ink, #e6edf3);
-    border: 1px solid var(--edge, #30363d);
-    border-radius: 4px;
+    font: inherit;
+    font-size: 12px;
     padding: 4px 10px;
     cursor: pointer;
-    font-size: 12px;
-}
-
-.mesh-log-close:hover {
-    border-color: var(--accent, #58a6ff);
 }
 
 .mesh-log-list {
@@ -350,7 +332,7 @@ html, body {
 }
 
 .mesh-log-entry:hover {
-    background: var(--surface-hover, #21262d);
+    background: var(--surface-hover, ButtonFace);
 }
 
 .mesh-log-level {
@@ -361,20 +343,20 @@ html, body {
     text-transform: uppercase;
 }
 
-.mesh-log-level.debug { color: var(--ink-dim, #8b949e); }
-.mesh-log-level.info { color: var(--info, #58a6ff); }
-.mesh-log-level.warn { color: var(--warn, #d29922); }
-.mesh-log-level.error { color: var(--error, #f85149); }
+.mesh-log-level.debug { color: var(--ink-dim, GrayText); }
+.mesh-log-level.info { color: var(--info, Highlight); }
+.mesh-log-level.warn { color: var(--warn, #b7791f); }
+.mesh-log-level.error { color: var(--error, #d1242f); }
 
 .mesh-log-source {
     font-weight: 600;
-    color: var(--accent, #58a6ff);
+    color: var(--accent, Highlight);
     min-width: 100px;
 }
 
 /* Which part a kernel line is about. Only the kernel sets it. */
 .mesh-log-part {
-    color: var(--ink-dim, #8b949e);
+    color: var(--ink-dim, GrayText);
 }
 
 .mesh-log-message {
@@ -386,7 +368,7 @@ html, body {
     width: 100%;
     margin: 4px 0 0 0;
     padding: 6px 8px;
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--surface-hover, ButtonFace);
     border-radius: 4px;
     font-size: 11px;
     overflow-x: auto;
@@ -395,160 +377,16 @@ html, body {
 .mesh-log-empty {
     padding: 32px;
     text-align: center;
-    color: var(--ink-dim, #8b949e);
+    color: var(--ink-dim, GrayText);
 }
 
+/* ---------------------------------------------------------------------------- primitives the kernel defines */
 
-/* ---------------------------------------------------------------------------- component primitives
- *
- * In `@layer kernel-reset`, not bare rules -- an unlayered rule beats every layered rule
- * regardless of specificity, cascade layers being exactly the mechanism CSS gives for "this is a
- * default, not a decision." mesh-core/ui's own component styles (ui.css) are already written in
- * `@layer ui.tokens`/`@layer ui.components`, precisely so a site's own unlayered CSS can override
- * them on purpose -- but with this block unlayered too, it sat *above* ui.css's layers instead of
- * below them (a layer named later in the cascade outranks one named earlier, and kernel.css loads
- * before any part built on it). `.ui-select-option.selected`'s `background: var(--ui-accent)` and
- * every `.ui-button-primary`/`.ui-button-danger` accent override lost to this file's own
- * `button { background: var(--surface) }`, silently, for every consumer of this design system --
- * not a mistake in any of their CSS, a mistake in which side of the layer boundary this file was on.
+/*
+ * Only the primitives that are the kernel's own mechanisms (`Grid`, `ScrollView`, `Surface`,
+ * drag and drop, `Dialog`) — each needs its box set up to work at all. A site's `button`, `input`,
+ * headings and lists are the site's; the kernel no longer styles them (see `themes/dark.css`).
  */
-@layer kernel-reset {
-
-button {
-    font: inherit;
-    color: var(--ink, #e6edf3);
-    background: var(--surface, #161b22);
-    border: 1px solid var(--edge, #30363d);
-    border-radius: 4px;
-    padding: 4px 10px;
-    cursor: pointer;
-}
-
-button:hover {
-    border-color: var(--accent, #58a6ff);
-}
-
-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-input {
-    font: inherit;
-    color: var(--ink, #e6edf3);
-    background: var(--page, #0d1117);
-    border: 1px solid var(--edge, #30363d);
-    border-radius: 4px;
-    padding: 4px 8px;
-    box-sizing: border-box;
-}
-
-input:focus {
-    outline: none;
-    border-color: var(--accent, #58a6ff);
-}
-
-textarea {
-    font: inherit;
-    color: var(--ink, #e6edf3);
-    background: var(--page, #0d1117);
-    border: 1px solid var(--edge, #30363d);
-    border-radius: 4px;
-    padding: 6px 8px;
-    box-sizing: border-box;
-    resize: vertical;
-    line-height: 1.4;
-}
-
-textarea:focus {
-    outline: none;
-    border-color: var(--accent, #58a6ff);
-}
-
-textarea:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-section {
-    box-sizing: border-box;
-    background: var(--surface, #161b22);
-    border: 1px solid var(--edge, #30363d);
-    border-radius: 6px;
-    padding: 12px;
-}
-
-h1, h2, h3, h4, h5, h6 {
-    margin: 0 0 8px 0;
-    font-weight: 600;
-    color: var(--ink, #e6edf3);
-}
-
-h1 { font-size: 20px; }
-h2 { font-size: 16px; }
-h3 { font-size: 14px; }
-h4 { font-size: 13px; }
-h5 { font-size: 12px; }
-h6 { font-size: 11px; }
-
-/**
- * A form is given no layout, and that is the rule the rest of this block follows too.
- *
- * This was `display: flex; flex-direction: column; gap: 8px`, and it is the only rule in this file
- * that laid a part's children out rather than giving an element a default *appearance*. The
- * difference is not academic. `chrome`'s sign-in form declared `display: flex` inline and — having
- * no reason to name a direction it was already getting by default — did not declare
- * `flex-direction`. An inline style only wins the properties it actually sets, so this rule kept
- * the direction and stacked email, password and the button into a column. Signing in swapped the
- * `<form>` for a `<div>`, which nothing here matches, and the row appeared. Reported as exactly
- * that: *"the email, password and button are one above each other, then i login and it shrinks to
- * one line."*
- *
- * The part's source said `flex` and the screen said `column`, with nothing in the part to explain
- * it — which is the whole problem with styling a bare element the parts also style. Appearance
- * defaults (`button`, `input`, `textarea` above) are a look a part can override in one property.
- * A layout default is a second author for a box the part believes it owns.
- *
- * `margin: 0` stays, because a user-agent margin on a form is not a layout choice, it is a
- * difference between browsers.
- */
-form {
-    margin: 0;
-}
-
-ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
-
-hr {
-    border: 0;
-    border-top: 1px solid var(--edge, #30363d);
-    margin: 8px 0;
-    height: 0;
-    box-sizing: content-box;
-}
-
-hr[data-orientation="vertical"] {
-    border-top: 0;
-    border-left: 1px solid var(--edge, #30363d);
-    height: 100%;
-    min-height: 1em;
-    width: 0;
-    margin: 0 8px;
-    display: inline-block;
-    vertical-align: middle;
-}
-
-span[data-code] {
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    background: var(--surface-hover, #21262d);
-    color: var(--ink, #e6edf3);
-    padding: 2px 4px;
-    border-radius: 3px;
-    font-size: 0.9em;
-}
 
 [data-mesh-grid] {
     display: grid;
@@ -559,7 +397,6 @@ span[data-code] {
     overflow-y: auto;
     overflow-x: hidden;
     box-sizing: border-box;
-    scrollbar-color: var(--edge, #30363d) transparent;
 }
 
 [data-mesh-scrollview]:focus {
@@ -567,13 +404,9 @@ span[data-code] {
 }
 
 [data-mesh-scrollview]:focus-visible {
-    outline: 2px solid var(--accent, #58a6ff);
+    outline: 2px solid var(--accent, Highlight);
     outline-offset: -2px;
 }
-
-} /* @layer kernel-reset */
-
-/* ---------------------------------------------------------------------------- surface (roadmap A7.5) */
 
 [data-mesh-surface] {
     position: relative;
@@ -584,8 +417,6 @@ span[data-code] {
     min-height: 0;
 }
 
-/* ---------------------------------------------------------------------------- drag and drop (roadmap A7.3) */
-
 [data-mesh-draggable] {
     cursor: grab;
     user-select: none;
@@ -595,12 +426,12 @@ span[data-code] {
 [data-mesh-draggable][data-mesh-grabbed] {
     cursor: grabbing;
     opacity: 0.6;
-    outline: 2px dashed var(--accent, #58a6ff);
+    outline: 2px dashed var(--accent, Highlight);
     outline-offset: 2px;
 }
 
 [data-mesh-draggable]:focus-visible {
-    outline: 2px solid var(--accent, #58a6ff);
+    outline: 2px solid var(--accent, Highlight);
     outline-offset: 2px;
 }
 
@@ -610,60 +441,52 @@ span[data-code] {
 }
 
 [data-mesh-dropzone][data-mesh-drop-target] {
-    outline: 2px dashed var(--accent, #58a6ff);
+    outline: 2px dashed var(--accent, Highlight);
     outline-offset: -2px;
 }
 
 [data-mesh-dropzone][data-mesh-drag-over] {
-    outline: 2px solid var(--accent, #58a6ff);
+    outline: 2px solid var(--accent, Highlight);
     outline-offset: -2px;
-    background-color: var(--surface-hover, #21262d);
+    background-color: var(--surface-hover, ButtonFace);
 }
 
 [data-mesh-dropzone]:focus-visible {
-    outline: 2px solid var(--accent, #58a6ff);
+    outline: 2px solid var(--accent, Highlight);
     outline-offset: 2px;
 }
 
-/* ---------------------------------------------------------------------------- dialog (roadmap A7.6) */
-
+/* A modal is only usable if it can be seen over the page and is bounded by the viewport. */
 dialog {
     box-sizing: border-box;
-    background: var(--surface, #161b22);
-    color: var(--ink, #e6edf3);
-    border: 1px solid var(--edge, #30363d);
+    background: var(--surface, Canvas);
+    color: var(--ink, CanvasText);
+    border: 1px solid var(--edge, ButtonBorder);
     border-radius: 6px;
     padding: 16px;
-    box-shadow: 0 8px 32px var(--shadow, rgba(0, 0, 0, 0.35));
+    box-shadow: 0 8px 32px var(--shadow, rgba(0, 0, 0, 0.3));
     max-width: min(90vw, 560px);
     max-height: min(90vh, 600px);
     margin: auto;
 }
 
 dialog:focus-visible {
-    outline: 2px solid var(--accent, #58a6ff);
+    outline: 2px solid var(--accent, Highlight);
     outline-offset: -1px;
 }
 
 dialog::backdrop {
-    background: var(--backdrop, rgba(0, 0, 0, 0.6));
+    background: var(--backdrop, rgba(0, 0, 0, 0.5));
     backdrop-filter: blur(2px);
 }
-
-
 
 /*
  * A hidden window must actually be hidden.
  *
  * `.window` sets `display: flex`, and a class beats the user agent's `[hidden] { display: none }` —
- * so every window the manager hid stayed on screen. In windowed mode nothing hides, which is why
- * this went unnoticed; the first time it mattered was tiled mode, where `visible()` hides every
- * window whose tile is not in the active layout. The two tiled windows laid out correctly and the
- * other six floated over them, so tiling looked broken rather than half-applied.
- *
- * `!important` because the rule it has to beat is a class on the same element, and the alternative
- * is `.window[hidden]` — which works until a site's own stylesheet raises specificity again. Hiding
- * is the kernel's decision, not a suggestion.
+ * so every window the manager hid stayed on screen. The first time it mattered was tiled mode, where
+ * windows outside the active layout are hidden: two tiled windows laid out and six more floated
+ * over them. `!important` because hiding is the kernel's decision, not a suggestion.
  */
 [hidden] {
     display: none !important;
@@ -673,21 +496,13 @@ dialog::backdrop {
 
 /*
  * A native <dialog>, so `showModal()` supplies the focus trap, the inert background and
- * Escape-to-close. `::backdrop` is only reachable on a real modal dialog, which is the other
- * reason not to hand-build this out of a div.
+ * Escape-to-close.
  */
 .mesh-confirm {
     max-width: 420px;
     padding: 16px 20px;
-    border: 1px solid var(--edge, #30363d);
     border-radius: 8px;
-    background: var(--surface, #161b22);
-    color: var(--ink, #e6edf3);
-    box-shadow: 0 12px 32px var(--shadow, rgba(0, 0, 0, 0.45));
-}
-
-.mesh-confirm::backdrop {
-    background: rgba(0, 0, 0, 0.5);
+    font: 13px/1.5 system-ui, sans-serif;
 }
 
 .mesh-confirm-title {
@@ -698,15 +513,13 @@ dialog::backdrop {
 
 .mesh-confirm-message {
     margin: 0 0 8px 0;
-    font-size: 13px;
-    line-height: 1.5;
 }
 
 /* Who is asking. Stamped by the kernel, never by the asker. */
 .mesh-confirm-source {
     margin: 0 0 16px 0;
     font-size: 11px;
-    color: var(--ink-dim, #8b949e);
+    color: var(--ink-dim, GrayText);
 }
 
 .mesh-confirm-buttons {
@@ -716,17 +529,17 @@ dialog::backdrop {
 }
 
 .mesh-confirm-ok {
-    background: var(--accent, #58a6ff);
-    color: var(--on-accent, #0d1117);
-    border-color: var(--accent, #58a6ff);
+    background: var(--accent, Highlight);
+    color: var(--on-accent, HighlightText);
+    border: 1px solid var(--accent, Highlight);
 }
 
 /*
- * A destructive confirmation does not get a friendly-coloured accept button. The colour is the
- * only part of the dialog a person reliably reads before clicking.
+ * A destructive confirmation does not get a friendly-coloured accept button. The colour is the only
+ * part of the dialog a person reliably reads before clicking.
  */
 .mesh-confirm-destructive .mesh-confirm-ok {
-    background: var(--error, #f85149);
-    border-color: var(--error, #f85149);
-    color: var(--page, #0d1117);
+    background: var(--error, #d1242f);
+    border-color: var(--error, #d1242f);
+    color: #ffffff;
 }

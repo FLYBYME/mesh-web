@@ -564,3 +564,27 @@ engine with platform services. A is in steps, each green.
   the `command` kind of `Action` still exist in the description layer; and four pre-existing
   `as any` casts in `models/models.ts`. B replaces the broker with platform services, and those go
   with it.
+
+## 22. The kernel's CSS is structure; the look is a theme (v0.20.1, 2026-09-29)
+
+`kernel.css` had three jobs in one file: what the window system needs to work, a dark palette used as
+the fallback of every colour (and a page background), and defaults for every `button`, `input`,
+`h1`–`h6`, `ul` … on the page. So every site was dark whether it asked to be or not, and lost its list
+bullets. Split:
+
+- **`kernel.css` — structure only.** The desktop's page and window host (only in windowed/tiled
+  modes), the window frame's layout, drag and resize handles, mode rules, `[hidden]`, the kernel's
+  own primitives (`Grid`, `ScrollView`, `Surface`, drag and drop, `Dialog`) and the layout of its own
+  widgets (notifications, log panel, confirm, window frames). No page background, no font, nothing on
+  a site's own elements. The widgets still read the tokens (`--page`, `--ink`, `--accent` …), but
+  unset they fall back to **CSS system colours** (`Canvas`, `CanvasText`, `ButtonFace`, `Highlight`),
+  which follow the page's `color-scheme` — a light site gets light notifications.
+- **`themes/dark.css` — the old look, opt-in** (`@flybyme/mesh-web/themes/dark.css`): the tokens on
+  `:root`, the page background and font, and the element defaults in `@layer mesh-theme` so a site's
+  own unlayered CSS wins without a fight. It adds the one rule the old reset lacked, `a`.
+- **A live bug fixed on the way:** the desktop rules were written `:not([data-mesh-window-mode="single"])`,
+  and a single-page site sets no mode at all — so every website's root was pinned to the viewport
+  with `overflow: hidden`, and nothing below the fold could be scrolled to. The desktop modes are
+  now named positively. `test/browser/kernel-css.browser.test.ts` asserts a single-page site
+  scrolls (and fails against the old selector), that an unthemed page is not painted, that the
+  desktop is still pinned, and that the dark theme gives the old look back.

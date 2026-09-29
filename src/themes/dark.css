@@ -1,0 +1,175 @@
+/**
+ * @flybyme/mesh-web — the dark theme. **Opt-in.**
+ *
+ * This is the look every site used to get whether it asked for it or not: until v0.20.1 the palette
+ * below was the fallback of every colour in `kernel.css`, and the element defaults at the bottom
+ * were in the kernel too. Now the kernel carries structure only, and a site that wants this look
+ * says so — by importing this file, or by setting the same tokens itself (a site record's `theme`,
+ * or its own stylesheet).
+ *
+ * Three things, in order:
+ *   1. the tokens — the values the kernel's own widgets (windows, notifications, the log panel,
+ *      the confirm dialog) read, so setting them here dresses those too;
+ *   2. the page — background, text, font;
+ *   3. element defaults for a site's content, in `@layer mesh-theme` so any unlayered rule a site
+ *      writes wins without a fight.
+ */
+
+:root {
+    color-scheme: dark;
+
+    --page: #0d1117;
+    --chrome: #161b22;
+    --surface: #161b22;
+    --surface-hover: #21262d;
+    --ink: #e6edf3;
+    --ink-dim: #8b949e;
+    --edge: #30363d;
+    --accent: #58a6ff;
+    --on-accent: #0d1117;
+    --info: #58a6ff;
+    --warn: #d29922;
+    --error: #f85149;
+    --shadow: rgba(0, 0, 0, 0.35);
+    --backdrop: rgba(0, 0, 0, 0.6);
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@layer mesh-theme {
+
+a {
+    color: var(--accent);
+}
+
+button {
+    font: inherit;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+}
+
+button:hover {
+    border-color: var(--accent);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+input {
+    font: inherit;
+    color: var(--ink);
+    background: var(--page);
+    border: 1px solid var(--edge);
+    border-radius: 4px;
+    padding: 4px 8px;
+    box-sizing: border-box;
+}
+
+input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+textarea {
+    font: inherit;
+    color: var(--ink);
+    background: var(--page);
+    border: 1px solid var(--edge);
+    border-radius: 4px;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    resize: vertical;
+    line-height: 1.4;
+}
+
+textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+section {
+    box-sizing: border-box;
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 12px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    margin: 0 0 8px 0;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+h1 { font-size: 20px; }
+h2 { font-size: 16px; }
+h3 { font-size: 14px; }
+h4 { font-size: 13px; }
+h5 { font-size: 12px; }
+h6 { font-size: 11px; }
+
+/*
+ * No layout on a form — only the user-agent margin removed. A layout default is a second author for
+ * a box the site believes it owns (this was once `display: flex; flex-direction: column`, and a
+ * part that declared only `display: flex` got a column it never asked for).
+ */
+form {
+    margin: 0;
+}
+
+ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+hr {
+    border: 0;
+    border-top: 1px solid var(--edge);
+    margin: 8px 0;
+    height: 0;
+    box-sizing: content-box;
+}
+
+hr[data-orientation="vertical"] {
+    border-top: 0;
+    border-left: 1px solid var(--edge);
+    height: 100%;
+    min-height: 1em;
+    width: 0;
+    margin: 0 8px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+span[data-code] {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--surface-hover);
+    color: var(--ink);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+[data-mesh-scrollview] {
+    scrollbar-color: var(--edge) transparent;
+}
+
+} /* @layer mesh-theme */
