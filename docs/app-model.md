@@ -694,8 +694,12 @@ example, before the example relies on it:
   `dataTable` takes a controlled `sort` (columns name a `sortKey`). The domain list keeps `sort`
   and `dir` in `query`, and the API sorts before paging. Local `compare` sorting remains for
   tables whose rows are all on screen.
-- **Page titles are static strings.** A detail page cannot say which domain it shows.
-  Likely fix: `title` may be a function of the instance.
+- ~~**Page titles were static strings.**~~ **Fixed:** a view may define `title` on the instance,
+  as a method or a `computed`. It is read reactively while the view is on screen, as the page
+  title on a site and the window title on the desktop; the spec's `title` is the fallback. When
+  one instance hands over to the next, the outgoing view clears the title only if it is still
+  its own. `runtime.view`'s optional arguments became one options object (`scope`, `query`,
+  `titled`).
 - **Cache invalidation** is one `changed` counter per service. That is fine at this size; at
   scale it wants per-collection versions, or `cx.models`.
 - **Nested layouts** (a settings sub-layout inside the console) are not supported.

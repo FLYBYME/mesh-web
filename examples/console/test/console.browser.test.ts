@@ -191,11 +191,14 @@ describe('the reference console', () => {
 
         await userEvent.click(link('breakwater.io'));
         await until(() => expect(page()).toBe('domain'));
+        // The view's own `title()`, not the spec's static one.
+        expect(document.title).toBe('breakwater.io · Harbor DNS');
         // Different page, same layout instance: still collapsed.
         expect($('.console')?.getAttribute('data-collapsed')).toBe('true');
 
         await userEvent.keyboard('{Alt>}o{/Alt}');
         await until(() => expect(page()).toBe('home'));
+        expect(document.title).toBe('Harbor DNS');
         expect($('.console')).toBeNull();
         // The layout left, and its alt+b with it.
         expect(site?.runtime.commands.live().map((l) => l.command.title)).not.toContain('Toggle sidebar');

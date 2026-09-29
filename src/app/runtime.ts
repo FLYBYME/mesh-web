@@ -72,19 +72,28 @@ export interface AppRuntime {
     readonly app: object;
     /** Every command on a live unit — services and the app for the page's life, views and components while mounted. */
     readonly commands: CommandRegistry;
-    /**
-     * A root node for a view, with raw params (from a URL) parsed through the view's schema.
-     * `scope` names the window it is in, on a desktop; everything mounted beneath it inherits it.
-     *
-     * `rawQuery` is read reactively and parsed through the view's `query` schema on every change, so
-     * the instance follows the query string without being rebuilt. A query that stops parsing keeps
-     * the last good value — the router has already turned that URL into a 404, which disposes the view.
-     */
-    view(view: ViewClass, rawParams: unknown, handlers: HandlerRegistry, scope?: string, rawQuery?: () => unknown): MountNode;
+    /** A root node for a view, with raw params (from a URL) parsed through the view's schema. */
+    view(view: ViewClass, rawParams: unknown, handlers: HandlerRegistry, options?: ViewMountOptions): MountNode;
     /** A root node for a component. */
     component(component: ComponentClass, props: unknown, handlers: HandlerRegistry, scope?: string): MountNode;
     /** The page is going: every service's `onDispose` and `dispose()`, last constructed first. */
     dispose(): void;
+}
+
+export interface ViewMountOptions {
+    /** The window it is in, on a desktop; everything mounted beneath it inherits it. */
+    readonly scope?: string;
+    /**
+     * Read reactively and parsed through the view's `query` schema on every change, so the
+     * instance follows the query string without being rebuilt. A query that stops parsing keeps the
+     * last good value — the router has already made that URL a 404, which disposes the view.
+     */
+    readonly query?: () => unknown;
+    /**
+     * Told the instance's `title()` when it has one, once constructed; told `undefined` when it
+     * goes. The page (or window) title follows it.
+     */
+    readonly titled?: (title: (() => string) | undefined) => void;
 }
 
 export interface AppRuntimeOptions {
@@ -209,6 +218,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
         hostNeeds: readonly CapabilityName[],
         hostName: string,
         scope: string | undefined,
+        titled?: (title: (() => string) | undefined) => void,
     ): MountNode => {
         const needs = needsOf(Class.spec);
         refuse(Class.name, needs, hostNeeds, hostName);
@@ -253,6 +263,12 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                     });
                     retire = commands.add(Class.name, instance, scope);
                     const node: Node = instance.render();
+                    const title = instance.title;
+                    if (titled !== undefined && typeof title === 'function') {
+                        const bound = (): string => String(Reflect.apply(title, instance, []));
+                        titled(bound);
+                        cleanups.push(() => titled(undefined));
+                    }
                     return { node, dispose: teardown };
                 } catch (error) {
                     // Whatever it registered before failing goes with it — and then this mount is the
@@ -274,7 +290,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
     return {
         app,
         commands,
-        view(view, rawParams, handlers, scope, rawQuery) {
+        view(view, rawParams, handlers, mountOptions = {}) {
             const schema = view.spec.params;
             let params: unknown = {};
             if (schema !== undefined) {
@@ -282,7 +298,8 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                 if (!parsed.success) throw new Error(`${view.name}: params rejected — ${parsed.error.message}`);
                 params = parsed.data;
             }
-            return mount(view, { params, query: parseQuery(view, rawQuery ?? (() => ({}))) }, handlers, grant, `the app (${App.name})`, scope);
+            const query = parseQuery(view, mountOptions.query ?? (() => ({})));
+            return mount(view, { params, query }, handlers, grant, `the app (${App.name})`, mountOptions.scope, mountOptions.titled);
         },
         component(component, props, handlers, scope) {
             return mount(component, { props }, handlers, grant, `the app (${App.name})`, scope);

@@ -120,11 +120,24 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
         return key;
     };
 
+    const liveTitle = signal<(() => string) | undefined>(undefined);
+
     const outlet = (layout: LayoutClass | undefined): Node => each(
         () => { const current = route(); return current === undefined || current.layout !== layout ? [] : [current]; },
         (match) => match.key,
         // Same key, new query: `match` is re-read, so the live view's `query()` follows it.
-        (match) => runtime.view(match().view, match().raw, registry, undefined, () => match().query),
+        (match) => {
+            // A view's own `title()`. Cleared only if it is still this view's: the next view may
+            // have registered its own before this one's teardown runs.
+            let mine: (() => string) | undefined;
+            return runtime.view(match().view, match().raw, registry, {
+                query: () => match().query,
+                titled: (title) => {
+                    if (title !== undefined) liveTitle.set(mine = title);
+                    else if (liveTitle.peek() === mine) liveTitle.set(undefined);
+                },
+            });
+        },
     );
 
     const page: Node = [
@@ -148,7 +161,7 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
     const document = options.root.ownerDocument;
     const pageTitle = document.title;
     const stopTitle = effect(() => {
-        document.title = route()?.view.spec.title ?? pageTitle;
+        document.title = liveTitle()?.() ?? route()?.view.spec.title ?? pageTitle;
     });
 
     return {

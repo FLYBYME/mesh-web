@@ -178,6 +178,13 @@ export interface MountableInstance {
      * `noImplicitOverride` would make every author write `override` for a hook they never inherited.
      */
     dispose?(): void;
+    /**
+     * A view's title from its own state — a method or a `computed`, read reactively while the view
+     * is on screen; the spec's static `title` is the fallback. `unknown` here rather than
+     * `() => string` so a component with an unrelated `title` field still fits; the runtime only
+     * uses it when it is a function, and only on a routed view.
+     */
+    readonly title?: unknown;
 }
 
 /**

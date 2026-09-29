@@ -140,6 +140,22 @@ class WatchView extends View({ inject: { watcher: Watcher } }) {
 
 class Watching extends App({ routes: { '/': PublicView, '/watch': WatchView } }) {}
 
+// ---------------------------------------------------------------------------- a title from state
+
+class CounterView extends View({ params: z.object({ n: z.string() }), title: 'Counter' }) {
+    readonly count = signal(0);
+    readonly title = (): string => `${this.params.n}: ${this.count()}`;
+    render(): Node {
+        return element('Button', {
+            props: { 'data-view': 'counter', 'aria-label': 'count' },
+            intents: { activate: { action: this.on(() => this.count.set(this.count() + 1)) } },
+            children: [text('+')],
+        });
+    }
+}
+
+class Titled extends App({ routes: { '/': PublicView, '/count/:n': CounterView } }) {}
+
 class Guarded extends App({
     routes: {
         '/': PublicView,
@@ -361,6 +377,28 @@ describe('an App as a single-page site', () => {
         watched.set(5);
         await frame();
         expect(seen).toBe(5);
+    });
+
+    it('titles the page from the view\'s own state, and lets go of it when the view leaves', async () => {
+        const pageTitle = 'before the titled site';
+        document.title = pageTitle;
+        history.pushState(null, '', '/count/a');
+        site = mountSite(Titled, { root });
+        await frame();
+        expect(document.title).toBe('a: 0');
+
+        await userEvent.click(root.querySelector('[aria-label="count"]')!);
+        await frame();
+        expect(document.title).toBe('a: 1');
+
+        // Straight to another instance of the same view: its title, not a stale or cleared one.
+        site.navigate('/count/b');
+        await frame();
+        expect(document.title).toBe('b: 0');
+
+        site.navigate('/');
+        await frame();
+        expect(document.title).toBe(pageTitle);
     });
 
     it('leaves a modified click to the browser: the page does not navigate or cancel it', async () => {

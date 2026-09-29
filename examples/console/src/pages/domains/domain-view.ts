@@ -29,6 +29,9 @@ export class DomainView extends View({
     readonly domain = resource(() => this.inject.domains.get(this.params.domain));
     readonly records = resource(() => this.inject.domains.records(this.params.domain));
 
+    /** The tab says which domain; the spec's static title is only the fallback. */
+    readonly title = (): string => `${this.params.domain} · Harbor DNS`;
+
     readonly AddRecordForm = commandForm(this.inject.domains.addRecord, {
         type: { label: 'Type', options: RECORD_TYPES },
         name: { label: 'Name', placeholder: '@ or www' },

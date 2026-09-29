@@ -16,6 +16,7 @@
 import type { WindowView } from '../window/view.js';
 import { signal, type ReadonlySignal } from '../reactivity/index.js';
 import { computed } from '../reactivity/computed.js';
+import { effect } from '../reactivity/effect.js';
 import { IoManager } from '../kernel/io.js';
 import { createRegistry, PRIMITIVES } from '../render/component.js';
 import { createDomRenderer } from '../render/dom.js';
@@ -164,7 +165,14 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
             render: (vx) => live.view(view, vx.params, {
                 on: (fn) => { handlers++; return vx.on(fn); },
                 off: (action) => { handlers--; vx.off(action); },
-            }, vx.windowId, () => { changed(); return showing.get(vx.windowId)?.query ?? {}; }),
+            }, {
+                scope: vx.windowId,
+                query: () => { changed(); return showing.get(vx.windowId)?.query ?? {}; },
+                // Made while the view is being constructed, so owned by its mount and gone with it.
+                titled: (title) => {
+                    if (title !== undefined) effect(() => manager.setTitle(vx.windowId, title()));
+                },
+            }),
         };
         windowViews.set(pattern, windowView);
         return windowView;
