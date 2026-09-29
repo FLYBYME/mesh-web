@@ -155,6 +155,13 @@ export interface ViewContext<
      */
     readonly on: Registrar;
 
+    /**
+     * Forget a handler `on` registered. **A bridge, and temporary** (docs/app-model.md, phase 2):
+     * an app-model runtime mounted inside one of these views registers through `on` and must be able
+     * to remove what it registered when a component instance is disposed. Goes when `ViewContext` does.
+     */
+    readonly off: (action: Action) => void;
+
     setTitle(title: string): void;
     close(): void;
     onDispose(fn: () => void): void;

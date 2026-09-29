@@ -339,3 +339,28 @@ four places. Where the examples above disagree, this section and the code win.
 - **"Declared nothing" is `Record<never, never>`.** `Record<string, never>` has `keyof` `string`, which
   made a param-less view accept every `:param` route — caught by an `@ts-expect-error` that stopped
   failing.
+
+## 13. Phase 2 findings (2026-09-28)
+
+Phase 2 added `src/app/runtime.ts`, the `mount` description node, `HandlerTable.remove`, and tests
+(`test/app-runtime.test.ts`, `test/browser/app-runtime.browser.test.ts`).
+
+- **The renderer knows nothing about the app model.** A `mount` node carries an `instantiate()`
+  closure the runtime made; `buildMount` calls it inside a fresh scope and disposes it when the node
+  leaves. Two nested scopes make children dispose before their parent's `dispose()`.
+- **The runtime constructs through a static `create(init)` method, not `new`.** Construct signatures
+  compare parameters strictly, so no unit class is assignable to an erased `new (init) => ...`;
+  methods compare bivariantly — the same reason `ViewDecl.render` is a method. That keeps the runtime
+  free of casts.
+- **A unit's `cx` is a projection of the App's grant** — exactly the declared capabilities plus its
+  own `onDispose` — and a unit asking for more than its host has is refused at run time as well as
+  compile time. The App's `needs` is the page's grant for now (§11 still open).
+- **`dispose()` is a plain method an author writes**, not declared on the bases: with
+  `noImplicitOverride`, declaring it there would force `override` on a hook nobody inherited.
+- **Bridge, temporary:** `ViewContext.off` exists so a runtime hosted inside a legacy view can remove
+  its handlers. It goes with `ViewContext` in phase 5.
+- **`flatten` instantiates, reads and disposes** a mounted unit — a snapshot has to construct what it
+  snapshots.
+- **Verified by pressing:** the browser test types and clicks through two `LoginForm`s sharing one
+  `AuthService`, and flips a third in and out of a `when` five times. Breaking handler removal on
+  purpose fails it (7 live handlers where 5 should be).

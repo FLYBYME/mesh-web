@@ -101,6 +101,7 @@ export function mountView(host: Element, options: ViewHostOptions): ViewInstance
          * ids are already `${windowId}:${n}`.
          */
         on: (fn) => handlers.on(fn),
+        off: (action) => handlers.remove(action),
 
         setTitle: (title) => options.windows.setTitle(options.windowId, title),
         close: () => options.windows.close(options.windowId),

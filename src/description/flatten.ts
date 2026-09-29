@@ -66,6 +66,18 @@ export function flatten(node: Node): readonly Flat[] {
 
         case 'dialog':
             return [flattenDialog(single)];
+
+        case 'mount': {
+            // A flatten is a snapshot, so the instance lives exactly as long as it takes to read what
+            // it renders. Constructing it is not free — its field initializers run — which is the
+            // price of a snapshot containing live components at all (docs/app-model.md §11).
+            const unit = single.instantiate();
+            try {
+                return flatten(unit.node);
+            } finally {
+                unit.dispose();
+            }
+        }
     }
 }
 

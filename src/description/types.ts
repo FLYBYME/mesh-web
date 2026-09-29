@@ -225,6 +225,29 @@ export interface EmptyNode {
 }
 
 /**
+ * **A live instance of a view or component goes here** (docs/app-model.md §6).
+ *
+ * The renderer does not know what a component is, which capabilities it has or which services it
+ * injects, and should not: `instantiate` is a closure made by the app runtime that already knows all
+ * of that. The renderer's whole job is to call it inside a fresh scope when this node is built, draw
+ * the node it returns, and call `dispose` when the node leaves — a `when` flip, an `each` row
+ * removed, the window closed. That is the lifecycle `defineComposite` described and nothing gave it.
+ *
+ * Like `surface`, this holds a function, so a description containing one is not plain data.
+ */
+export interface MountNode {
+    readonly kind: 'mount';
+    /** The class's name, for errors and for anything that lists what is mounted. */
+    readonly name: string;
+    instantiate(): MountedUnit;
+}
+
+export interface MountedUnit {
+    readonly node: Node;
+    dispose(): void;
+}
+
+/**
  * An escape hatch for raw DOM embedding (Monaco, canvas, WebGL) — roadmap A7.5.
  *
  * Available only to contributions declaring `needs('dom')`. Method bivariance on `setup`
@@ -273,6 +296,7 @@ export type Node =
     | EmptyNode
     | SurfaceNode
     | DialogNode
+    | MountNode
     | readonly Node[];
 
 

@@ -15,6 +15,8 @@ export type {
     Props,
     Reactive,
     Registrar,
+    MountNode,
+    MountedUnit,
     SurfaceNode,
     TextNode,
     WhenNode,

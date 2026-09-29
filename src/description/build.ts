@@ -130,6 +130,14 @@ export interface HandlerTable {
     readonly on: Registrar;
     /** Invoke by id. Returns false when the id is unknown — a stale event, not a crash. */
     invoke(id: string, value?: IntentValue): boolean;
+    /**
+     * Forget one handler.
+     *
+     * The table used to free only everything at once, when the window closed — so a handler
+     * registered by anything shorter-lived than the window (a row, a branch, a mounted component)
+     * lived as long as the window did. A component instance removes its own on dispose.
+     */
+    remove(action: Action): void;
     /** Free everything. Called when the view instance goes away. */
     dispose(): void;
     readonly size: number;
@@ -157,6 +165,9 @@ export function createHandlerTable(scopeId: string): HandlerTable {
             if (fn === undefined) return false;
             fn(value);
             return true;
+        },
+        remove(action: Action): void {
+            if (action.kind === 'handler') handlers.delete(action.id);
         },
         dispose(): void {
             handlers.clear();

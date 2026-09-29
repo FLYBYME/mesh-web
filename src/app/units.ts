@@ -78,6 +78,11 @@ export function Service<const S extends ServiceSpec>(spec: S) {
         static readonly kind = 'service';
         static readonly spec: S = spec;
 
+        /** How the runtime constructs one. A method so the runtime can call it erased — see `ErasedInit`. */
+        static create<T>(this: new (init: ServiceInit<S>) => T, init: ServiceInit<S>): T {
+            return new this(init);
+        }
+
         readonly cx: Capabilities<NeedsOf<S>, ApiOfSpec<S>>;
         readonly inject: Injected<InjectOf<S>>;
 
@@ -126,10 +131,18 @@ export abstract class ViewBase<S extends ViewSpec> {
 }
 
 /** What a route mounts. Its state is its own: two windows on one route are two instances. */
-export function View<const S extends ViewSpec>(spec: S): typeof ViewBase<S> & { readonly kind: 'view'; readonly spec: S } {
+export function View<const S extends ViewSpec>(spec: S): typeof ViewBase<S> & {
+    readonly kind: 'view';
+    readonly spec: S;
+    create<T>(this: new (init: ViewInit<S>) => T, init: ViewInit<S>): T;
+} {
     abstract class WithSpec extends ViewBase<S> {
         static readonly kind = 'view';
         static readonly spec: S = spec;
+
+        static create<T>(this: new (init: ViewInit<S>) => T, init: ViewInit<S>): T {
+            return new this(init);
+        }
     }
     return WithSpec;
 }
@@ -162,10 +175,18 @@ export abstract class ComponentBase<S extends ComponentSpec> {
 }
 
 /** Reusable, with its own state; constructed per mount, disposed when its node leaves. */
-export function Component<const S extends ComponentSpec>(spec: S): typeof ComponentBase<S> & { readonly kind: 'component'; readonly spec: S } {
+export function Component<const S extends ComponentSpec>(spec: S): typeof ComponentBase<S> & {
+    readonly kind: 'component';
+    readonly spec: S;
+    create<T>(this: new (init: ComponentInit<S>) => T, init: ComponentInit<S>): T;
+} {
     abstract class WithSpec extends ComponentBase<S> {
         static readonly kind = 'component';
         static readonly spec: S = spec;
+
+        static create<T>(this: new (init: ComponentInit<S>) => T, init: ComponentInit<S>): T {
+            return new this(init);
+        }
     }
     return WithSpec;
 }
@@ -180,6 +201,10 @@ export function App<const S extends AppSpec>(spec: S & { readonly routes: CheckR
     class AppBase {
         static readonly kind = 'app';
         static readonly spec: S = spec;
+
+        static create<T>(this: new (init: ServiceInit<S>) => T, init: ServiceInit<S>): T {
+            return new this(init);
+        }
 
         readonly cx: Capabilities<NeedsOf<S>, ApiOfSpec<S>>;
         readonly inject: Injected<InjectOf<S>>;

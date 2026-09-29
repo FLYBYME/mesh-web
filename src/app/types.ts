@@ -81,16 +81,31 @@ export interface UnitSpec {
 }
 
 /**
- * A service class, as something else names it in `inject`.
+ * **What the runtime passes a constructor, with every unit's own types erased.**
  *
- * `init: never` so that any service's constructor is assignable here whatever its own init type —
- * parameters are contravariant, and nothing can call a constructor typed this way, which is correct:
- * only the kernel constructs a service.
+ * Each unit's constructor takes its precise init (`ServiceInit<S>`, `ViewInit<S>`, ...), and every
+ * one of those is assignable to this. The runtime constructs through each class's static
+ * `create(init)` **method**, not through a construct signature, and that is the whole point:
+ * construct signatures compare parameters strictly, so no class is assignable to
+ * `new (init: ErasedInit)`; methods compare them bivariantly, so every class's `create` is
+ * assignable to `create(init: ErasedInit)` — the same reason `ViewDecl.render` is a method. That is
+ * what lets the runtime construct with no cast anywhere. It is sound because the runtime is the one
+ * place that builds an init, and builds it from the class's own spec.
  */
+export interface ErasedInit {
+    readonly cx: object;
+    readonly inject: { readonly [name: string]: object };
+    readonly params?: unknown;
+    readonly props?: unknown;
+    readonly host?: UnitHost;
+}
+
+/** A service class, as something else names it in `inject`. Only the runtime constructs one. */
 export interface ServiceClass {
     readonly kind: 'service';
+    readonly name: string;
     readonly spec: UnitSpec;
-    new (init: never): object;
+    create(init: ErasedInit): object;
 }
 
 export type Injectables = { readonly [name: string]: ServiceClass };
@@ -118,8 +133,20 @@ export type Injected<I extends Injectables> = {
 /** What a mountable class looks like from outside, before its own types are known. */
 export interface ComponentClass {
     readonly kind: 'component';
+    readonly name: string;
     readonly spec: UnitSpec & { readonly props?: PropsDecl<unknown> };
-    new (init: never): { render(): Node };
+    create(init: ErasedInit): MountableInstance;
+}
+
+/** What the runtime needs from a constructed view or component. */
+export interface MountableInstance {
+    render(): Node;
+    /**
+     * Called once when the instance leaves, after everything it mounted has gone. An author just
+     * writes `dispose()`; it is deliberately not declared on the base classes, where
+     * `noImplicitOverride` would make every author write `override` for a hook they never inherited.
+     */
+    dispose?(): void;
 }
 
 /**
@@ -152,8 +179,9 @@ export type PathParams<P extends string> =
 /** What a routable class looks like from outside. */
 export interface ViewClass {
     readonly kind: 'view';
+    readonly name: string;
     readonly spec: UnitSpec & { readonly params?: SchemaLike<object> };
-    new (init: never): { render(): Node };
+    create(init: ErasedInit): MountableInstance;
 }
 
 type RouteCheck<P extends string, V, AppNeeds extends readonly CapabilityName[]> =

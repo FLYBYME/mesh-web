@@ -14,10 +14,11 @@
 import { effect } from '../reactivity/effect.js';
 import { signal } from '../reactivity/signal.js';
 import { createScope } from '../reactivity/scope.js';
+import { getActiveScopeContext } from '../reactivity/context.js';
 import type { ReactiveScope, Signal } from '../reactivity/types.js';
 import { createFocusTrap, getActiveTrap } from '../input/trap.js';
 import type {
-    Action, DialogNode, EachNode, ElementNode, IntentActor, Intents, IntentValue, Json, Node, Reactive, SurfaceNode,
+    Action, DialogNode, EachNode, ElementNode, IntentActor, Intents, IntentValue, Json, MountNode, Node, Reactive, SurfaceNode,
 } from '../description/types.js';
 import { isDynamic, read } from '../description/types.js';
 import { applyDefaultProp, type PrimitiveDefinition, type ComponentRegistry } from './component.js';
@@ -124,7 +125,35 @@ function build(node: Node, options: RenderOptions, scope: ReactiveScope): readon
 
         case 'dialog':
             return [buildDialog(single, options, scope)];
+
+        case 'mount':
+            return buildMount(single, options, scope);
     }
+}
+
+/**
+ * A component instance's whole life is the life of this node.
+ *
+ * Two scopes, and the order matters. `life` owns the instance's teardown; `content` — created inside
+ * it, so disposed first — owns everything the instance built: its effects, the nodes it rendered and
+ * any component *it* mounted. A scope disposes in registration order, so registering the teardown
+ * after `content` exists is what makes children go before their parent's `dispose()` runs, the way
+ * construction went the other way.
+ */
+function buildMount(node: MountNode, options: RenderOptions, owner: ReactiveScope): readonly ChildNode[] {
+    let nodes: readonly ChildNode[] = [];
+    owner.run(() => {
+        const life = createScope();
+        life.run(() => {
+            const content = createScope();
+            content.run(() => {
+                const unit = node.instantiate();
+                life.run(() => getActiveScopeContext()?.addDisposable(() => unit.dispose()));
+                nodes = build(unit.node, options, content);
+            });
+        });
+    });
+    return nodes;
 }
 
 function buildText(value: Reactive<string | number>): Text {
