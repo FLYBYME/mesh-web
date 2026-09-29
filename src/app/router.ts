@@ -21,6 +21,7 @@ export interface RouterBackend {
     replace(href: string): void;
     back(): void;
     href(view: ViewClass, params: unknown): string;
+    here(): string;
 }
 
 /** The query a link may set: any of the schema's input fields, none required. */
@@ -52,6 +53,11 @@ export class Router extends Service({}) {
 
     navigate(href: string): void {
         this.#backend().navigate(href);
+    }
+
+    /** The URL on screen, path and query — what a sign-in page is told to come back to. */
+    here(): string {
+        return this.#backend().here();
     }
 
     /** Go somewhere in place of here — a redirect: back skips the page that sent the visitor on. */

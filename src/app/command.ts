@@ -34,6 +34,13 @@ export interface Command<I, O> extends CommandInfo {
     readonly output?: SchemaLike<O>;
     readonly running: ReadonlySignal<boolean>;
     run(...args: [I] extends [void] ? [] : [input: I]): Promise<O>;
+    /**
+     * Run with input from outside the type system — a form's strings, a palette, a URL. The input
+     * schema is the only check, and it is the same check `run` makes: `run` is for code that has an
+     * `I`; this is for code that has only what a person typed. A refusal is a `CommandSchemaError`
+     * whose `issues` say which field.
+     */
+    submit(raw: unknown): Promise<O>;
 }
 
 /** A command with its types erased — what the registry holds. */
@@ -88,6 +95,16 @@ export function command(
         return result.data;
     };
 
+    const execute = async (raw: unknown): Promise<unknown> => {
+        const input = check('input', spec.input, raw);
+        running.set(true);
+        try {
+            return check('output', spec.output, await spec.run(input));
+        } finally {
+            running.set(false);
+        }
+    };
+
     return {
         [COMMAND]: true,
         title: spec.title,
@@ -96,14 +113,7 @@ export function command(
         ...(spec.input !== undefined ? { input: spec.input } : {}),
         ...(spec.output !== undefined ? { output: spec.output } : {}),
         running,
-        async run(...args: unknown[]): Promise<unknown> {
-            const input = check('input', spec.input, args[0]);
-            running.set(true);
-            try {
-                return check('output', spec.output, await spec.run(input));
-            } finally {
-                running.set(false);
-            }
-        },
+        run: (...args: unknown[]) => execute(args[0]),
+        submit: execute,
     };
 }

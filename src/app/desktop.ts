@@ -134,6 +134,7 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
             history.back();
         },
         href: (view, params) => table.href(view, params),
+        here: () => `${history.pathname()}${history.search()}`,
     };
 
     const live: AppRuntime = createAppRuntime(App, options.granted ?? {}, {

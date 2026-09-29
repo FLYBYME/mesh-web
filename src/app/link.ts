@@ -17,13 +17,22 @@ import { Component, props } from './units.js';
 
 export class Link extends Component({
     inject: { router: Router },
-    props: props<{ readonly href: string; readonly children: readonly Node[]; readonly class?: string }>(),
+    props: props<{
+        /**
+         * A function when the target changes while the link stays — "next page" is a different URL
+         * on every page, and a link built once from a string would keep pointing at the first.
+         */
+        readonly href: string | (() => string);
+        readonly children: readonly Node[];
+        readonly class?: string;
+    }>(),
 }) {
     render(): Node {
         const { href, children } = this.props;
+        const current = (): string => (typeof href === 'function' ? href() : href);
         return element('Link', {
             props: { href, ...(this.props.class !== undefined ? { class: this.props.class } : {}) },
-            intents: { navigate: { action: this.on(() => this.inject.router.navigate(href)) } },
+            intents: { navigate: { action: this.on(() => this.inject.router.navigate(current())) } },
             children,
         });
     }

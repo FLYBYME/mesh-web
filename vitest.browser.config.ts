@@ -22,6 +22,6 @@ export default defineConfig(definePartBrowserConfig({
         },
     },
     test: {
-        include: ['test/browser/**/*.test.ts'],
+        include: ['test/browser/**/*.test.ts', 'examples/*/test/**/*.test.ts'],
     },
 }));

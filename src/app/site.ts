@@ -23,7 +23,9 @@ import type { CommandRegistryOptions } from './registry.js';
 import type { LayoutClass } from './types.js';
 import { compileRoutes, type RouteMatch } from './routes.js';
 import type { RouterBackend } from './router.js';
-import { createAppRuntime, type AppClass, type AppRuntime, type GrantedContext, type HandlerRegistry } from './runtime.js';
+import {
+    createAppRuntime, type AppClass, type AppRuntime, type GrantedContext, type HandlerRegistry, type Replacement,
+} from './runtime.js';
 
 export interface SiteOptions {
     /** Where the site renders. It owns everything inside. */
@@ -35,6 +37,8 @@ export interface SiteOptions {
     /** Where keyed commands listen. Defaults to `root`'s document. */
     readonly keys?: Pick<Document, 'addEventListener' | 'removeEventListener'>;
     readonly commands?: CommandRegistryOptions;
+    /** Services constructed in place of others — a test's instant API (`replace`). */
+    readonly replace?: readonly Replacement[];
     /** What to show for a URL no route matches (or whose params do not parse). */
     readonly notFound?: (path: string) => Node;
 }
@@ -76,11 +80,13 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
             history.back();
         },
         href: (view, params) => table.href(view, params),
+        here: () => `${history.pathname()}${history.search()}`,
     };
 
     const runtime = createAppRuntime(App, options.granted ?? {}, {
         router: backend,
         ...(options.commands !== undefined ? { commands: options.commands } : {}),
+        ...(options.replace !== undefined ? { replace: options.replace } : {}),
     });
 
     const handlers = createHandlerTable('site');

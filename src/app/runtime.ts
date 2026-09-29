@@ -91,6 +91,27 @@ export interface AppRuntimeOptions {
     readonly commands?: CommandRegistryOptions;
     /** What the built-in `Router` service answers for. Supplied by `mountSite`. */
     readonly router?: RouterBackend;
+    /** Services constructed in place of others — `replace(FakeApi, InstantApi)`. */
+    readonly replace?: readonly Replacement[];
+}
+
+/** One service standing in for another. Made by `replace`, which checks the two fit. */
+export interface Replacement {
+    readonly base: ServiceClass;
+    readonly by: ServiceClass;
+}
+
+/**
+ * Construct `by` wherever `base` is injected: a test's instant API for the real one, a demo's canned
+ * session. `by` must produce what `base` does (a subclass, typically), so everything that injects
+ * `base` gets an object of the type it was promised. Its `needs` are checked against the App's grant
+ * like any service's.
+ */
+export function replace<B extends ServiceClass & (abstract new (init: never) => object)>(
+    base: B,
+    by: ServiceClass & (abstract new (init: never) => InstanceType<B>),
+): Replacement {
+    return { base, by };
 }
 
 export function createAppRuntime(App: AppClass, granted: GrantedContext, options: AppRuntimeOptions = {}): AppRuntime {
@@ -128,9 +149,13 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
         }
     };
 
-    const service = (Class: ServiceClass): object => {
-        const existing = services.get(Class);
+    const replacements = new Map((options.replace ?? []).map((r) => [r.base, r.by]));
+
+    // Keyed by the class asked for; constructed from its replacement, if it has one.
+    const service = (Asked: ServiceClass): object => {
+        const existing = services.get(Asked);
         if (existing !== undefined) return existing;
+        const Class = replacements.get(Asked) ?? Asked;
 
         // Cannot be written with class declarations (a service can only inject one declared before
         // it), but two modules importing each other can still produce one at run time.
@@ -155,7 +180,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
             })));
             if (Class === Router && options.router !== undefined) attachRouter(instance, options.router);
             const retire = commands.add(Class.name, instance);
-            services.set(Class, instance);
+            services.set(Asked, instance);
             teardowns.push(() => {
                 retire();
                 try {
