@@ -707,3 +707,9 @@ example, before the example relies on it:
 - **Lazy routes** (code-splitting a page) are not built.
 - **Form classes are made per page instance**, because commands are instance fields. This is
   harmless, but it is a class per mount.
+- **`cx.mesh.call` types input by the schema's *output*.** The company site's dashboard found it:
+  `domain.find` has `offset` with a default, yet the call demands it. Commands already type
+  callers with `InferInput` (the `_input` phantom); the generated client's `call` should too.
+- **Boolean props are HTML boolean attributes:** present when true, absent when false. So
+  `[data-x]` is the selector, not `[data-x="true"]`. This is correct, but twice now it was guessed
+  wrong; worth a line in the view-layer docs when they are rewritten.
