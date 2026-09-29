@@ -656,4 +656,48 @@ example, before the example relies on it:
    closes the window in front in favour of the target. The cost: a guard that lives in a layout does
    not run on the desktop. If the console ever runs as a desktop, the guard moves to a spec field
    the router checks before mounting.
-5. Still open: forms from schemas, a design system of real components, lazy routes.
+5. **A lazily injected service died with the view that first injected it.** A service
+   constructed on first injection ran inside that view's reactive scope. Its effects and
+   resources therefore stopped when the view left, silently. **Fixed:** each service gets its own
+   detached scope, disposed with the page (the browser test fails without the fix).
+6. **Forms from schemas.** **Fixed without a form concept in the framework:** a form is built for
+   a *command*, because the command's input schema already holds the rules. Two framework pieces
+   made that possible without casts. First, `SchemaLike` errors may carry `issues` with paths
+   (zod's do), and `CommandSchemaError.issues` keeps them, so each message goes beside its field.
+   Second, `command.submit(raw: unknown): Promise<O>` runs a command with input from outside the
+   type system (a form's strings, a palette, a URL); the schema is the only check. `run` stays
+   typed for code that has an `I`.
+7. **Generic components.** `Component({ props: props<T>() })` fixes props when the class is
+   declared, so a component generic over its rows cannot be written directly. **Pattern, not a
+   feature:** a factory that declares the class, called once per type at module level:
+   `const DomainTable = dataTable<Domain>()`. Private members of such a class must use `#`,
+   because TS cannot emit `private` on a class returned from a function.
+8. **Nothing could substitute a service**, which is most of the reason to have injection.
+   **Fixed:** `replace(FakeApi, InstantApi)` in `mountSite`/`createAppRuntime` options.
+   The types require the substitute to produce the base's instance type.
+9. **Smaller gaps, fixed:**
+   - `Link`'s `href` was fixed at mount, so a "Next" link kept pointing at page 2. It now
+     accepts a function.
+   - `router.here()` returns the current URL, for `?next=`.
+   - Primitives for tables, `Label`, and `Select`/`Option`. A select's value is re-applied after
+     its options exist.
+10. **The reference app is `examples/console`** (`npm run example:console`, :5191; 5 browser tests
+    in the normal browser suite). Its README-level map is the header of `src/app.ts`: the folders
+    are api/, services/, ui/, layouts/ and pages/.
+    - `ui/` holds a component only where the piece keeps state; otherwise it is a function
+      returning nodes.
+    - Pages read through `resource()` fields, which die with the page.
+    - Services write through commands and bump a `changed` signal that reads depend on.
+
+**Open, found by the example, not yet decided:**
+- **Sort of a paged list** is client-side within one page, which is wrong for a server-paged
+  list. It belongs in `query` and in the API call. The table should take a controlled sort.
+- **Page titles are static strings.** A detail page cannot say which domain it shows.
+  Likely fix: `title` may be a function of the instance.
+- **Cache invalidation** is one `changed` counter per service. That is fine at this size; at
+  scale it wants per-collection versions, or `cx.models`.
+- **Nested layouts** (a settings sub-layout inside the console) are not supported.
+- **Guards on the desktop** do not run, because the desktop ignores layouts (see 4).
+- **Lazy routes** (code-splitting a page) are not built.
+- **Form classes are made per page instance**, because commands are instance fields. This is
+  harmless, but it is a class per mount.
