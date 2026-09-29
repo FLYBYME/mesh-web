@@ -102,10 +102,13 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
     const mounted = render(page, options.root, { components: createRegistry(PRIMITIVES), dispatch });
     const stopKeys = runtime.commands.attach(options.keys ?? options.root.ownerDocument);
 
-    // A view's `title`, if it declares one, is the page's.
+    // A view's `title`, if it declares one, is the page's; otherwise the page's own title comes back.
+    // Only setting it when declared left the last page's title on a 404, or on any untitled view
+    // navigated to from a titled one — found by loading the site as a visitor, not by a test.
+    const document = options.root.ownerDocument;
+    const pageTitle = document.title;
     const stopTitle = effect(() => {
-        const title = route()?.view.spec.title;
-        if (title !== undefined) options.root.ownerDocument.title = title;
+        document.title = route()?.view.spec.title ?? pageTitle;
     });
 
     return {
@@ -114,6 +117,7 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
         navigate: backend.navigate,
         dispose() {
             stopTitle();
+            document.title = pageTitle;
             stopKeys();
             stopHistory();
             mounted.dispose();

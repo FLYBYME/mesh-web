@@ -157,6 +157,9 @@ describe('an App as a single-page site', () => {
     });
 
     it('shows not-found for a URL nothing matches, and for params the view\'s schema refuses', async () => {
+        // Distinctive, so it cannot coincide with a view's title left over from another test.
+        const pageTitle = 'the page before the site';
+        document.title = pageTitle;
         history.pushState(null, '', '/nowhere');
         site = mountSite(Site, { root });
         await frame();
@@ -171,6 +174,13 @@ describe('an App as a single-page site', () => {
         await frame();
         expect(root.querySelector('[data-not-found]')).toBeNull();
         expect(zone()).toBe('abc clicks=0');
+        expect(document.title).toBe('Zone');
+
+        // Leaving a titled view for a URL nothing matches puts the page's own title back, rather
+        // than leaving "Zone" over a not-found page.
+        site.navigate('/nowhere/at/all');
+        await frame();
+        expect(document.title).toBe(pageTitle);
     });
 
     it('leaves a modified click to the browser: the page does not navigate or cancel it', async () => {

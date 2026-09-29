@@ -435,3 +435,32 @@ down before anything replaced it, and the one consumer that must keep working is
   what it may really return. `kind` tells them apart.
 - `UnitSpec.api` is now `Api<...>` rather than `unknown`, so it flows to `createContext` without a
   cast and `cx.mesh` stays typed by the specific API.
+
+## 17. Phase 6 findings (2026-09-29)
+
+`surfdns-company-site` (branch `components`) is rebuilt on the model: `App` with three routes and
+one service, `AuthService`, one `LoginForm` mounted in two places, three pages and a `Nav`.
+`src/index.ts` is 25 lines and has no `start()`.
+
+- **The app model is exported from the package root, and only there.** A part's build keeps one
+  specifier external (`@flybyme/mesh-web`) and bundles everything else, so a subpath export would
+  have put a second copy of the runtime — a second `Router` class — inside the part. The legacy names
+  it collided with were renamed: `command` → `commandAction`, `Router` → `RouterCapability`,
+  `Component` → `CallableComponent`.
+- **Setup that must run at construction goes in a constructor,** written without naming the init
+  type: `const Base = Service({...}); class AuthService extends Base { constructor(...args:
+  ConstructorParameters<typeof Base>) { super(...args); ... } }`. `AuthService` attaches its ticket
+  to `cx.credentials` that way.
+- **Sign-in is typed end to end:** `command({ input: identityTicketIssueInputSchema, ... })` takes the
+  generated client's own schema, and `cx.mesh.call('identity.ticket.issue', ...)` is checked
+  against the generated API. The site's browser test proves the ticket is on the call made after it
+  is issued and not before, and fails if the header is not attached.
+- **The whole path boots from a served page.** `npm run dev` (was `mesh-serve dev`, a command
+  mesh-serve does not have) serves a page that calls the kernel's `start()` exactly as mesh-serve's
+  boot script does. Loaded headless as a visitor: home, a deep link, a clicked link, a 404, no
+  console errors but the expected 404s of an unconfigured API.
+- **A stale title, found by that load and not by a test:** `mountSite` only set the title when a
+  view declared one, so a 404 or an untitled view kept the previous page's. It now falls back to the
+  page's own title (and restores it on dispose). The first regression test for it passed with the
+  bug still in — another test had left the title set — and was only made to fail by giving it a
+  title nothing else could produce.
