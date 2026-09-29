@@ -20,7 +20,7 @@
  *    - Disposing query or scope unregisters effects and stops background activity.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { IoManager } from '../src/kernel/io.js';
 import {
     call,
@@ -1279,7 +1279,10 @@ describe('session-aware collections', () => {
 
         // The real CRUD shape: `find({ query: { field }, sort })`, as every generated client has it.
         interface Rec { readonly id: string; readonly zone: string; readonly name: string; readonly createdAt: string }
-        interface RecFind { readonly query?: { readonly zone?: string }; readonly sort?: string; readonly search?: string }
+        interface RecFind {
+            readonly query?: { readonly zone?: string }; readonly sort?: string; readonly search?: string;
+            readonly limit?: number; readonly offset?: number;
+        }
         const crudApi = defineApi({
             id: 'crud-models',
             exposure: 'sha256:crud1234',
@@ -1361,6 +1364,58 @@ describe('session-aware collections', () => {
             // Three writes, and still the one fetch that loaded the list.
             expect(finds).toBe(1);
             list.dispose();
+        });
+
+        it('keeps a limited list to its limit, and asks the server only for what it cannot know', async () => {
+            MockEventSource.instances = [];
+            let finds = 0;
+            // The server's newest two, whatever has happened: what a refetch would answer.
+            let server = [
+                { id: 'r3', zone: 'z1', name: 'c', createdAt: '2026-03-01' },
+                { id: 'r2', zone: 'z1', name: 'b', createdAt: '2026-02-01' },
+                { id: 'r1', zone: 'z1', name: 'a', createdAt: '2026-01-01' },
+            ];
+            const fake = createFakeTransport((req) => {
+                finds++;
+                const offset = Number(new URL(req.url, 'http://x').searchParams.get('offset') ?? 0);
+                return jsonResponse(200, server.slice(offset, offset + 2));
+            });
+            const client = createClient(crudApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof crudApi>(client, undefined, undefined, crudApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+            const newest = models('rec').find({ sort: '-createdAt', limit: 2 });
+            await new Promise((r) => setTimeout(r, 20));
+            expect(newest.rows().map((r) => r.id)).toEqual(['r3', 'r2']);
+            const es = MockEventSource.instances[0]!;
+            const fetched = finds;
+
+            // A new row: placed first, the oldest pushed out — no fetch needed.
+            const r4 = { id: 'r4', zone: 'z1', name: 'd', createdAt: '2026-04-01' };
+            server = [r4, ...server];
+            es.emit('rec.created', r4);
+            expect(newest.rows().map((r) => r.id)).toEqual(['r4', 'r3']);
+            expect(finds).toBe(fetched);
+
+            // A row leaves a full page: gone at once, and the row that moves up comes from the server.
+            server = server.filter((r) => r.id !== 'r4');
+            es.emit('rec.deleted', { id: 'r4' });
+            expect(newest.rows().map((r) => r.id)).toEqual(['r3']);
+            await vi.waitFor(() => expect(newest.rows().map((r) => r.id)).toEqual(['r3', 'r2']));
+            expect(finds).toBe(fetched + 1);
+
+            // Past the first page, where a row lands depends on rows never fetched: refetched.
+            const second = models('rec').find({ sort: '-createdAt', limit: 2, offset: 2 });
+            await vi.waitFor(() => expect(second.rows().map((r) => r.id)).toEqual(['r1']));
+            const before = finds;
+            const r0 = { id: 'r0', zone: 'z1', name: 'z', createdAt: '2025-12-01' };
+            server = [...server, r0];
+            es.emit('rec.created', r0);
+            await vi.waitFor(() => expect(second.rows().map((r) => r.id)).toEqual(['r1', 'r0']));
+            expect(finds).toBeGreaterThan(before);
+            newest.dispose();
+            second.dispose();
         });
 
         it('still refetches after its own writes when the api streams nothing for the collection', async () => {

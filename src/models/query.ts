@@ -83,6 +83,14 @@ export function matchesQuery(item: unknown, query: unknown): boolean {
     return true;
 }
 
+/** The page a find asked for: `limit` rows, after skipping `offset` (CRUD) or `skip`. */
+function windowOf(query: unknown): { limit: number | undefined; offset: number } {
+    if (!query || typeof query !== 'object') return { limit: undefined, offset: 0 };
+    const { limit, offset, skip } = query as Record<string, unknown>;
+    const start = typeof offset === 'number' ? offset : typeof skip === 'number' ? skip : 0;
+    return { limit: typeof limit === 'number' && limit >= 0 ? limit : undefined, offset: start };
+}
+
 /**
  * Rows in the order the query asked for. A live event adds or changes a row locally, and the list
  * must stay in the order the server would have returned it — a newest-first list shows a new row
@@ -294,14 +302,32 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         this.commit([...currentRows, item as TItem], currentQuery);
     }
 
-    /** Rows changed by an event or a local write: kept in the query's order, and the status with them. */
-    private commit(next: readonly TItem[], currentQuery: unknown): void {
-        const ordered = sortedByQuery(next, currentQuery);
+    /**
+     * Rows changed by an event or a local write: kept in the query's order and window, and the
+     * status with them.
+     *
+     * A window (`limit`/`offset`) is only partly knowable here. Past the first page, where a row
+     * lands depends on rows this query never fetched, so the page is refetched instead. On the
+     * first page a new row can be placed and the one pushed past `limit` dropped — but a row that
+     * leaves a full page makes room for one only the server knows, so that too refetches (after
+     * showing the removal at once).
+     */
+    private commit(next: readonly TItem[], currentQuery: unknown, removedFrom?: number): void {
+        const { limit, offset } = windowOf(currentQuery);
+        if (offset > 0) {
+            void this.refetch();
+            return;
+        }
+        const sorted = sortedByQuery(next, currentQuery);
+        const ordered = limit !== undefined && sorted.length > limit ? sorted.slice(0, limit) : sorted;
+        // `removedFrom`: the row count before a row left (a delete, or an update out of the filter).
+        const leftFullPage = limit !== undefined && removedFrom !== undefined && removedFrom >= limit;
         this._data.set(ordered);
         this._rows.set(ordered);
         this._loading.set(false);
         this._empty.set(ordered.length === 0);
         this._status.set(ordered.length === 0 ? 'empty' : 'ready');
+        if (leftFullPage) void this.refetch();
     }
 
     applyUpdated(payload: unknown): void {
@@ -323,7 +349,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
                 this.commit(next, currentQuery);
             } else {
                 // No longer matches query view: remove from view
-                this.commit(currentRows.filter((_, idx) => idx !== existingIndex), currentQuery);
+                this.commit(currentRows.filter((_, idx) => idx !== existingIndex), currentQuery, currentRows.length);
             }
         } else if (matches) {
             // New item now matches view
@@ -342,7 +368,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
             (r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id,
         );
         if (existingIndex >= 0) {
-            this.commit(currentRows.filter((_, idx) => idx !== existingIndex), this.queryFn ? this.queryFn() : undefined);
+            this.commit(currentRows.filter((_, idx) => idx !== existingIndex), this.queryFn ? this.queryFn() : undefined, currentRows.length);
         }
     }
 
