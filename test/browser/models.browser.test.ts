@@ -1,31 +1,19 @@
 /**
- * Browser tests for the models capability — spec/network.md §5, roadmap A3.7.
+ * Live collections through the kernel's real `models` capability — spec/network.md §5.
  *
- * Tests:
- * 1. Boots an Application with cx.models, opens a window, and renders collection data.
- * 2. Mutations on the collection automatically invalidate active queries and update the DOM.
- * 3. 403 refusal state renders error representation in the DOM.
- * 4. Clean scope disposal without memory or reactivity leaks.
+ * Booted the way a deployed site is: the kernel's `start()`, so `cx.models` is the one the broker
+ * builds for the App's declared API, over the real fetch transport (answered here by a stand-in
+ * `fetch`). A collection loads into the page, a create made by *pressing a button* updates it, a
+ * refusal renders as one, and disposing takes the page away.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { userEvent } from '@vitest/browser/context';
 import {
-    call,
-    defineApi,
-    each,
-    element,
-    flushSync,
-    needs,
-    provider,
-    text,
-    when,
-    type Application,
-    type Context,
-    type ProviderToken,
-    type ViewContext,
-    KEEPS_NOTHING,
+    App, call, command, defineApi, each, element, needs, Service, text, View, when,
+    type Node,
 } from '@flybyme/mesh-web';
-import { cleanup, mountPart } from '@flybyme/mesh-web/testing';
+import { start, type Started } from '../../src/kernel/start.js';
 
 interface PartItem {
     readonly id: string;
@@ -42,84 +30,76 @@ const catalogApi = defineApi({
     },
 });
 
-const APP_NEEDS = needs('models', 'windows', 'state');
-
-import type { CollectionHandle } from '@flybyme/mesh-web';
-
-interface AppApi {
-    readonly getParts: () => CollectionHandle<typeof catalogApi['calls'], 'part'>;
-    readonly createPart: (name: string, tag: string) => Promise<void>;
+/** The collection, shared: one query for the page, not one per view that shows it. */
+class Catalog extends Service({ needs: needs('models'), api: catalogApi }) {
+    readonly parts = this.cx.models('part');
+    readonly add = command({
+        title: 'Add part',
+        run: async () => { await this.parts.create({ name: 'Titanium Panel', tag: 'hardware' }); },
+    });
 }
 
-const APP_TOKEN: ProviderToken<AppApi> = provider<AppApi>('test/catalog-app');
-
-class CatalogApp implements Application<typeof APP_NEEDS, readonly [], typeof APP_TOKEN, typeof catalogApi> {
-    readonly needs = APP_NEEDS;
-    readonly provides = APP_TOKEN;
-    readonly api = catalogApi;
-
-    readonly views = [
-        {
-            id: 'catalog',
-            title: 'Catalog',
-            render: (vx: ViewContext<Record<string, never>, Record<string, never>, AppApi>) => {
-                const parts = vx.app.getParts();
-                return element('Stack', {
-                    props: { class: 'catalog-container' },
-                    children: [
-                        when(
-                            () => parts.loading(),
-                            () => element('Text', { props: { class: 'loading' }, children: [text('Loading catalog...')] }),
-                            () => when(
-                                () => parts.status() === 'error',
-                                () => element('Text', { props: { class: 'error' }, children: [text('Failed to load parts')] }),
-                                () => when(
-                                    () => parts.empty(),
-                                    () => element('Text', { props: { class: 'empty' }, children: [text('No parts found')] }),
-                                    () => element('Stack', {
-                                        props: { class: 'items' },
-                                        children: [
-                                            each(
-                                                () => parts.rows(),
-                                                (item) => item.id,
-                                                (item) => element('Text', {
-                                                    props: { class: 'item-row' },
-                                                    children: [text(() => item().name)],
-                                                }),
-                                            ),
-                                        ],
-                                    }),
-                                ),
-                            ),
+class CatalogView extends View({ inject: { catalog: Catalog } }) {
+    render(): Node {
+        const { catalog } = this.inject;
+        const parts = catalog.parts;
+        return element('Stack', {
+            props: { class: 'catalog-container' },
+            children: [
+                element('Button', {
+                    props: { 'aria-label': 'add part' },
+                    intents: { activate: { action: this.on(() => void catalog.add.run()) } },
+                    children: [text('Add')],
+                }),
+                when(
+                    () => parts.loading(),
+                    () => element('Text', { props: { class: 'loading' }, children: [text('Loading catalog...')] }),
+                    () => when(
+                        () => parts.status() === 'error',
+                        () => element('Text', { props: { class: 'error' }, children: [text('Failed to load parts')] }),
+                        () => when(
+                            () => parts.empty(),
+                            () => element('Text', { props: { class: 'empty' }, children: [text('No parts found')] }),
+                            () => element('Stack', {
+                                props: { class: 'items' },
+                                children: [
+                                    each(
+                                        () => parts.rows(),
+                                        (item) => item.id,
+                                        (item) => element('Text', { props: { class: 'item-row' }, children: [text(() => item().name)] }),
+                                    ),
+                                ],
+                            }),
                         ),
-                    ],
-                });
-            },
-        },
-    ];
-
-    async start(cx: Context<typeof APP_NEEDS, readonly [], typeof catalogApi>): Promise<{ api: AppApi } & typeof KEEPS_NOTHING> {
-        const parts = cx.models('part');
-        cx.windows.open({ view: 'catalog' });
-
-        return {
-            ...KEEPS_NOTHING,
-            api: {
-                getParts: () => parts,
-                createPart: async (name: string, tag: string) => {
-                    await parts.create({ name, tag });
-                },
-            },
-        };
+                    ),
+                ),
+            ],
+        });
     }
 }
 
-describe('models capability in browser (mountPart)', () => {
+class CatalogApp extends App({ needs: needs('models'), api: catalogApi, services: [Catalog], routes: { '/': CatalogView } }) {}
+
+/** Wait until the page says something — the query is asynchronous, and there is no handle to await. */
+async function until(check: () => boolean, what: string): Promise<void> {
+    for (let i = 0; i < 100; i++) {
+        if (check()) return;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`timed out waiting for ${what}`);
+}
+
+describe('models capability in a real browser, booted by start()', () => {
     let partsStore: PartItem[] = [];
     let returnStatus = 200;
+    let started: Started | undefined;
+    let original = '';
     const originalFetch = globalThis.fetch;
+    const page = (): string => document.getElementById('mesh-web-root')?.textContent ?? '';
 
     beforeEach(() => {
+        original = `${location.pathname}${location.search}`;
+        history.replaceState(null, '', '/');
         partsStore = [
             { id: '1', name: 'Alloy Bolt', tag: 'hardware' },
             { id: '2', name: 'Carbon Strut', tag: 'composite' },
@@ -137,28 +117,15 @@ describe('models capability in browser (mountPart)', () => {
                         headers: { 'content-type': 'application/json' },
                     });
                 }
-                const url = new URL(urlStr, 'http://localhost');
-                const tag = url.searchParams.get('tag');
-                const results = tag !== null ? partsStore.filter((p) => p.tag === tag) : partsStore;
-                return new Response(JSON.stringify(results), {
-                    status: 200,
-                    headers: { 'content-type': 'application/json' },
-                });
+                return new Response(JSON.stringify(partsStore), { status: 200, headers: { 'content-type': 'application/json' } });
             }
 
             if (urlStr.includes('/api/parts') && method === 'POST') {
                 const bodyText = typeof init?.body === 'string' ? init.body : '';
                 const body = bodyText !== '' ? JSON.parse(bodyText) as { name: string; tag: string } : { name: '', tag: '' };
-                const newItem: PartItem = {
-                    id: String(partsStore.length + 1),
-                    name: body.name,
-                    tag: body.tag,
-                };
-                partsStore.push(newItem);
-                return new Response(JSON.stringify(newItem), {
-                    status: 200,
-                    headers: { 'content-type': 'application/json' },
-                });
+                const created: PartItem = { id: String(partsStore.length + 1), name: body.name, tag: body.tag };
+                partsStore.push(created);
+                return new Response(JSON.stringify(created), { status: 200, headers: { 'content-type': 'application/json' } });
             }
 
             return originalFetch(input, init);
@@ -166,73 +133,44 @@ describe('models capability in browser (mountPart)', () => {
     });
 
     afterEach(() => {
+        started?.dispose();
+        started = undefined;
         globalThis.fetch = originalFetch;
-        cleanup();
+        history.replaceState(null, '', original);
     });
 
-    it('boots an Application, opens window, and renders collection items into the DOM', async () => {
-        const site = await mountPart({
-            parts: [{ id: 'app', contribution: CatalogApp }],
-        });
+    const boot = (): Started => {
+        started = start({ application: 'catalog', api: '', parts: [{ id: 'catalog', contribution: CatalogApp }] });
+        return started;
+    };
 
-        const app = site.kernel.provided(APP_TOKEN)!;
-        expect(app).toBeDefined();
-
-        // Await initial query resolution
-        await app.getParts().refetch();
-        flushSync();
-
-        expect(site.root.textContent).toContain('Alloy Bolt');
-        expect(site.root.textContent).toContain('Carbon Strut');
-
-        site.dispose();
+    it('renders the collection into the page', async () => {
+        boot();
+        await until(() => page().includes('Carbon Strut'), 'the parts to load');
+        expect(page()).toContain('Alloy Bolt');
     });
 
-    it('automatically invalidates and updates the DOM when a mutation is performed', async () => {
-        const site = await mountPart({
-            parts: [{ id: 'app', contribution: CatalogApp }],
-        });
+    it('updates the page when a create is made — by pressing a button, not by calling it', async () => {
+        boot();
+        await until(() => page().includes('Alloy Bolt'), 'the parts to load');
+        expect(page()).not.toContain('Titanium Panel');
 
-        const app = site.kernel.provided(APP_TOKEN)!;
-        await app.getParts().refetch();
-        flushSync();
-
-        expect(site.root.textContent).toContain('Alloy Bolt');
-        expect(site.root.textContent).not.toContain('Titanium Panel');
-
-        // Create a new part through the collection mutation
-        await app.createPart('Titanium Panel', 'hardware');
-        flushSync();
-
-        // The DOM has re-rendered with the newly created item
-        expect(site.root.textContent).toContain('Titanium Panel');
-
-        site.dispose();
+        await userEvent.click(document.querySelector('[aria-label="add part"]')!);
+        await until(() => page().includes('Titanium Panel'), 'the new part to appear');
     });
 
-    it('renders error state when API answers with refusal', async () => {
+    it('renders a refusal as an error, not as an empty list', async () => {
         returnStatus = 403;
-
-        const site = await mountPart({
-            parts: [{ id: 'app', contribution: CatalogApp }],
-        });
-
-        const app = site.kernel.provided(APP_TOKEN)!;
-        await app.getParts().refetch();
-        flushSync();
-
-        expect(site.root.textContent).toContain('Failed to load parts');
-
-        site.dispose();
+        boot();
+        await until(() => page().includes('Failed to load parts'), 'the error state');
+        expect(page()).not.toContain('No parts found');
     });
 
-    it('cleans up DOM and disposes queries when the site is disposed', async () => {
-        const site = await mountPart({
-            parts: [{ id: 'app', contribution: CatalogApp }],
-        });
-
+    it('takes the page away when disposed', async () => {
+        const booted = boot();
         expect(document.getElementById('mesh-web-root')).not.toBeNull();
-        site.dispose();
+        booted.dispose();
+        started = undefined;
         expect(document.getElementById('mesh-web-root')).toBeNull();
     });
 });

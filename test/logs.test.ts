@@ -7,8 +7,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    BROWSER_TAB_RESERVED, Kernel, createLogBuffer, normalizeBinding, reservedSet, start,
-    type Application, type Context, needs, KEEPS_NOTHING,
+    App, BROWSER_TAB_RESERVED, createLogBuffer, element, needs, normalizeBinding, reservedSet, Service, start, View,
+    type Node,
 } from '../src/index.js';
 
 const clean = (): void => { document.body.replaceChildren(); };
@@ -70,17 +70,22 @@ describe('ctrl+alt+q binding against BROWSER_TAB_RESERVED', () => {
 });
 
 describe('mountLogViewer on a page with no chrome', () => {
-    const LOG_NEEDS = needs('log');
-
-    class LoggingApp implements Application<typeof LOG_NEEDS> {
-        readonly needs = LOG_NEEDS;
-        async start(cx: Context<typeof LOG_NEEDS>): Promise<typeof KEEPS_NOTHING> {
-            cx.log.info('app started', { version: '1.0' });
-            cx.log.warn('warning from app');
-            cx.log.error('error from app');
-            return KEEPS_NOTHING;
+    /** Logs three lines as the page boots, through the App's `cx.log`. */
+    const Base = Service({ needs: needs('log') });
+    class Logger extends Base {
+        constructor(...args: ConstructorParameters<typeof Base>) {
+            super(...args);
+            this.cx.log.info('app started', { version: '1.0' });
+            this.cx.log.warn('warning from app');
+            this.cx.log.error('error from app');
         }
     }
+
+    class Blank extends View({}) {
+        render(): Node { return element('Stack', { children: [] }); }
+    }
+
+    class LoggingApp extends App({ needs: needs('log'), services: [Logger], routes: { '/': Blank } }) {}
 
     it('mounts on root with no chrome and opens with ctrl+alt+q or command', async () => {
         clean();
@@ -90,14 +95,14 @@ describe('mountLogViewer on a page with no chrome', () => {
         const instance = start({
             application: 'test',
             root,
-            parts: [{ id: 'test-app', contribution: new LoggingApp() }],
+            parts: [{ id: 'test-app', contribution: LoggingApp }],
             logCapacity: 5,
         });
 
         await instance.ready;
 
         // Writer wrote to services.logs
-        expect(instance.kernel.services.logs.length).toBeGreaterThanOrEqual(3);
+        expect(instance.services.logs.length).toBeGreaterThanOrEqual(3);
 
         const viewerEl = root.querySelector('.mesh-log-viewer') as HTMLElement;
         expect(viewerEl).not.toBeNull();
@@ -133,8 +138,9 @@ describe('mountLogViewer on a page with no chrome', () => {
         levelSelect.dispatchEvent(new Event('change'));
 
         const sourceSelect = viewerEl.querySelector('.mesh-log-source-filter') as HTMLSelectElement;
-        expect(Array.from(sourceSelect.options).map((o) => o.value)).toContain('p1');
-        sourceSelect.value = 'p1';
+        // The App's log source is its part id — there are no process ids any more.
+        expect(Array.from(sourceSelect.options).map((o) => o.value)).toContain('test-app');
+        sourceSelect.value = 'test-app';
         sourceSelect.dispatchEvent(new Event('change'));
 
         const sourceFiltered = viewerEl.querySelectorAll('.mesh-log-entry');
@@ -172,14 +178,17 @@ describe('mountLogViewer on a page with no chrome', () => {
         const root = document.createElement('div');
         document.body.append(root);
 
+        // An App with no services logs one line of its own as it boots ("… started"), so after the
+        // three below there are four records for a capacity of two: two evicted.
+        class QuietApp extends App({ routes: { '/': Blank } }) {}
         const instance = start({
             application: 'test',
             root,
-            parts: [],
+            parts: [{ id: 'quiet', contribution: QuietApp }],
             logCapacity: 2,
         });
 
-        instance.kernel.services.logs.push(
+        instance.services.logs.push(
             { level: 'info', source: 'test', message: 'first' },
             { level: 'info', source: 'test', message: 'second' },
             { level: 'info', source: 'test', message: 'third' },
@@ -187,7 +196,7 @@ describe('mountLogViewer on a page with no chrome', () => {
 
         instance.logViewer.open();
         const stats = root.querySelector('.mesh-log-stats');
-        expect(stats?.textContent).toContain('1 oldest logs evicted');
+        expect(stats?.textContent).toContain('2 oldest logs evicted');
 
         instance.dispose();
     });

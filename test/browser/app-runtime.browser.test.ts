@@ -1,21 +1,16 @@
 /**
  * Phase 2 checkpoint (docs/app-model.md): one `AuthService`, one `LoginForm` class mounted in two
- * places — and a third behind a `when` — in a real browser, on the real kernel, **pressed**, not
- * called. Every assertion here is about what a person would see after typing and clicking.
+ * places — and a third behind a `when` — in a real browser, **pressed**, not called. Every assertion
+ * here is about what a person would see after typing and clicking.
  *
- * The app model has no router yet (phase 4), so an ordinary Application hosts the runtime: its one
- * view renders `runtime.view(DemoView, ...)`, registering handlers through `vx.on` / `vx.off`.
+ * Mounted with `mountSite`. (It was hosted by a legacy Application until phase 5c removed those.)
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { userEvent } from '@vitest/browser/context';
 import '../../src/kernel.css';
-import {
-    computed, element, needs, signal, text, when,
-    type Application, type Context, type Node, type ViewContext,
-} from '../../src/index.js';
-import { App, Component, createAppRuntime, props, Service, View, type AppRuntime, type HandlerRegistry } from '../../src/app/index.js';
-import { cleanup, mountPart, type MountedSite } from '../../src/testing/index.js';
+import { computed, element, signal, text, when, type Node } from '../../src/index.js';
+import { App, Component, mountSite, props, Service, View, type MountedApp } from '../../src/app/index.js';
 
 // ---------------------------------------------------------------------------- the app model side
 
@@ -88,77 +83,54 @@ class DemoView extends View({}) {
 
 class DemoApp extends App({ services: [AuthService], routes: { '/': DemoView } }) {}
 
-// ---------------------------------------------------------------------------- the bridge
+// ---------------------------------------------------------------------------- the harness
 
-/** Counts live handlers so the test can see a `when` flip give back what it took. */
-let liveHandlers = 0;
+let root: HTMLElement;
+let site: MountedApp | undefined;
+let original = '';
 
-function counting(vx: ViewContext<Record<string, never>, BridgeState>): HandlerRegistry {
-    return {
-        on(fn) {
-            liveHandlers++;
-            return vx.on(fn);
-        },
-        off(action) {
-            liveHandlers--;
-            vx.off(action);
-        },
-    };
-}
-
-interface BridgeState {
-    readonly runtime: AppRuntime;
-}
-
-const BRIDGE_NEEDS = needs('windows');
-
-class Bridge implements Application<typeof BRIDGE_NEEDS, readonly [], undefined, never, BridgeState> {
-    readonly needs = BRIDGE_NEEDS;
-    readonly views = [{
-        id: 'main',
-        title: 'Demo',
-        render: (vx: ViewContext<Record<string, never>, BridgeState>) => vx.internal.runtime.view(DemoView, {}, counting(vx)),
-    }];
-
-    async start(cx: Context<typeof BRIDGE_NEEDS, readonly []>): Promise<{ internal: BridgeState }> {
-        const runtime = createAppRuntime(DemoApp, cx);
-        cx.windows.open({ view: 'main' });
-        return { internal: { runtime } };
-    }
-}
-
-// ---------------------------------------------------------------------------- the test
-
-let site: MountedSite | undefined;
+beforeEach(() => {
+    original = `${location.pathname}${location.search}`;
+    history.replaceState(null, '', '/');
+    root = document.createElement('div');
+    document.body.appendChild(root);
+});
 
 afterEach(() => {
-    cleanup();
+    site?.dispose();
     site = undefined;
+    root.remove();
+    history.replaceState(null, '', original);
 });
+
+function mount(): MountedApp {
+    site = mountSite(DemoApp, { root });
+    return site;
+}
 
 async function frame(): Promise<void> {
     await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
 }
 
 function status(place: string): string {
-    return site?.root.querySelector(`[data-status="${place}"]`)?.textContent ?? '(missing)';
+    return root.querySelector(`[data-status="${place}"]`)?.textContent ?? '(missing)';
 }
 
 function input(place: string): HTMLInputElement {
-    const el = site?.root.querySelector(`[aria-label="email (${place})"]`);
+    const el = root.querySelector(`[aria-label="email (${place})"]`);
     if (!(el instanceof HTMLInputElement)) throw new Error(`no email input for ${place}`);
     return el;
 }
 
 function button(label: string): Element {
-    const el = site?.root.querySelector(`[aria-label="${label}"]`);
-    if (el === null || el === undefined) throw new Error(`no button "${label}"`);
+    const el = root.querySelector(`[aria-label="${label}"]`);
+    if (el === null) throw new Error(`no button "${label}"`);
     return el;
 }
 
 describe('app runtime in a real browser', () => {
     it('two mounts of one component keep their own state and share one service', async () => {
-        site = await mountPart({ id: 'demo', contribution: Bridge });
+        mount();
         await frame();
 
         expect(status('header')).toBe('header: signed out, draft ""');
@@ -181,19 +153,18 @@ describe('app runtime in a real browser', () => {
 
     it('a component behind a when is built and disposed with it, and gives back its handlers', async () => {
         formsAlive = 0;
-        liveHandlers = 0;
-        site = await mountPart({ id: 'demo', contribution: Bridge });
+        const site = mount();
         await frame();
 
         expect(formsAlive).toBe(2);
-        const baseline = liveHandlers;
-        expect(site.root.querySelector('[data-form="third"]')).toBeNull();
+        const baseline = site.handlerCount();
+        expect(root.querySelector('[data-form="third"]')).toBeNull();
 
         for (let i = 0; i < 5; i++) {
             await userEvent.click(button('toggle third'));
             await frame();
             expect(formsAlive).toBe(3);
-            expect(site.root.querySelector('[data-form="third"]')).not.toBeNull();
+            expect(root.querySelector('[data-form="third"]')).not.toBeNull();
 
             // Fresh every time: whatever was typed into the last third form went with it.
             expect(input('third').value).toBe('');
@@ -204,9 +175,9 @@ describe('app runtime in a real browser', () => {
             await userEvent.click(button('toggle third'));
             await frame();
             expect(formsAlive).toBe(2);
-            expect(site.root.querySelector('[data-form="third"]')).toBeNull();
-            // Five flips, and not one handler left behind.
-            expect(liveHandlers).toBe(baseline);
+            expect(root.querySelector('[data-form="third"]')).toBeNull();
+            // Five flips, and not one handler left behind — counted in the site's real handler table.
+            expect(site.handlerCount()).toBe(baseline);
         }
 
         // And the two that never left still work.

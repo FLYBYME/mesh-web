@@ -14,9 +14,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-    KERNEL_SOURCE, Kernel, call, consumes, createClient, createServices, defineApi, needs, provider,
-    start, text, withHeaders, KEEPS_NOTHING,
-    type Application, type Context, type Extension, type LogRecord, type NetRequest, type NetResponse,
+    App, KERNEL_SOURCE, Kernel, Service, View, call, consumes, createClient, createServices, defineApi, element,
+    needs, provider, start, text, withHeaders, KEEPS_NOTHING,
+    type Application, type Context, type Extension, type LogRecord, type NetRequest, type NetResponse, type Node,
 } from '../src/index.js';
 import { AVAILABLE, schema, type ApiDecl } from '../src/contribution/api.js';
 
@@ -358,70 +358,42 @@ describe('a failed call the kernel mediates', () => {
 // ---------------------------------------------------------------------------- the boot, through start()
 
 describe('a boot somebody can read', () => {
-    const THEME = provider<{ readonly dark: boolean }>('test/theme');
-
-    class Theme implements Extension<typeof NONE, readonly [], typeof THEME> {
-        readonly needs = NONE;
-        readonly provides = THEME;
-        activate(): { readonly dark: boolean } { return { dark: true }; }
+    class Face extends View({ title: 'Clock' }) {
+        render(): Node { return element('Text', { children: [text('12:00')] }); }
     }
 
-    class Clock implements Application<typeof NONE> {
-        readonly needs = NONE;
-        readonly views = [{ id: 'face', title: 'Clock', render: () => text('12:00') }];
-        async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
-    }
+    class Clock extends App({ routes: { '/': Face } }) {}
 
-    it('is one line per part and a summary, and nothing else', async () => {
+    it('is one line for the App that started, and nothing else', () => {
         clean();
-        const started = start({
-            application: 'test',
-            parts: [{ id: 'theme', contribution: new Theme() }, { id: 'clock', contribution: new Clock() }],
-            open: [{ application: 'clock', views: ['face'] }],
-        });
-        await started.ready;
+        const started = start({ application: 'test', parts: [{ id: 'clock', contribution: Clock }] });
 
-        // The whole buffer, not only the kernel's lines: rendering a window, measuring the page and
-        // restoring geometry must add nothing.
-        expect(started.kernel.services.logs.map((l) => [l.level, l.source, l.part, l.message])).toEqual([
-            ['info', 'kernel', 'theme', 'theme activated, providing "test/theme"'],
-            ['info', 'kernel', 'clock', 'clock started as p1'],
-            ['info', 'kernel', undefined, 'booted 2 part(s) — running: theme, clock (p1)'],
+        // The whole buffer, not only the kernel's lines: rendering the page must add nothing.
+        expect(started.services.logs.map((l) => [l.level, l.source, l.part, l.message])).toEqual([
+            ['info', 'kernel', 'clock', 'clock started'],
         ]);
-        expect(started.kernel.services.logs.at(-1)?.data).toEqual({
-            parts: 2, running: ['theme', 'clock (p1)'], failed: [], notStarted: [],
-        });
         started.dispose();
     });
 
-    it('survives a part whose constructor throws, and says which and why', async () => {
+    it('leaves a page that says it could not start, and why, when the App fails — not a blank one', () => {
         clean();
 
-        class Explodes implements Application<typeof NONE> {
-            readonly needs = NONE;
-            constructor() { throw new Error('endpoints.base is required'); }
-            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
+        const Base = Service({});
+        class Explodes extends Base {
+            constructor(...args: ConstructorParameters<typeof Base>) {
+                super(...args);
+                throw new Error('endpoints.base is required');
+            }
         }
+        class Broken extends App({ services: [Explodes], routes: { '/': Face } }) {}
 
-        const started = start({
-            application: 'test',
-            parts: [{ id: 'explodes', contribution: Explodes }, { id: 'clock', contribution: new Clock() }],
-        });
-        await started.ready;
+        const root = document.createElement('div');
+        document.body.append(root);
+        expect(() => start({ application: 'test', root, parts: [{ id: 'broken', contribution: Broken }] }))
+            .toThrow('endpoints.base is required');
 
-        // The page is there, with its panel, and the part that could run is running.
-        expect(started.logViewer.host.isConnected).toBe(true);
-        expect(started.kernel.processes.find((p) => p.applicationId === 'clock')?.state).toBe('running');
-
-        const lines = kernelLines(started.kernel.services.logs);
-        expect(lines.find((l) => l.part === 'explodes')).toMatchObject({
-            level: 'error',
-            message: 'explodes could not be constructed: endpoints.base is required. The page boots without it.',
-        });
-
-        const summary = lines.at(-1);
-        expect(summary?.level).toBe('warn');
-        expect(summary?.message).toBe('booted 2 part(s) — running: clock (p1) · failed: explodes');
-        started.dispose();
+        // The reason is on the page, and the log panel is there to read.
+        expect(root.querySelector('[role="alert"]')?.textContent).toBe('This page could not start: endpoints.base is required');
+        expect(root.querySelector('.mesh-log-viewer')).not.toBeNull();
     });
 });

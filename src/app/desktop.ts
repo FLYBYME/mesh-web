@@ -111,6 +111,9 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
         commands: { ...options.commands, inFront: () => manager.focused() },
     });
 
+    /** Live handlers across every window, counted where the runtime registers and removes them. */
+    let handlers = 0;
+
     /** One `ViewDecl` per route, made once: the shell asks for it every time it frames a window. */
     const decls = new Map<string, ViewDecl<never, never>>();
     const viewOf = (_owner: string, pattern: string): ViewDecl<never, never> | undefined => {
@@ -121,7 +124,10 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
         const decl: ViewDecl<never, never> = {
             id: pattern,
             title: view.spec.title ?? view.name,
-            render: (vx: ViewContext<never, never>) => live.view(view, vx.params, { on: vx.on, off: vx.off }, vx.windowId),
+            render: (vx: ViewContext<never, never>) => live.view(view, vx.params, {
+                on: (fn) => { handlers++; return vx.on(fn); },
+                off: (action) => { handlers--; vx.off(action); },
+            }, vx.windowId),
         };
         decls.set(pattern, decl);
         return decl;
@@ -163,6 +169,7 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
         route,
         manager,
         navigate: backend.navigate,
+        handlerCount: () => handlers,
         dispose() {
             stopKeys();
             stopHistory();

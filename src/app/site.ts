@@ -41,6 +41,11 @@ export interface MountedApp {
     readonly runtime: AppRuntime;
     readonly route: ReadonlySignal<RouteMatch | undefined>;
     navigate(href: string): void;
+    /**
+     * How many intent handlers are live. A diagnostic: a number that only ever grows while someone
+     * uses the page is a leak — the thing per-instance handler removal exists to prevent.
+     */
+    handlerCount(): number;
     dispose(): void;
 }
 
@@ -115,6 +120,7 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
         runtime,
         route,
         navigate: backend.navigate,
+        handlerCount: () => handlers.size,
         dispose() {
             stopTitle();
             document.title = pageTitle;

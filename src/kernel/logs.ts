@@ -380,11 +380,25 @@ export function mountLogViewer(doc: Document, root: Element, logs: LogBuffer): L
 
     closeBtn.addEventListener('click', () => { close(); });
 
+    /**
+     * The panel owns its keys: Escape closes it, and ctrl+alt+q (`kernel.logs` in
+     * `KERNEL_WINDOW_BINDINGS`, so no App command may take it) toggles it. The toggle used to live in
+     * the legacy kernel's key listener; when that went (phase 5c) an App site lost the only keyboard
+     * way to its logs — caught by the log viewer's test.
+     */
     const onKey = (e: KeyboardEvent): void => {
         if (e.key === 'Escape' && !host.hidden) {
             e.preventDefault();
             e.stopPropagation();
             close();
+            return;
+        }
+        if (e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'q') {
+            // Stopped, as Escape is: this listener is on the panel *and* the document, so a press
+            // inside the panel would otherwise toggle twice and do nothing.
+            e.preventDefault();
+            e.stopPropagation();
+            toggle();
         }
     };
 

@@ -4,15 +4,11 @@
  * synthesised `KeyboardEvent`.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { userEvent } from '@vitest/browser/context';
 import '../../src/kernel.css';
-import {
-    element, needs, signal, text, when,
-    type Application, type Context, type Node, type ViewContext,
-} from '../../src/index.js';
-import { App, command, Component, createAppRuntime, View, type AppRuntime } from '../../src/app/index.js';
-import { cleanup, mountPart, type MountedSite } from '../../src/testing/index.js';
+import { element, signal, text, when, type Node } from '../../src/index.js';
+import { App, command, Component, mountSite, View, type MountedApp } from '../../src/app/index.js';
 
 // ---------------------------------------------------------------------------- the app model side
 
@@ -44,37 +40,28 @@ class Page extends View({}) {
 
 class KeysApp extends App({ routes: { '/': Page } }) {}
 
-// ---------------------------------------------------------------------------- the bridge
+// ---------------------------------------------------------------------------- the harness
 
-interface BridgeState { readonly runtime: AppRuntime }
-const NEEDS = needs('windows');
+let root: HTMLElement;
+let site: MountedApp | undefined;
+let original = '';
 
-class Bridge implements Application<typeof NEEDS, readonly [], undefined, never, BridgeState> {
-    readonly needs = NEEDS;
-    readonly views = [{
-        id: 'main',
-        title: 'Keys',
-        render: (vx: ViewContext<Record<string, never>, BridgeState>) =>
-            vx.internal.runtime.view(Page, {}, { on: vx.on, off: vx.off }),
-    }];
+beforeEach(() => {
+    original = `${location.pathname}${location.search}`;
+    history.replaceState(null, '', '/');
+    root = document.createElement('div');
+    document.body.appendChild(root);
+});
 
-    async start(cx: Context<typeof NEEDS, readonly []>): Promise<{ internal: BridgeState }> {
-        const runtime = createAppRuntime(KeysApp, cx);
-        current = runtime;
-        cx.onDispose(runtime.commands.attach(document));
-        cx.onDispose(() => runtime.dispose());
-        cx.windows.open({ view: 'main' });
-        return { internal: { runtime } };
-    }
-}
+afterEach(() => {
+    site?.dispose();
+    site = undefined;
+    root.remove();
+    history.replaceState(null, '', original);
+});
 
-// ---------------------------------------------------------------------------- the test
-
-let site: MountedSite | undefined;
-let current: AppRuntime | undefined;
-afterEach(() => { cleanup(); site = undefined; current = undefined; });
-
-const liveTitles = (): string[] => (current?.commands.live() ?? []).map((l) => l.command.title);
+const mount = (): void => { site = mountSite(KeysApp, { root }); };
+const liveTitles = (): string[] => (site?.runtime.commands.live() ?? []).map((l) => l.command.title);
 
 /**
  * Whether the next keydown reached any live command. The registry calls `preventDefault` when one
@@ -91,17 +78,17 @@ function pressedNowhere(): () => boolean {
 }
 
 const frame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
-const tally = (): string | null => site?.root.querySelector('[data-tally]')?.textContent ?? null;
+const tally = (): string | null => root.querySelector('[data-tally]')?.textContent ?? null;
 
 function find(label: string): HTMLElement {
-    const el = site?.root.querySelector(`[aria-label="${label}"]`);
+    const el = root.querySelector(`[aria-label="${label}"]`);
     if (!(el instanceof HTMLElement)) throw new Error(`nothing labelled "${label}"`);
     return el;
 }
 
 describe('keyed commands in a real browser', () => {
     it('work while their owner is on screen, and not after', async () => {
-        site = await mountPart({ id: 'keys', contribution: Bridge });
+        mount();
         await frame();
         expect(tally()).toBe('tally 0');
 
@@ -129,7 +116,7 @@ describe('keyed commands in a real browser', () => {
     });
 
     it('never takes a plain keystroke from a text field, but a modifier chord still works there', async () => {
-        site = await mountPart({ id: 'keys', contribution: Bridge });
+        mount();
         await frame();
 
         await userEvent.click(find('notes'));

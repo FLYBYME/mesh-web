@@ -484,3 +484,34 @@ Phase 5b added `src/app/desktop.ts` and `test/browser/app-desktop.browser.test.t
   policy is `windowed` or `tiled` — the reverse of the legacy kernel's default, on purpose.
 - Not done: the URL does not follow focus (clicking a different window leaves the address bar on the
   last navigation); `HistoryLike` has no `replace`. Window geometry is not persisted for Apps yet.
+
+## 19. Phase 5c — A1: only an App boots (2026-09-29)
+
+5c is done as **A then B**: A deletes the authoring surface of the legacy model and keeps the engine
+the App path still runs on (the broker's `createContext`, the page services); B then replaces that
+engine with platform services. A is in steps, each green.
+
+**A1** made `start()` boot only Apps:
+
+- `start()` is ~200 lines, down from ~1,000. It keeps mesh-serve's contract whole — it still takes
+  `{ application, api, policy, parts, open, … }`, `open` accepted and ignored — boots the first part
+  whose export is an App, and **says** what it will not boot: no App is an error naming the legacy
+  parts; legacy parts beside an App are a warning in the log. `mountPart`, the legacy test harness,
+  is gone; an App is tested with `mountSite`/`mountDesktop` or through `start()` itself.
+- Tests of machinery that no longer exists were deleted (legacy window modes, `mountPart`,
+  Extension-contributed components, the internal/published split, `KeyDecl` bindings — the last
+  already covered by the app-model key tests with real keystrokes). Tests of features that still
+  exist were **ported, not dropped**: dialogs, live collections, storage, the log viewer, kernel
+  logging, the display capability, `start()` itself. Several read better on the model: the dialog
+  test's page went from a provider token, four declared commands and four `implement` calls to one
+  view with two signals.
+- **Three regressions the ported tests caught** — each something the legacy boot did and the first
+  App boot did not:
+  - ctrl+alt+q no longer opened the log panel (the toggle lived in the legacy key listener). The
+    panel now owns its toggle, as it already owned Escape.
+  - `cx.display` was never measured, so a service asking how much room there is got 0×0. `startApp`
+    now measures before anything is constructed, on resize, and on the root's own box changing.
+  - `dispose()` left behind the root `start()` had created. It now removes a root it made (and
+    leaves one it was given).
+- **A failed App is not a blank page:** the page says it could not start and why, the log panel is
+  mounted, and the error still propagates.

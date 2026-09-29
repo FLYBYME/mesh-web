@@ -1,119 +1,85 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import {
-    element,
-    flushSync,
-    needs,
-    provider,
-    text,
-    store,
-    type Application,
-    type Context,
-    type ProviderToken,
-    type ViewContext,
-    KEEPS_NOTHING,
-    LOCAL_PREFIX,
-    KEY_SEPARATOR,
-    type ReadonlySignal,
-} from '@flybyme/mesh-web';
-import { cleanup, mountPart } from '@flybyme/mesh-web/testing';
+/**
+ * The storage capability in a real browser, booted by the kernel's `start()`: a value written by
+ * pressing a button shows on the page, and one written by *another tab* (a `StorageEvent`) does too.
+ */
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { userEvent } from '@vitest/browser/context';
 import { z } from 'zod';
+import {
+    App, command, element, KEY_SEPARATOR, LOCAL_PREFIX, needs, Service, store, text, View,
+    type Node,
+} from '@flybyme/mesh-web';
+import { start, type Started } from '../../src/kernel/start.js';
 
-const TestStore = store({
-    name: 'test-store',
-    hive: 'device',
-    schema: z.string(),
-    fallback: '',
-});
+const TestStore = store({ name: 'test-store', hive: 'device', schema: z.string(), fallback: '' });
 
-const APP_NEEDS = needs('storage', 'windows');
-
-interface AppApi {
-    readonly getValue: () => ReadonlySignal<string | undefined>;
-    readonly setValue: (val: string) => Promise<void>;
+class Prefs extends Service({ needs: needs('storage') }) {
+    readonly store = this.cx.storage.open(TestStore);
+    readonly value = this.store.get('my-key');
+    readonly save = command({ title: 'Save', run: async () => { await this.store.set('my-key', 'hello'); } });
 }
 
-const APP_TOKEN: ProviderToken<AppApi> = provider<AppApi>('test/storage-app');
-
-class StorageApp implements Application<typeof APP_NEEDS, readonly [], typeof APP_TOKEN, never> {
-    readonly needs = APP_NEEDS;
-    readonly provides = APP_TOKEN;
-    readonly api = undefined as never;
-
-    readonly views = [
-        {
-            id: 'main',
-            title: 'Main',
-            render: (vx: ViewContext<Record<string, never>, Record<string, never>, AppApi>) => {
-                const val = vx.app.getValue();
-                return element('Text', {
+class Main extends View({ inject: { prefs: Prefs } }) {
+    render(): Node {
+        const { prefs } = this.inject;
+        return element('Stack', {
+            children: [
+                element('Text', {
                     props: { id: 'value-display' },
-                    children: [text(() => {
-                        const v = val();
-                        return v === '' ? 'empty' : (v ?? 'undefined');
-                    })],
-                });
-            },
-        },
-    ];
-
-    async start(cx: Context<typeof APP_NEEDS, readonly [], never>): Promise<{ api: AppApi } & typeof KEEPS_NOTHING> {
-        const boundStore = cx.storage.open(TestStore);
-        cx.windows.open({ view: 'main' });
-
-        return {
-            ...KEEPS_NOTHING,
-            api: {
-                getValue: () => boundStore.get('my-key'),
-                setValue: async (val: string) => {
-                    await boundStore.set('my-key', val);
-                },
-            },
-        };
+                    children: [text(() => { const v = prefs.value(); return v === '' ? 'empty' : (v ?? 'undefined'); })],
+                }),
+                element('Button', {
+                    props: { 'aria-label': 'save' },
+                    intents: { activate: { action: this.on(() => void prefs.save.run()) } },
+                    children: [text('Save')],
+                }),
+            ],
+        });
     }
 }
 
-describe('storage capability in browser', () => {
-    afterEach(() => {
-        cleanup();
-        localStorage.clear();
+class StorageApp extends App({ needs: needs('storage'), services: [Prefs], routes: { '/': Main } }) {}
+
+const shown = (): string => document.getElementById('value-display')?.textContent ?? '';
+
+async function until(check: () => boolean, what: string): Promise<void> {
+    for (let i = 0; i < 100; i++) {
+        if (check()) return;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`timed out waiting for ${what}`);
+}
+
+describe('storage capability in a real browser', () => {
+    let started: Started | undefined;
+    let original = '';
+
+    beforeEach(() => {
+        original = `${location.pathname}${location.search}`;
+        history.replaceState(null, '', '/');
     });
 
-    it('syncs state across tabs using StorageEvent', async () => {
-        const site = await mountPart({
-            parts: [{ id: 'app', contribution: StorageApp }],
-        });
+    afterEach(() => {
+        started?.dispose();
+        started = undefined;
+        localStorage.clear();
+        history.replaceState(null, '', original);
+    });
 
-        await site.ready;
+    it('shows a value saved by pressing a button, and one saved by another tab', async () => {
+        // The part id is the storage namespace, so the other tab's key names it.
+        started = start({ application: 'storage', parts: [{ id: 'app', contribution: StorageApp }] });
+        await until(() => shown() === 'empty', 'the initial value');
 
-        const app = site.kernel.provided(APP_TOKEN)!;
-        expect(app).toBeDefined();
+        await userEvent.click(document.querySelector('[aria-label="save"]')!);
+        await until(() => shown() === 'hello', 'the saved value');
 
-        // 5. Verifies the initial state (empty/undefined).
-        expect(site.root.textContent).toContain('empty');
-
-        // 6. Calls the app API to set a value, flushes sync, and verifies DOM updates.
-        await app.setValue('hello');
-        flushSync();
-        expect(site.root.textContent).toContain('hello');
-
-        // 7. Dispatches a raw StorageEvent on window
         const storageKey = `${LOCAL_PREFIX}app${KEY_SEPARATOR}test-store/my-key`;
-        const newValue = JSON.stringify({
-            value: 'world',
-            version: 'some-version',
-            updatedAt: Date.now(),
-        });
+        const newValue = JSON.stringify({ value: 'world', version: 'some-version', updatedAt: Date.now() });
         localStorage.setItem(storageKey, newValue);
-        
-        window.dispatchEvent(new StorageEvent('storage', {
-            key: storageKey,
-            newValue,
-        }));
-        
-        // Wait for reactivity to settle since storage event triggers an async provider read inside boundStore
-        await new Promise(resolve => setTimeout(resolve, 50));
-        flushSync();
-        
-        expect(site.root.textContent).toContain('world');
+        window.dispatchEvent(new StorageEvent('storage', { key: storageKey, newValue }));
+
+        await until(() => shown() === 'world', 'the other tab\'s value');
     });
 });

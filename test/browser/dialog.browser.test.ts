@@ -14,121 +14,89 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { userEvent } from '@vitest/browser/context';
 import '../../src/kernel.css';
 
-import {
-    commandAction as command, dialog, element, flushSync, needs, provider, text,
-    type Application, type Context, type ProviderToken, type ViewContext, type ViewDecl, KEEPS_NOTHING,
-} from '../../src/index.js';
-import { cleanup, mountPart } from '../../src/testing/index.js';
+import { App, dialog, element, flushSync, mountSite, signal, text, View, type MountedApp, type Node } from '../../src/index.js';
 
-interface DialogApi {
-    readonly dialog1Open: () => boolean;
-    readonly dialog2Open: () => boolean;
-    open1(): void;
-    close1(): void;
-    open2(): void;
-    close2(): void;
-}
+/**
+ * The page under test, as an app-model View: which dialog is open is the view's own state, and
+ * every button's handler is the view's own. (As a legacy Application this was a provider token,
+ * four declared commands and four `implement` calls for the same two booleans.)
+ */
+class DialogPage extends View({}) {
+    readonly first = signal(false);
+    readonly second = signal(false);
 
-const DIALOG_TOKEN: ProviderToken<DialogApi> = provider<DialogApi>('test.dialog');
-const DIALOG_NEEDS = needs('state', 'commands', 'windows');
-
-class DialogTestApp implements Application<typeof DIALOG_NEEDS, readonly [], typeof DIALOG_TOKEN> {
-    readonly needs = DIALOG_NEEDS;
-    readonly provides = DIALOG_TOKEN;
-
-    readonly commands = [
-        { id: 'dialog.open1', title: 'Open Dialog 1' },
-        { id: 'dialog.close1', title: 'Close Dialog 1' },
-        { id: 'dialog.open2', title: 'Open Dialog 2' },
-        { id: 'dialog.close2', title: 'Close Dialog 2' },
-    ];
-
-    readonly views = [
-        {
-            id: 'main',
-            title: 'Dialog Test View',
-            instances: 'one' as const,
-            window: { defaultSize: { width: 600, height: 500 } },
-            render: (vx: ViewContext<Record<string, never>, Record<string, never>, DialogApi>) =>
-                element('Stack', {
-                    props: { class: 'page-content' },
+    render(): Node {
+        return element('Stack', {
+            props: { class: 'page-content' },
+            children: [
+                element('Button', {
+                    props: { id: 'open-dialog-1-btn' },
+                    intents: { activate: { action: this.on(() => this.first.set(true)) } },
+                    children: [text('Open Dialog 1')],
+                }),
+                element('Button', {
+                    props: { id: 'behind-page-btn' },
+                    children: [text('Control Behind Dialog')],
+                }),
+                dialog({
+                    open: () => this.first(),
+                    props: { class: 'modal-1' },
+                    intents: { dismiss: { action: this.on(() => this.first.set(false)) } },
                     children: [
                         element('Button', {
-                            props: { id: 'open-dialog-1-btn' },
-                            intents: { activate: { action: command('dialog.open1') } },
-                            children: [text('Open Dialog 1')],
+                            props: { id: 'dialog-1-btn-1' },
+                            children: [text('Dialog 1 First Action')],
                         }),
                         element('Button', {
-                            props: { id: 'behind-page-btn' },
-                            children: [text('Control Behind Dialog')],
+                            props: { id: 'dialog-1-open-2-btn' },
+                            intents: { activate: { action: this.on(() => this.second.set(true)) } },
+                            children: [text('Open Dialog 2')],
+                        }),
+                        element('Button', {
+                            props: { id: 'dialog-1-close-btn' },
+                            intents: { activate: { action: this.on(() => this.first.set(false)) } },
+                            children: [text('Close Dialog 1')],
                         }),
                         dialog({
-                            open: () => vx.app.dialog1Open(),
-                            props: { class: 'modal-1' },
-                            intents: { dismiss: { action: command('dialog.close1') } },
+                            open: () => this.second(),
+                            props: { class: 'modal-2' },
+                            intents: { dismiss: { action: this.on(() => this.second.set(false)) } },
                             children: [
                                 element('Button', {
-                                    props: { id: 'dialog-1-btn-1' },
-                                    children: [text('Dialog 1 First Action')],
+                                    props: { id: 'dialog-2-btn-1' },
+                                    children: [text('Dialog 2 First Action')],
                                 }),
                                 element('Button', {
-                                    props: { id: 'dialog-1-open-2-btn' },
-                                    intents: { activate: { action: command('dialog.open2') } },
-                                    children: [text('Open Dialog 2')],
-                                }),
-                                element('Button', {
-                                    props: { id: 'dialog-1-close-btn' },
-                                    intents: { activate: { action: command('dialog.close1') } },
-                                    children: [text('Close Dialog 1')],
-                                }),
-                                dialog({
-                                    open: () => vx.app.dialog2Open(),
-                                    props: { class: 'modal-2' },
-                                    intents: { dismiss: { action: command('dialog.close2') } },
-                                    children: [
-                                        element('Button', {
-                                            props: { id: 'dialog-2-btn-1' },
-                                            children: [text('Dialog 2 First Action')],
-                                        }),
-                                        element('Button', {
-                                            props: { id: 'dialog-2-close-btn' },
-                                            intents: { activate: { action: command('dialog.close2') } },
-                                            children: [text('Close Dialog 2')],
-                                        }),
-                                    ],
+                                    props: { id: 'dialog-2-close-btn' },
+                                    intents: { activate: { action: this.on(() => this.second.set(false)) } },
+                                    children: [text('Close Dialog 2')],
                                 }),
                             ],
                         }),
                     ],
                 }),
-        },
-    ] as readonly ViewDecl<Record<string, never>, Record<string, never>, DialogApi>[];
-
-    async start(cx: Context<typeof DIALOG_NEEDS>): Promise<{ api: DialogApi } & typeof KEEPS_NOTHING> {
-        const d1 = cx.state.signal(false);
-        const d2 = cx.state.signal(false);
-
-        const api: DialogApi = {
-            dialog1Open: () => d1(),
-            dialog2Open: () => d2(),
-            open1: () => d1.set(true),
-            close1: () => d1.set(false),
-            open2: () => d2.set(true),
-            close2: () => d2.set(false),
-        };
-
-        cx.commands.implement('dialog.open1', () => api.open1());
-        cx.commands.implement('dialog.close1', () => api.close1());
-        cx.commands.implement('dialog.open2', () => api.open2());
-        cx.commands.implement('dialog.close2', () => api.close2());
-
-        cx.windows.open({ view: 'main' });
-        return { ...KEEPS_NOTHING, api };
+            ],
+        });
     }
 }
 
+class DialogTestApp extends App({ routes: { '/': DialogPage } }) {}
+
+let root: HTMLElement | undefined;
+let original = '';
+
+function mountDialogs(): MountedApp {
+    original = `${location.pathname}${location.search}`;
+    history.replaceState(null, '', '/');
+    root = document.createElement('div');
+    document.body.appendChild(root);
+    return mountSite(DialogTestApp, { root });
+}
+
 afterEach(() => {
-    cleanup();
+    root?.remove();
+    root = undefined;
+    history.replaceState(null, '', original);
 });
 
 const tick = (): Promise<void> =>
@@ -136,9 +104,7 @@ const tick = (): Promise<void> =>
 
 describe('dialog and focus trap in a real browser', () => {
     it('opens and closes from declared state, and content is not in tree when closed', async () => {
-        const site = await mountPart({
-            parts: [{ id: 'app', contribution: DialogTestApp }],
-        });
+        const site = mountDialogs();
         await tick();
 
         const openBtn = document.querySelector<HTMLElement>('#open-dialog-1-btn')!;
@@ -173,9 +139,7 @@ describe('dialog and focus trap in a real browser', () => {
     });
 
     it('focus enters on open and returns to the opener on close', async () => {
-        const site = await mountPart({
-            parts: [{ id: 'app', contribution: DialogTestApp }],
-        });
+        const site = mountDialogs();
         await tick();
 
         const openBtn = document.querySelector<HTMLElement>('#open-dialog-1-btn')!;
@@ -204,9 +168,7 @@ describe('dialog and focus trap in a real browser', () => {
     });
 
     it('Tab cannot reach anything behind it', async () => {
-        const site = await mountPart({
-            parts: [{ id: 'app', contribution: DialogTestApp }],
-        });
+        const site = mountDialogs();
         await tick();
 
         const openBtn = document.querySelector<HTMLElement>('#open-dialog-1-btn')!;
@@ -245,9 +207,7 @@ describe('dialog and focus trap in a real browser', () => {
     });
 
     it('Escape closes and the opener state reflects it', async () => {
-        const site = await mountPart({
-            parts: [{ id: 'app', contribution: DialogTestApp }],
-        });
+        const site = mountDialogs();
         await tick();
 
         const openBtn = document.querySelector<HTMLElement>('#open-dialog-1-btn')!;
@@ -275,9 +235,7 @@ describe('dialog and focus trap in a real browser', () => {
     });
 
     it('two dialogs stack in top layer without a z-index anywhere in the CSS', async () => {
-        const site = await mountPart({
-            parts: [{ id: 'app', contribution: DialogTestApp }],
-        });
+        const site = mountDialogs();
         await tick();
 
         const openBtn1 = document.querySelector<HTMLElement>('#open-dialog-1-btn')!;

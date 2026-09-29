@@ -1,492 +1,155 @@
 /**
- * `start(composition)` — the kernel's entry point.
+ * `start(composition)` — the kernel's entry point, and the one mesh-serve's boot script calls.
  *
- * ## What this replaces
+ * ## What it boots
  *
- * `surfdns-console/src/main.ts` was 140 lines and **almost none of it was about that console**: a
- * `WindowManager`, four settings hives and their providers, `windowPersistence`, a mesh client wired
- * through `withHeaders`, a component registry, `mountPage`, an effect rendering notifications, and a
- * resize listener. Identical on every site, hand-written on every site, and wrong in a different way
- * on each one.
- *
- * The cdn generates a page per site and could have generated those 140 lines too. It must not: a
- * generator that tracks another package's internals is a second copy of that package, updated
- * whenever this one changes. So the split is **the cdn generates a composition, the kernel knows how
- * to run one** — and this is the function that makes that split possible.
- *
- * What a generated boot module looks like afterwards:
+ * An App (docs/app-model.md). The generated boot module is unchanged from the part era:
  *
  * ```js
  * import { start } from '/_a/9f2c1a/index.js';
  * import part0 from '/_a/3ab77e/index.js';
  *
  * start({
- *     application: 'surfdns-console',
+ *     application: 'company-site',
  *     api: document.documentElement.dataset.api ?? '',
- *     policy: { 'window-manager/mode': 'tiled' },
- *     parts: [{ id: 'chrome', contribution: part0 }],
+ *     policy: { 'window-manager/mode': 'single' },
+ *     parts: [{ id: 'company-site', contribution: part0 }],
  * });
  * ```
  *
- * ## The five undeclared contracts it removes
+ * `start` finds the part whose default export is an App and boots it: its `needs` become a real
+ * context, then it mounts as a single-page site — or, when the site's policy asks for windows, as a
+ * desktop. Anything else in `parts` is from the legacy model (Applications, Extensions), which no
+ * longer boots; it is reported, not silently dropped (phase 5c, A1).
  *
- * A hand-written page and a bundle agreed on five things that nothing declared and nothing checked:
- * a `#console` element, a `#notifications` element, a stylesheet defining `.window` and `.titlebar`,
- * an import map, and `data-api`. Getting one wrong rendered a blank or half-styled page with no error
- * naming the cause.
+ * ## The undeclared contracts it removes
  *
- * Three of them are gone here: **the kernel creates what it mounts into**, it mounts its own
- * notification surface, and it reads the API from the document rather than being told twice. The
- * import map and the stylesheet stay with the page, where they belong — they are what a browser
- * needs before any of this runs.
+ * A hand-written page and a bundle once agreed on things nothing declared: a `#console` element, a
+ * `#notifications` element, `data-api`. **The kernel creates what it mounts into**, mounts its own
+ * notification surface, and reads the API from the document rather than being told twice. The import
+ * map and the stylesheet stay with the page — they are what a browser needs before any of this runs.
  */
 
-import type { ErasedContribution } from '../contribution/contract.js';
 import type { ProviderToken } from '../contribution/provider.js';
 import { effect } from '../reactivity/index.js';
-import { createRegistry as createComponents, PRIMITIVES } from '../render/component.js';
-import type { ComponentRegistry } from '../render/component.js';
 import { IoManager } from './io.js';
 import { STORAGE } from '../registry/storage-driver.js';
 import { HOST_WINDOW_DRIVER, ONLINE_DRIVER } from './drivers.js';
 import { createHostWindowDriver, createOnlineDriver } from './default-drivers.js';
-import { createDomRenderer, RENDERER, type Dispatcher } from '../render/index.js';
 import { createClient, fetchTransport, withHeaders } from '../net/client.js';
 import { createFetchEventSource } from '../net/eventsource.js';
 import type { MeshClient } from '../net/client.js';
 import type { AnyApiCall, Api } from '../net/api.js';
-import { SettingLocked, createRegistry as createSettings } from '../registry/registry.js';
-import type { Registry } from '../registry/registry.js';
 import type { BuildPolicy, HiveBindings } from '../registry/hives.js';
 import { localProvider, memoryProvider } from '../registry/providers.js';
 import { domConfirm } from './confirm.js';
-import { mountPage, PAGE_CHROME, windowHostComponent } from '../window/page.js';
-import type { Page } from '../window/page.js';
-import { pageWindowMode, windowPersistence } from '../window/persistence.js';
-import type { RememberedWindow, WindowPersistence } from '../window/persistence.js';
-import { windowSink } from '../window/sink.js';
-import { WindowManager } from '../window/manager.js';
-import { browserHistory, routerSink } from '../router/router.js';
-import type { Action, IntentValue } from '../description/types.js';
-import { bindingTable, KERNEL_WINDOW_BINDINGS } from '../input/keys.js';
-import { createContext, createServices } from './broker.js';
+import { createContext, createServices, type KernelServices } from './broker.js';
 import { mountSite, type MountedApp } from '../app/site.js';
 import { mountDesktop, type MountedDesktop } from '../app/desktop.js';
 import type { AppClass } from '../app/runtime.js';
-import { Kernel, type Loaded } from './kernel.js';
-import { kernelLog, mountLogViewer, reasonOf, type KernelLog, type LogViewer } from './logs.js';
+import { kernelLog, mountLogViewer, reasonOf, type LogViewer } from './logs.js';
 
-/**
- * One part, as the page hands it over.
- *
- * `contribution` is a **class or an instance**, and accepting both is not laziness. Extracting the
- * first real Extension showed why: `AuthExtension` takes `endpoints` and a ticket `store`, which are
- * the *site's* decisions, so the package cannot construct itself and its default export has to be
- * the constructor. A part that needs nothing exports an instance just as reasonably. The kernel is
- * the only thing holding both the class and the site's options, so it is the only thing that can
- * join them.
- */
+/** One part in a composition: an id, the module's default export, and the site's options for it. */
 export interface PartRef {
     readonly id: string;
-    /**
-     * `never[]` and not `(options?: unknown)`, which is what this said until a real part broke it.
-     *
-     * Constructor parameters are **contravariant**: a class taking `{ endpoints?: … }` is *not*
-     * assignable to one taking `unknown`, because `unknown` is wider than what it accepts. So the
-     * first version rejected every part with a typed constructor — which is every realistic part,
-     * since taking options is the reason a part exports a constructor at all.
-     *
-     * It typechecked because the fixture that tested it took `unknown` too. A type tested only
-     * against a shape built to satisfy it is a type that has not been tested. Found by the first
-     * part written by somebody else.
-     */
-    readonly contribution: ErasedContribution | (new (...args: never[]) => ErasedContribution);
-    /** Passed to the constructor. From the site record, never from the part. */
+    /** The default export. An App class is booted; anything else is reported and not booted. */
+    readonly contribution: unknown;
+    /** From the site record, never from the part. */
     readonly options?: unknown;
 }
 
 export interface Composition {
-    /** Namespaces this page's settings, so two Applications cannot collide in one backing store. */
+    /** Names this page — in logs, and for anything that namespaces by site. */
     readonly application: string;
     /**
      * Where `mesh` sends requests. `''` means same origin.
      *
-     * The one value a page cannot discover at run time, and the reason the generated boot module
-     * reads it from `data-api` rather than having it baked in: one part artifact serves every site.
+     * The one value a page cannot discover at run time; absent, it is read from `data-api` on
+     * `<html>`, so one part artifact serves every site.
      */
     readonly api?: string;
     /**
-     * Values frozen into this deployment.
-     *
-     * Not a setting: resolved first and unwritable. `{ 'window-manager/mode': 'tiled' }` is how a
-     * blog is locked, and locking it needs no mechanism in the window manager — a locked deployment
-     * writes the setting as policy and it becomes one nobody can change.
+     * Values frozen into this deployment. `{ 'window-manager/mode': 'windowed' }` (or `'tiled'`) boots
+     * the App as a desktop; anything else, or nothing, as a single-page site.
      */
     readonly policy?: BuildPolicy;
-    readonly parts: readonly (PartRef | AppPartRef)[];
-    /**
-     * Where to mount.
-     *
-     * **Created if absent**, which is the point: a page should not have to contain an element for a
-     * bundle to find by id. That contract was undeclared, unchecked, and rendered a blank page when
-     * it was wrong.
-     */
+    readonly parts: readonly PartRef[];
+    /** Where to mount. **Created if absent**: a page should not have to contain an element for a bundle to find. */
     readonly root?: Element;
     /**
-     * Which Applications to open, and which views of each.
-     *
-     * Absent means **every Application in the composition, with no views open**. A bare kernel
-     * showing nothing is correct — and a desktop with nothing on it is also indistinguishable from
-     * one that failed, which is why a site says what to open.
+     * Legacy: which Applications to open. Accepted so an existing boot script still runs; an App opens
+     * whatever its URL routes to, so there is nothing for this to do.
      */
     readonly open?: readonly { readonly application: string; readonly views?: readonly string[] }[];
-    /** Injected by a test that would rather not touch `window`. */
-    readonly window?: { addEventListener(type: 'resize', fn: () => void): void };
     readonly hives?: HiveBindings;
     readonly logCapacity?: number;
 }
 
+/** What `start` returns. */
 export interface Started {
-    readonly kind: 'parts';
-    readonly kernel: Kernel;
-    readonly manager: WindowManager;
-    readonly page: Page;
-    readonly settings: Registry;
-    readonly components: ComponentRegistry;
+    readonly kind: 'app';
+    /** The page's services — logs, notifications, credentials — and its drivers. */
+    readonly services: KernelServices;
+    readonly io: IoManager;
+    /** The single-page site, or — when the policy asks for windows — the desktop (it has a `manager`). */
+    readonly site: MountedApp | MountedDesktop;
+    /** The kernel's log panel (ctrl+alt+q). */
     readonly logViewer: LogViewer;
-    /**
-     * Resolves when the Applications named in `open` have started.
-     *
-     * Separate from the return, because **the page mounts synchronously and an Application starts
-     * asynchronously**. Waiting for the second before returning the first would leave a blank screen
-     * for as long as the slowest `start()` takes, which is exactly when a user most wants to see
-     * that something is happening.
-     */
+    /** Resolved: an App's first view is mounted synchronously. Kept so a boot script can await either way. */
     readonly ready: Promise<void>;
     dispose(): void;
 }
 
-/**
- * Every existing typed caller composes legacy parts and gets `Started`; a composition that may
- * hold an App gets the union, because that is what it may really return. mesh-serve's boot script is
- * untyped and takes either.
- */
-export function start(composition: Composition & { readonly parts: readonly PartRef[] }): Started;
-export function start(composition: Composition): Started | StartedApp;
-export function start(composition: Composition): Started | StartedApp {
+/** Whether a part's default export is an App (docs/app-model.md). */
+export function isAppClass(contribution: unknown): contribution is AppClass {
+    return typeof contribution === 'function' && 'kind' in contribution && contribution.kind === 'app';
+}
+
+export function start(composition: Composition): Started {
     const doc = composition.root?.ownerDocument ?? globalThis.document;
-    const root = composition.root ?? mountRoot(doc);
     const api = composition.api ?? readApi(doc);
 
-    // An app-model App boots on its own path (docs/app-model.md, phase 5a). The boot script
-    // mesh-serve writes is unchanged: it still hands `start` a list of default-exported classes.
-    const legacy: PartRef[] = [];
-    for (const part of composition.parts) {
-        if (isAppPart(part)) return startApp(part.contribution, part.id, composition, doc, root, api);
-        legacy.push(part);
+    const apps = composition.parts.filter((part) => isAppClass(part.contribution));
+    const legacy = composition.parts.filter((part) => !isAppClass(part.contribution)).map((part) => part.id);
+    const first = apps[0];
+    if (first === undefined || !isAppClass(first.contribution)) {
+        throw new Error(
+            `${composition.application}: no part is an App, so there is nothing to boot` +
+            (legacy.length > 0 ? ` (${legacy.join(', ')} ${legacy.length === 1 ? 'is' : 'are'} from the legacy part model, which no longer boots).` : '.'),
+        );
     }
 
-    const manager = new WindowManager({
-        width: root.clientWidth,
-        height: root.clientHeight,
-    });
-
-    const kernel = createPageKernel(composition, doc, api);
-    const services = kernel.services;
-    const hives = kernel.io.resolve(STORAGE);
-
-    /**
-     * Four hives, and where each is backed.
-     *
-     * `device` on `localStorage`, which is what makes a reload remember where a window was left —
-     * geometry belongs to a screen and should never follow someone between them. `system` is memory
-     * and unwritable, standing in for a hive a deployment fills from the server.
-     */
-    const settings = createSettings({
-        namespace: composition.application,
-        ...(composition.policy === undefined ? {} : { policy: composition.policy }),
-        hives,
-        onError: (error, { path }) => {
-            kernel.services.logs.push({ level: 'warn', source: 'registry', message: path, data: error });
-        },
-    });
-
-    const pagePolicy = settings.resolution(pageWindowMode)();
-    if (pagePolicy.locked || pagePolicy.from !== undefined) {
-        manager.setMode(pagePolicy.value);
+    // A root `start` made is `start`'s to remove; one it was given belongs to the page.
+    const created = composition.root === undefined;
+    const root = composition.root ?? mountRoot(doc);
+    const page = createPage(composition, doc, api);
+    const log = kernelLog(page.services.logs);
+    if (legacy.length > 0) {
+        log.warn(`Not booted — legacy parts: ${legacy.join(', ')}. Only an App boots.`, { part: first.id });
     }
-
-    /**
-     * Window geometry across reloads.
-     *
-     * **The return value used to be discarded**, and that was the whole bug: `windowPersistence`
-     * builds a complete mechanism — debounced saves, a restore that the boot sequence can await, a
-     * mode setting backed by the `device` hive on `localStorage` — and it does none of it until
-     * something calls `watch()`. Constructed and dropped, it wrote nothing and read nothing back,
-     * so `localStorage` stayed empty and every window came back at its cascade position.
-     *
-     * `watch()` here; the restore is applied in `open()` below, after the Applications that own
-     * those windows have started — a geometry for a view whose Application is not running has
-     * nothing to be applied to.
-     */
-    const persistence = windowPersistence({
-        manager, registry: settings, application: composition.application,
-    });
-    const stopPersisting = persistence.watch();
-
-    kernel.services.windows = windowSink(manager, (owner, view) => kernel.viewOf(owner, view));
-
-    /**
-     * Wired here, before `boot()`, for the same reason `windowSink` is: `services.router` must never
-     * change identity after an Extension's `activate()` has captured it (see `routerSink`'s own
-     * comment for the render-reactivity bug that found this the hard way). `doc.defaultView` is
-     * `null` for a document with no browsing context (most of this repository's own tests), which
-     * leaves `services.router` at the `recordingRouter()` default from `createServices` — the
-     * correct no-op for a headless run.
-     */
-    const win = doc.defaultView;
-    const router = win === null ? undefined : routerSink(kernel, manager, browserHistory(win));
-    if (router !== undefined) kernel.services.router = router;
-
-
-    /**
-     * **A constructor that throws is one missing part, not a blank page.**
-     *
-     * This was a `map` straight into `boot`, so one part whose constructor threw — a bad option
-     * from the site record, a typo in a class body — escaped `start()` before the log panel was
-     * mounted. The page was blank, the reason was in a console nobody had open, and ctrl+alt+q had
-     * nothing to open. Everything else here already holds that one broken part must not take the
-     * site with it (`open` below, `Kernel.#activate`); construction was the exception.
-     */
-    const log = kernelLog(kernel.services.logs);
-    const loaded: Loaded[] = [];
-    const unconstructed: string[] = [];
-    for (const part of legacy) {
-        try {
-            loaded.push({ id: part.id, contribution: construct(part) });
-        } catch (cause) {
-            unconstructed.push(part.id);
-            log.error(
-                `${part.id} could not be constructed: ${reasonOf(cause)}. The page boots without it.`,
-                { part: part.id },
-            );
-        }
+    if (apps.length > 1) {
+        log.warn(`More than one App in the composition; booting ${first.id} only.`, { part: first.id });
     }
-    kernel.boot(loaded);
-
-    const components = createComponents(PRIMITIVES);
-    components.register(windowHostComponent);
-    for (const { decl } of kernel.manifest.components.values()) {
-        components.register(decl);
-    }
-
-    if (kernel.io.get(RENDERER) === undefined) {
-        const renderer = createDomRenderer(components);
-        kernel.io.register(RENDERER, renderer);
-    }
-
-    const run = (action: Action): void => {
-        if (action.kind !== 'command') return;
-        void kernel.services.commands.get(action.id)?.run(...(action.args ?? []));
-    };
-
-    /**
-     * The page: chrome around a window host, both from contributions.
-     *
-     * `mountPage` asks the kernel for whatever provides `PAGE_CHROME`, renders it, finds where that
-     * put its window host, and mounts the window layer there. Chrome that forgot the host throws at
-     * boot rather than rendering a page with no windows — which is the right time to find out.
-     */
-    const chrome = kernel.provided(PAGE_CHROME);
-
-    /**
-     * `run` alone, kept as `onCommand` below (every window already resolves its own `handler`
-     * actions locally, in `window/host.ts`'s `mountView`, and only ever forwards a `command` up to
-     * here) -- but chrome's own render tree isn't a window, so nothing resolves a `handler` action
-     * chrome produces unless chrome itself can. `chrome.handlers`, when present, is exactly that:
-     * the table `createHandlerTable().on` registered into, handed back the same way `api` is.
-     */
-    const pageDispatch: Dispatcher = {
-        dispatch(action: Action, value?: IntentValue): void {
-            if (action.kind === 'handler') {
-                chrome?.handlers?.invoke(action.id, value);
-                return;
-            }
-            run(action);
-        },
-    };
-
-    const page = mountPage(root, {
-        manager,
-        ...(chrome === undefined ? {} : { chrome }),
-        viewOf: (owner, view) => {
-            const process = kernel.processes.find((p) => p.pid === owner);
-            return process === undefined ? undefined : kernel.viewOf(process.pid, view);
-        },
-        partOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.applicationId,
-        apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
-        internalOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.internal,
-        isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',
-        /**
-         * **Drivers first, then what an Extension provided.**
-         *
-         * Two registries answer one question, and the order is the policy: a subsystem with a driver
-         * installed is answered by the driver, and `provided` remains what a *part* contributed. They
-         * are separate on purpose — `io` is the platform seam and `providers` is the contribution
-         * graph — so a part cannot shadow the renderer by providing the same token.
-         *
-         * `??` and not `||`: a driver may legitimately be a falsy value, and `||` would fall through
-         * to the provider graph for one.
-         */
-        resolve: <T>(token: ProviderToken<T>): T | undefined => kernel.io.get(token) ?? kernel.provided(token),
-        /**
-         * `pageDispatch`, not a bare `run` — that's the whole reason a form works inside chrome
-         * (v0.17.2, "PageChrome resolves its own handler actions"). The renderer registered onto
-         * `kernel.io` above already closed over `components`, so this call site only needs to supply
-         * dispatch, but it still has to be the one that forwards `{ kind: 'handler' }` to
-         * `chrome.handlers`, not the one that silently drops it.
-         */
-        renderOptions: { dispatch: pageDispatch },
-        onCommand: run,
-    });
-
-    const logViewer = mountLogViewer(doc, root, kernel.services.logs);
-    const notifications = mountNotifications(doc, root, kernel);
-    const keys = mountKeys(doc, kernel, manager, persistence, logViewer);
-
-    // A resize is the viewport changing under the manager, which clamps every window back inside it.
-    // In single mode there is nothing to re-measure.
-    const host = composition.window ?? globalThis.window;
-    let lastMode = manager.mode();
-
-    /**
-     * **Measure the window host, not the mount root.**
-     *
-     * Windows are positioned absolutely inside `[data-mesh-window-host]`, which in a page with
-     * chrome sits *below* the bar inside a flex column. Measuring `root` gave the full page height,
-     * so `maximize()` produced a rect taller than the area it was applied to and every maximised
-     * window ran off the bottom by exactly the bar's height.
-     *
-     * It also went unnoticed because it is invisible without chrome: with no bar the host and the
-     * root are the same box, which is every test in this repository and the demo sites. It appeared
-     * the moment a real shell was on the page.
-     *
-     * Falls back to `root` when there is no host yet — during boot, before the page is built.
-     */
-    const measured = (): { width: number; height: number } => {
-        const area = root.querySelector('[data-mesh-window-host]') ?? root;
-        return { width: area.clientWidth, height: area.clientHeight };
-    };
-
-    /**
-     * Publish the measurement, then give it to the window manager.
-     *
-     * **The order and the two callers are the point.** This number has been measured since the
-     * beginning and handed to exactly one consumer, so the only thing on the page that could react
-     * to how much room there was, was the thing that draws windows. A chrome deciding whether to
-     * draw windows at all could not see it — which is how a phone ends up with a desktop.
-     *
-     * `services.displaySize` is written unconditionally; `setViewport` keeps its `single` guard,
-     * because a maximised single window deliberately ignores the viewport and re-measuring it there
-     * would fight that. The surface is a fact and should be published in every mode; what the
-     * window manager does with it is the window manager's business.
-     */
-    const publish = () => {
-        const size = measured();
-        services.displaySize.set(size);
-        if (manager.mode() !== 'single') manager.setViewport(size);
-    };
-
-    const onResize = () => { publish(); };
-    host?.addEventListener('resize', onResize);
-
-    /**
-     * Measure once, now.
-     *
-     * Nothing else does. `resize` fires when the window changes and the `ResizeObserver` fires when
-     * the host box changes — neither is guaranteed on a page that simply loads and sits there, so
-     * without this the surface stays 0×0 until somebody drags something. A chrome asking *how much
-     * room is there* at boot would be told none, and would reasonably draw the narrow layout on a
-     * desktop.
-     */
-    publish();
-
-    /**
-     * The bar's own height changes — a sign-in form opening, a window title growing, tabs wrapping —
-     * and none of that fires a window `resize`. A `ResizeObserver` on the host is the only thing
-     * that sees it, and without one a maximised window stays sized to a layout that has moved.
-     */
-    const observed = root.querySelector('[data-mesh-window-host]');
-    const areaObserver = observed !== null && typeof ResizeObserver === 'function'
-        ? new ResizeObserver(() => { publish(); })
-        : undefined;
-    if (observed !== null) areaObserver?.observe(observed);
-
-    const stopTracking = effect(() => {
-        const currentMode = manager.mode();
-        if (lastMode === 'single' && currentMode !== 'single') {
-            // Leaving single mode: re-measure viewport to restore windowed / tiled layout
-            manager.setViewport(measured());
-        }
-        lastMode = currentMode;
-    });
-
-
-    // @ts-ignore
-    window.kernel = kernel;
-
-    /**
-     * The router itself is wired above, before `boot()`. What waits for `open()` is only its
-     * *first real value* — `kernel.processes` (which `current`'s foreground lookup depends on) is
-     * empty until every Application named in `open` has actually started, so a `resync()` any earlier
-     * would just seed `current` with nothing running yet.
-     */
-    const ready = open(kernel, composition, manager, persistence, log, unconstructed).then(() => {
-        router?.resync();
-    });
-
+    const started = startApp(first.contribution, first.id, composition, page, doc, root);
+    if (!created) return started;
     return {
-        kind: 'parts', kernel, manager, page, settings, components, logViewer,
-        ready,
+        ...started,
         dispose() {
-            stopPersisting();
-            stopTracking();
-            keys();
-            router?.dispose();
-            page.dispose();
-            notifications.remove();
-            logViewer.dispose();
-            if (host !== undefined && 'removeEventListener' in host && typeof host.removeEventListener === 'function') {
-                host.removeEventListener('resize', onResize);
-            }
+            started.dispose();
+            root.remove();
         },
     };
 }
 
-// ---------------------------------------------------------------------------- the pieces
+// ---------------------------------------------------------------------------- the page's services
 
-/**
- * A class becomes an instance; an instance is left alone.
- *
- * Detected by `prototype`, not by `typeof === 'function'`: an arrow function is a function and is not
- * a constructor, and calling `new` on one throws in a way that reads as a kernel bug rather than as
- * a part exporting the wrong thing.
- */
-function construct(part: PartRef): ErasedContribution {
-    const value = part.contribution;
-
-    if (typeof value === 'function' && (value as { prototype?: unknown }).prototype !== undefined) {
-        return new (value as new (options?: unknown) => ErasedContribution)(part.options);
-    }
-    return value as ErasedContribution;
+interface Page {
+    readonly services: KernelServices;
+    readonly io: IoManager;
 }
 
-/** The element the page did not have to contain. */
-/**
- * The page's kernel services — storage hives, drivers, the API client, logs, credentials — shared by
- * both boot paths, so an App gets the same capabilities a legacy part did, built the same way.
- */
-function createPageKernel(composition: Composition, doc: Document, api: string): Kernel {
+/** The page's services — storage hives, drivers, the API client, logs, credentials. */
+function createPage(composition: Composition, doc: Document, api: string): Page {
     const io = new IoManager();
     if (io.get(STORAGE) === undefined) {
         const hives = composition.hives ?? {
@@ -501,7 +164,7 @@ function createPageKernel(composition: Composition, doc: Document, api: string):
     }
     const hives = io.resolve(STORAGE);
 
-    const services = createServices(undefined, {
+    const services: KernelServices = createServices(undefined, {
         apiOrigin: api,
         hives,
         logCapacity: composition.logCapacity,
@@ -509,146 +172,137 @@ function createPageKernel(composition: Composition, doc: Document, api: string):
         // `confirmation` is worth having.
         confirm: domConfirm(doc),
         /**
-         * **Live collections, which until now were switched off on every real page.**
+         * **Live collections, which until this was supplied were switched off on every real page.**
          *
          * `createModels` takes an `eventSource` factory and passes it to `createEventStreamClient`,
          * which returns `{ isAvailable: false }` when there is none — and a collection is only
-         * streamed when `isAvailable`. Nothing in this file ever supplied one. So the whole
-         * mechanism — `<name>.created|updated|deleted`, refetch on reconnect, the reason
-         * `models.ts` has 40 lines of subscription code — was dead in every deployed site, silently,
-         * because a list that never updates looks exactly like a list nothing changed.
+         * streamed when `isAvailable`. Nothing supplied one, so `<name>.created|updated|deleted` and
+         * refetch-on-reconnect were dead in every deployed site, silently, because a list that never
+         * updates looks exactly like a list nothing changed.
          *
-         * It is `createFetchEventSource` rather than the browser's `EventSource` because `/events`
-         * is gated and the native class **cannot send a header**. A gated stream needs the ticket,
-         * and the alternative — the ticket in the query string — writes a live credential into
-         * every access log between here and the server. The headers are read per attempt, not
-         * captured once, so a reconnect after a sign-in uses the ticket that exists then.
+         * `createFetchEventSource` rather than the browser's `EventSource` because `/events` is gated
+         * and the native class **cannot send a header**; a ticket in the query string would write a
+         * live credential into every access log on the way. Headers are read per attempt, so a
+         * reconnect after a sign-in uses the ticket that exists then.
          */
         eventSource: (url) => createFetchEventSource(url, {
-            headers: () => kernel.services.credentials.headers?.() ?? {},
+            headers: () => services.credentials.headers?.() ?? {},
         }),
     });
-    const kernel = new Kernel({ services, io });
 
     /**
      * How a declared API becomes a client, and the one place a credential could be handled.
      *
-     * It is not handled here either: `withHeaders` takes a *function*, and the auth Extension fills
-     * it in through `needs('credentials')`. This installs the seam and never looks through it, which
-     * is the whole of *an Application never handles a credential* — it calls `cx.mesh.call(...)` and
-     * its request carries a ticket it has never seen.
+     * It is not handled here either: `withHeaders` takes a *function*, filled through
+     * `needs('credentials')` (the company site's `AuthService`). This installs the seam and never
+     * looks through it — a view calls `cx.mesh.call(...)` and its request carries a ticket it has
+     * never seen.
      */
-    kernel.services.meshClient = (declared) => createClient(declared as Api<Record<string, AnyApiCall>>, {
+    services.meshClient = (declared) => createClient(declared as Api<Record<string, AnyApiCall>>, {
         transport: withHeaders(
             fetchTransport(api),
-            () => kernel.services.credentials.headers?.() ?? {},
+            () => services.credentials.headers?.() ?? {},
         ),
     }) as MeshClient<unknown>;
 
-    return kernel;
+    return { services, io };
 }
 
-// ---------------------------------------------------------------------------- app-model boot
-
-/** What `start` returns for an app-model App. */
-export interface StartedApp {
-    readonly kind: 'app';
-    readonly kernel: Kernel;
-    /** The single-page site, or — when the policy asks for windows — the desktop (it has a `manager`). */
-    readonly site: MountedApp | MountedDesktop;
-    /** Resolved: an App's first view is mounted synchronously. Here so both boot results can be awaited alike. */
-    readonly ready: Promise<void>;
-    dispose(): void;
-}
-
-/** A part whose default export is an app-model App. The kernel constructs it — never `new`. */
-export interface AppPartRef {
-    readonly id: string;
-    readonly contribution: AppClass;
-    readonly options?: unknown;
-}
-
-/** Whether a part's default export is an app-model App (docs/app-model.md), not a legacy part. */
-export function isAppClass(contribution: unknown): contribution is AppClass {
-    return typeof contribution === 'function' && 'kind' in contribution && contribution.kind === 'app';
-}
-
-function isAppPart(part: PartRef | AppPartRef): part is AppPartRef {
-    return isAppClass(part.contribution);
-}
+// ---------------------------------------------------------------------------- booting the App
 
 /**
- * Boot an App (docs/app-model.md, phases 5a and 5b).
- *
- * The App's `needs` become a real context through `createContext` — the same broker a legacy part
- * went through — so `cx.mesh` is a client for the App's declared API with the page's credentials,
- * `cx.storage` is the page's hives, `cx.notifications` reaches the kernel's own surface below. That
- * context is the grant the runtime projects to every service, view and component.
- *
- * A website by default; the site's `window-manager/mode` policy set to `windowed` or `tiled` boots
- * the same App as a desktop instead (`mountDesktop`), its routes as windows.
+ * The App's `needs` become a real context through the broker's `createContext`, so `cx.mesh` is a
+ * client for the App's declared API with the page's credentials, `cx.storage` is the page's hives,
+ * `cx.notifications` reaches the surface below. That context is the grant the runtime projects to
+ * every service, view and component. (Phase B replaces the broker with platform services.)
  */
-function startApp(App: AppClass, partId: string, composition: Composition, doc: Document, root: Element, api: string): StartedApp {
-    const kernel = createPageKernel(composition, doc, api);
-    const log = kernelLog(kernel.services.logs);
+function startApp(App: AppClass, partId: string, composition: Composition, page: Page, doc: Document, root: Element): Started {
+    const log = kernelLog(page.services.logs);
 
     const handle = createContext(
         { id: partId, declaredBy: partId },
         App.spec.needs ?? [],
         [],
-        <T>(token: ProviderToken<T>): T | undefined => kernel.io.get(token),
-        kernel.services,
-        kernel.io,
+        <T>(token: ProviderToken<T>): T | undefined => page.io.get(token),
+        page.services,
+        page.io,
         App.spec.api,
     );
 
-    // A website unless the site's policy asks for the desktop: single-page is the default for an
-    // App, the reverse of the legacy kernel's, and the reason this path exists.
+    /**
+     * `cx.display`: measured **before** anything is constructed, so a service asking how much room
+     * there is at construction is told, rather than 0×0 until somebody resizes something — then
+     * again on every window resize and whenever the root's own box changes. The legacy boot did
+     * this; the first App boot did not, and `test/display.test.ts` said so.
+     */
+    const measure = (): void => { page.services.displaySize.set({ width: root.clientWidth, height: root.clientHeight }); };
+    measure();
+    const win = doc.defaultView;
+    win?.addEventListener('resize', measure);
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : undefined;
+    observer?.observe(root);
+    const stopMeasuring = (): void => {
+        win?.removeEventListener('resize', measure);
+        observer?.disconnect();
+    };
+
+    // A website unless the site's policy asks for the desktop: single-page is the default for an App.
     const mode = composition.policy?.['window-manager/mode'];
     let site: MountedApp | MountedDesktop;
     try {
         site = mode === 'windowed' || mode === 'tiled'
-            ? mountDesktop(App, { root, granted: handle.context, keys: doc, mode, io: kernel.io })
+            ? mountDesktop(App, { root, granted: handle.context, keys: doc, mode, io: page.io })
             : mountSite(App, { root, granted: handle.context, keys: doc });
     } catch (cause) {
+        // Not a blank page. With one App there is nothing else to show, so the page says it could
+        // not start and why, and the log panel is there to read — then the error still propagates,
+        // loudly, to whatever booted it.
         log.error(`${partId} could not start: ${reasonOf(cause)}`, { part: partId });
         handle.dispose();
+        stopMeasuring();
+        const notice = doc.createElement('div');
+        notice.setAttribute('role', 'alert');
+        notice.className = 'mesh-boot-failed';
+        notice.textContent = `This page could not start: ${reasonOf(cause)}`;
+        root.append(notice);
+        mountLogViewer(doc, root, page.services.logs);
         throw cause;
     }
 
-    const notifications = mountNotifications(doc, root, kernel);
-    const logViewer = mountLogViewer(doc, root, kernel.services.logs);
-    log.info(`${partId} started as a site`, { part: partId });
+    const notifications = mountNotifications(doc, root, page.services);
+    const logViewer = mountLogViewer(doc, root, page.services.logs);
+    log.info(`${partId} started`, { part: partId });
 
     return {
         kind: 'app',
-        kernel,
+        services: page.services,
+        io: page.io,
         site,
+        logViewer,
         ready: Promise.resolve(),
         dispose() {
+            stopMeasuring();
             site.dispose();
             handle.dispose();
-            notifications.remove();
+            notifications.dispose();
             logViewer.dispose();
         },
     };
 }
 
+/** The element the page did not have to contain. */
 function mountRoot(doc: Document): Element {
     const created = doc.createElement('div');
     created.id = 'mesh-web-root';
     // Filling the viewport in windowed/tiled modes; single mode is ordinary document flow.
-    // Base styles live in kernel.css; min-height: 100% ensures an unstyled page doesn't collapse.
     created.style.cssText = 'position:relative;width:100%;min-height:100%';
     doc.body.append(created);
     return created;
 }
 
 /**
- * Where the API is, from the document.
- *
- * `data-api` on `<html>`, written by whoever generated the page. Read here rather than passed twice,
- * so a composition that omits `api` still works and the two can never disagree.
+ * Where the API is, from the document: `data-api` on `<html>`, written by whoever generated the page.
+ * Read here rather than passed twice, so a composition that omits `api` still works.
  */
 const readApi = (doc: Document): string =>
     (doc.documentElement as HTMLElement | null)?.dataset['api'] ?? '';
@@ -656,19 +310,18 @@ const readApi = (doc: Document): string =>
 /**
  * Notifications, on a surface the kernel owns.
  *
- * A capability with no surface is a silent failure: `cx.notifications.warn(...)` would be called
- * correctly, recorded correctly, and displayed nowhere — so a failed API call would look exactly
- * like a button that did nothing. The console had to build this itself, against an element the page
- * was expected to contain.
+ * A capability with no surface is a silent failure: `cx.notifications.warn(...)` would be recorded
+ * correctly and displayed nowhere — a failed API call would look exactly like a button that did
+ * nothing.
  */
-function mountNotifications(doc: Document, root: Element, kernel: Kernel): Element {
+function mountNotifications(doc: Document, root: Element, services: KernelServices): { dispose(): void } {
     const host = doc.createElement('div');
     host.className = 'mesh-notifications';
     root.append(host);
 
-    effect(() => {
+    const stop = effect(() => {
         host.replaceChildren();
-        for (const notice of kernel.services.notifications()) {
+        for (const notice of services.notifications()) {
             const line = doc.createElement('div');
             line.className = `mesh-notice ${notice.level}`;
             line.textContent = `${notice.source}: ${notice.message}`;
@@ -676,342 +329,10 @@ function mountNotifications(doc: Document, root: Element, kernel: Kernel): Eleme
         }
     });
 
-    return host;
-}
-
-/**
- * Start what the site asked for.
- *
- * A failure is recorded and does not stop the others: one Application that cannot start is a missing
- * window, and taking the whole page down with it would turn a broken part into a broken site.
- *
- * **Two different failures, and only one of them throws.** `kernel.start` catches an Application
- * whose `start()` rejects and leaves the process in `failed` — *"a resting state, not a
- * disappearance"*, because an Application that vanishes on error is one nobody can debug. So it
- * returns a pid either way, and the process table is what has to be read. It *does* throw for an
- * application id nothing declared, which is a composition naming a part it does not have.
- */
-async function open(
-    kernel: Kernel,
-    composition: Composition,
-    manager: WindowManager,
-    persistence: WindowPersistence,
-    log: KernelLog,
-    unconstructed: readonly string[],
-): Promise<void> {
-    const wanted = composition.open ?? defaultOpen(kernel);
-
-    if (wanted.length === 0 && composition.parts.length > 0) {
-        // Never silent. A composition with parts that opens nothing is a site that will render an
-        // empty page, and the reason has to be visible somewhere other than a debugger.
-        log.warn(`This composition has ${String(composition.parts.length)} part(s) and no `
-            + 'Application among them, so nothing was opened. An Application declares `views`; '
-            + 'an Extension is never opened.');
-    }
-
-    /**
-     * Neither failure below writes a line of its own any more: `kernel.start` records both — the
-     * refusal of an id nothing loaded, and a start that failed, with the reason in the message. Two
-     * lines for one failure made a boot harder to read, and these ones had the part's name as their
-     * *source*, which is the kernel speaking in a part's voice.
-     */
-    for (const entry of wanted) {
-        let pid: string;
-        try {
-            pid = await kernel.start(entry.application);
-        } catch {
-            continue;
-        }
-
-        // A window that never appears is otherwise indistinguishable from one the site did not ask
-        // for; the kernel's line says which it was.
-        if (kernel.processes.find((p) => p.pid === pid)?.state === 'failed') continue;
-
-        for (const view of entry.views ?? []) {
-            kernel.services.windows.open(pid, view, {});
-        }
-    }
-
-    await restoreGeometry(kernel, manager, persistence);
-    applyLayout(kernel, manager);
-    summarise(kernel, log, composition.parts.map((part) => part.id), unconstructed);
-}
-
-/**
- * The boot summary: one line, once, after the composition's Applications have started.
- *
- * Every part lands in exactly one group, in composition order, so the line answers "which of my
- * parts is running" without anyone having to count lines above it. `warn` when anything failed,
- * so the level filter set to `warn` shows a broken boot at a glance.
- */
-function summarise(
-    kernel: Kernel,
-    log: KernelLog,
-    parts: readonly string[],
-    unconstructed: readonly string[],
-): void {
-    const running: string[] = [];
-    const failed: string[] = [];
-    const idle: string[] = [];
-
-    const extensions = new Map(kernel.extensions.map((e) => [e.id, e.state]));
-    const applications = new Set(kernel.applications);
-
-    for (const id of parts) {
-        if (unconstructed.includes(id)) {
-            failed.push(id);
-            continue;
-        }
-
-        const extension = extensions.get(id);
-        if (extension !== undefined) {
-            (extension === 'activated' ? running : failed).push(id);
-            continue;
-        }
-
-        if (applications.has(id)) {
-            const processes = kernel.processes.filter((p) => p.applicationId === id);
-            const live = processes.filter((p) => p.state === 'running').map((p) => p.pid);
-            if (live.length > 0) running.push(`${id} (${live.join(', ')})`);
-            else if (processes.some((p) => p.state === 'failed')) failed.push(id);
-            else idle.push(id);
-            continue;
-        }
-
-        // Neither an Application nor an Extension — `boot` already said so.
-        idle.push(id);
-    }
-
-    const groups = [
-        running.length === 0 ? undefined : `running: ${running.join(', ')}`,
-        failed.length === 0 ? undefined : `failed: ${failed.join(', ')}`,
-        idle.length === 0 ? undefined : `not started: ${idle.join(', ')}`,
-    ].filter((group): group is string => group !== undefined);
-
-    const message = `booted ${String(parts.length)} part(s)`
-        + (groups.length === 0 ? '' : ` — ${groups.join(' · ')}`);
-    const about = { data: { parts: parts.length, running, failed, notStarted: idle } };
-
-    if (failed.length > 0) log.warn(message, about); else log.info(message, about);
-}
-
-/**
- * Give the window manager the layout an Application declared.
- *
- * **`setLayout` was called by nothing.** An Application declared `layout`, `mergeManifests`
- * collected it into `manifest.layouts`, `WindowManager.setLayout` existed to receive it — and no
- * code joined the three, so `layout()` was `undefined` for the life of every page. Tiled mode
- * therefore had nothing to tile: the mode switched, the button's label changed, and not one window
- * moved. Reported exactly that way.
- *
- * The first Application with a layout wins, which is a placeholder for the real rule.
- * [application §9](../../spec/application.md) says the *foreground* Application's layout governs and
- * a background one keeps its own — that needs the router, because what is foreground is a routing
- * question. Until then a composition with one tiling Application behaves correctly and one with two
- * takes the first, rather than every composition behaving as if none had a layout at all.
- */
-function applyLayout(kernel: Kernel, manager: WindowManager): void {
-    if (manager.layout() !== undefined) return;
-
-    for (const application of kernel.applications) {
-        const layout = kernel.manifest.layouts.get(application);
-        if (layout !== undefined) {
-            manager.setLayout(layout);
-            return;
-        }
-    }
-}
-
-/**
- * Put windows back where this device left them.
- *
- * **After the Applications have started**, because a saved geometry names a *view*, and a view has
- * nothing to be applied to until the Application that declares it is running and has opened its
- * windows. An Application that opens its own windows during `start()` is therefore covered too.
- *
- * Matched by view id, not by window id: window ids are minted per boot, so they cannot survive a
- * reload — which is exactly why `RememberedWindow` stores `view` and not `id`.
- *
- * Anything unmatched is skipped in silence. A remembered window whose view no longer exists is the
- * ordinary consequence of a part being upgraded or removed, not an error worth showing anybody.
- */
-async function restoreGeometry(
-    kernel: Kernel,
-    manager: WindowManager,
-    persistence: WindowPersistence,
-): Promise<void> {
-    let remembered: readonly RememberedWindow[];
-    try {
-        remembered = await persistence.restore();
-    } catch (error) {
-        // Geometry is a convenience. A hive that cannot be read must not stop a page from booting.
-        kernel.services.logs.push({
-            level: 'warn', source: 'window-manager',
-            message: 'could not read saved window geometry', data: error,
-        });
-        return;
-    }
-
-    for (const saved of remembered) {
-        const record = manager.windows().find((w) => w.view === saved.view);
-        if (record === undefined) continue;
-
-        manager.place(record.id, {
-            x: saved.x, y: saved.y, width: saved.width, height: saved.height,
-        });
-        if (saved.state === 'maximized') manager.maximize(record.id);
-        if (saved.state === 'minimized') manager.minimize(record.id);
-    }
-}
-
-/**
- * Every Application in the composition, with no views. See `Composition.open`.
- *
- * **Asked of the kernel, after `boot`.** This used to read `composition.parts` directly and skip any
- * whose contribution was `typeof 'function'`, on the reasoning that only an instance can be
- * classified and construction happens inside `boot`. Both halves were true and the conclusion was
- * wrong: a part that takes options is exported as a *class*, which is the ordinary case rather than
- * the exception, so the filter removed nearly everything and `open` iterated an empty list. A site
- * with one Application started nothing, logged nothing, and rendered a black page — indistinguishable
- * from a site that asked for nothing, because that is exactly what it had become.
- *
- * `boot` has already run by the time this is called, so the kernel knows what each part turned out to
- * be. There was never a need to guess from the export.
- */
-type OpenEntry = NonNullable<Composition['open']>[number];
-
-const defaultOpen = (kernel: Kernel): readonly OpenEntry[] =>
-    kernel.applications.map((application) => ({ application }));
-
-// ---------------------------------------------------------------------------- keyboard
-
-/**
- * Declared key bindings, actually bound.
- *
- * **`bindingTable` existed, `manifest.bindings` was collected, and nothing listened.** So every
- * `keys` declaration in every Application was inert: the clock declared `ctrl+t` to toggle its
- * format, the manifest recorded it, collisions between two Applications claiming one chord were
- * detected and reported — and pressing the key did nothing, because no `keydown` handler was ever
- * installed. Three mechanisms, none of them reachable, and a green suite over all of it.
- *
- * It also left `spec/input.md` §3 — *every action has a non-pointer path* — false at the window
- * layer: a window could be closed and maximized only with a pointer. The rule that gated the whole
- * primitive vocabulary was not being kept by the thing the vocabulary renders into.
- *
- * The window commands below are the kernel's own, registered under `window.*` so an Application
- * cannot claim them and a site can rebind them like anything else.
- */
-function mountKeys(
-    doc: Document,
-    kernel: Kernel,
-    manager: WindowManager,
-    persistence?: WindowPersistence,
-    logViewer?: LogViewer,
-): () => void {
-    /**
-     * Kernel commands, and the reason they are commands rather than key handlers.
-     *
-     * A command is nameable, so it can appear in a menu, be bound to a different chord by a site,
-     * or be invoked by a part. A key handler is only a key. Everything the framework asks of an
-     * Application — *declare it, do not register it* — applies to the framework too.
-     */
-    const focused = (): string | undefined => manager.focused();
-
-    const windowCommands: Record<string, () => void> = {
-        'window.close': () => {
-            if (manager.mode() === 'single') return;
-            const id = focused();
-            if (id !== undefined) manager.close(id);
-        },
-        'window.maximize': () => {
-            if (manager.mode() === 'single') return;
-            const id = focused();
-            if (id === undefined) return;
-            // One binding, both directions — the same reasoning as the title bar's single button.
-            manager.get(id)?.state === 'maximized' ? manager.restore(id) : manager.maximize(id);
-        },
-        'window.minimize': () => {
-            if (manager.mode() === 'single') return;
-            const id = focused();
-            if (id !== undefined) manager.minimize(id);
-        },
-        'window.cycle': () => {
-            if (manager.mode() === 'single') return;
-            // Back to front, so cycling walks *away* from the current window rather than toggling
-            // between the top two — which is what a stack ordered by focus would otherwise do.
-            const open = manager.visible();
-            if (open.length < 2) return;
-            const at = open.findIndex((w) => w.id === focused());
-            manager.focus(open[(at + 1) % open.length]!.id);
-        },
-        'window.mode': () => {
-            if (manager.mode() === 'single') return;
-            const next = manager.mode() === 'tiled' ? 'windowed' : 'tiled';
-            if (persistence !== undefined) {
-                void persistence.setMode(next).catch((error) => {
-                    if (error instanceof SettingLocked) {
-                        const id = String(Date.now());
-                        const list = kernel.services.notifications;
-                        list.set([...list(), { id, level: 'warn', source: 'window-manager', message: error.message }]);
-                    }
-                });
-            } else {
-                manager.setMode(next);
-            }
-        },
-        'kernel.logs': () => {
-            logViewer?.toggle();
+    return {
+        dispose() {
+            stop();
+            host.remove();
         },
     };
-
-    if (logViewer !== undefined) {
-        kernel.services.commands.set('kernel.logs', {
-            owner: 'kernel',
-            run: () => { logViewer.toggle(); },
-        });
-    }
-
-    /**
-     * Defaults, chosen against `BROWSER_TAB_RESERVED`.
-     *
-     * `ctrl+w` closes a browser tab and `ctrl+n` opens a window, so neither can mean anything here —
-     * a binding that fires the command *and* the browser's own action is worse than no binding.
-     * `alt` is the escape hatch a page actually owns.
-     */
-    const defaults = KERNEL_WINDOW_BINDINGS;
-
-    const onKey = (event: KeyboardEvent): void => {
-        // A binding must never eat what somebody is typing. The window layer has no business
-        // knowing about text fields, but it has less business stealing a keystroke from one.
-        const target = event.target;
-        if (target instanceof HTMLElement
-            && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) {
-            // Except a chord with a modifier, which is not text by definition.
-            if (!event.ctrlKey && !event.metaKey && !event.altKey) return;
-        }
-
-        const declared = [...kernel.manifest.bindings].map(([binding, entry]) => ({
-            binding, command: entry.decl.command,
-        }));
-        const table = bindingTable([...defaults, ...declared]);
-
-        const command = table.resolve(event);
-        if (command === undefined) return;
-
-        const builtin = windowCommands[command];
-        if (builtin !== undefined) {
-            event.preventDefault();
-            builtin();
-            return;
-        }
-
-        const declaredCommand = kernel.services.commands.get(command);
-        if (declaredCommand === undefined) return;
-
-        event.preventDefault();
-        void declaredCommand.run();
-    };
-
-    doc.addEventListener('keydown', onKey);
-    return () => { doc.removeEventListener('keydown', onKey); };
 }
