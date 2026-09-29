@@ -45,7 +45,8 @@ afterEach(() => site.dispose());
 Two ways to take the network out, depending on where the app talks to it:
 
 - **`replace(Base, Substitute)`** constructs `Substitute` wherever `Base` is injected. The types
-  require it to produce what `Base` does (a subclass, typically). Used by `examples/console`.
+  require it to produce what `Base` does (a subclass, typically). Used by mesh-web-kit's
+  `examples/console`.
 - **A stand-in capability**: `mountSite(App, { root, granted: { mesh, credentials } })` hands the
   runtime your own `mesh` object (`{ api, call(action, input) }`). Used by
   `surfdns-company-site/test/*.browser.test.ts`, which also records the headers each call went out
@@ -68,5 +69,6 @@ await vi.waitFor(() => expect(rows()).toHaveLength(8), { timeout: 2000, interval
 ## Where the examples are
 
 - `test/browser/app-site.browser.test.ts` — routing, query state, layouts and a guard, titles.
-- `examples/console/test/console.browser.test.ts` — a whole app clicked through.
+- mesh-web-kit: `test/kit.browser.test.ts` (every kit piece pressed) and
+  `examples/console/test/console.browser.test.ts` (a whole app clicked through).
 - `surfdns-company-site/test/` — sign-in with a recorded ticket, the dashboard.

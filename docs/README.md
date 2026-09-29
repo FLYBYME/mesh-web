@@ -8,10 +8,14 @@ kernel constructs every one of them. It renders the App as a single-page website
 on a desktop, from the same routes. Rendering is fine-grained and reactive: signals bind straight
 to DOM text and attributes, with no virtual DOM.
 
-**Start with [app-model.md](app-model.md)** (the design and every decision since), then copy
-from **[`examples/console`](../examples/console)** — the reference app: services, layouts, a guard,
-forms from commands, URL-held list state, and browser tests that click through it
-(`npm run example:console`, http://localhost:5191).
+**Start with [app-model.md](app-model.md)** (the design and every decision since).
+
+**Build pages with [mesh-web-kit](../../mesh-web-kit)** (`@flybyme/mesh-web-kit`): the pieces
+every site needs — page header, filter bar, data table, list rows, confirm button, forms built from
+commands, loading and empty states — and its rules for writing more. mesh-web is the mechanism and
+has no opinion about how a page looks; the kit is where that lives. The kit's `examples/console` is
+the reference app: services, layouts, a guard, URL-held list state, and browser tests that click
+through it (`npm run example:console` there, http://localhost:5191).
 
 ---
 

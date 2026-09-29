@@ -19,5 +19,5 @@
             "@flybyme/mesh-web/config": ["./src/testing/config.ts"]
         }
     },
-    "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts"]
+    "include": ["src/**/*.ts", "test/**/*.ts"]
 }

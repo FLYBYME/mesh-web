@@ -197,7 +197,8 @@ The built-in primitives (`PRIMITIVES`):
 ## Building above the primitives
 
 `defineComponent` and `defineComposite` went with the part model. Above the primitives there are
-now two things (app-model.md; the reference is `examples/console/src/ui`):
+now two things (app-model.md). The common ones are already written, in **mesh-web-kit** — use those
+before writing your own, and follow its README's rules when you do:
 
 **A function returning nodes**, for anything with no state of its own:
 

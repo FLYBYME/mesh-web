@@ -681,13 +681,21 @@ example, before the example relies on it:
    - `router.here()` returns the current URL, for `?next=`.
    - Primitives for tables, `Label`, and `Select`/`Option`. A select's value is re-applied after
      its options exist.
-10. **The reference app is `examples/console`** (`npm run example:console`, :5191; 5 browser tests
-    in the normal browser suite). Its README-level map is the header of `src/app.ts`: the folders
-    are api/, services/, ui/, layouts/ and pages/.
+10. **The reference app was `examples/console`** (5 browser tests). Its README-level map is the
+    header of `src/app.ts`: the folders are api/, services/, ui/, layouts/ and pages/.
     - `ui/` holds a component only where the piece keeps state; otherwise it is a function
       returning nodes.
     - Pages read through `resource()` fields, which die with the page.
     - Services write through commands and bump a `changed` signal that reads depend on.
+11. **The kit: `@flybyme/mesh-web-kit` (2026-09-29).** The company site then grew three different
+    headers, list rows, filter bars and create forms in a day, by three authors. The console's
+    `ui/` folder only showed the shape; nothing made anyone use it. So it became a package:
+    `~/code/mesh/mesh-web-kit` (mesh-web as a peer dependency), with the pieces hardened, a browser
+    test for each, a stylesheet restyled only through `--kit-*` tokens, and its rules written in its
+    README. The console moved there as the kit's reference app, rebuilt on it. It left mesh-web to
+    avoid the two repositories depending on each other. mesh-web stays the mechanism, with no
+    opinion about how a page looks; the kit is where that lives, and it can change faster than the
+    kernel. mesh-core (the part model's design system) is not ported and is not the path forward.
 
 **Open, found by the example, not yet decided:**
 - ~~**Sort of a paged list** was client-side within one page.~~ **Fixed in the example:**
