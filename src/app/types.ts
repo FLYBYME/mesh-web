@@ -220,7 +220,6 @@ export interface ViewClass {
         readonly params?: SchemaLike<object>;
         readonly query?: SchemaLike<object>;
         readonly title?: string;
-        readonly layout?: LayoutClass;
         readonly window?: {
             readonly tile?: string;
             readonly defaultSize?: { readonly width?: number; readonly height?: number };
@@ -231,34 +230,56 @@ export interface ViewClass {
     create(init: ErasedInit): MountableInstance;
 }
 
-type LayoutSpecOf<S> = S extends { readonly layout: infer L extends LayoutClass } ? L['spec'] : unknown;
+/**
+ * A route drawn inside a layout — what `within(Layout, { ... })` makes. The layout is the App's
+ * arrangement, not the view's: a view never imports the layout it appears in, so a layout that
+ * links to its pages cannot form an import cycle with them.
+ */
+export interface RouteEntry {
+    readonly view: ViewClass;
+    readonly layout: LayoutClass;
+}
 
-type RouteCheck<P extends string, V, AppNeeds extends readonly CapabilityName[]> =
-    V extends ViewClass
-        ? [Exclude<PathParams<P>, keyof ParamsOf<V['spec']>>] extends [never]
-            ? [Exclude<keyof ParamsOf<V['spec']>, PathParams<P>>] extends [never]
-                ? [MissingNeeds<NeedsOf<V['spec']>, AppNeeds>] extends [never]
-                    ? [MissingNeeds<NeedsOf<LayoutSpecOf<V['spec']>>, AppNeeds>] extends [never]
-                        ? V
-                        : {
-                            readonly __error: 'this view\'s layout needs capabilities the app was not granted';
-                            readonly missing: MissingNeeds<NeedsOf<LayoutSpecOf<V['spec']>>, AppNeeds>;
-                        }
-                    : {
-                        readonly __error: 'this view needs capabilities the app was not granted';
-                        readonly missing: MissingNeeds<NeedsOf<V['spec']>, AppNeeds>;
-                    }
+/** What a path in `App.spec.routes` maps to. */
+export type Route = ViewClass | RouteEntry;
+
+/** `never` when the view fits the path and the app; otherwise the first thing wrong with it. */
+type ViewProblem<P extends string, V extends ViewClass, AppNeeds extends readonly CapabilityName[]> =
+    [Exclude<PathParams<P>, keyof ParamsOf<V['spec']>>] extends [never]
+        ? [Exclude<keyof ParamsOf<V['spec']>, PathParams<P>>] extends [never]
+            ? [MissingNeeds<NeedsOf<V['spec']>, AppNeeds>] extends [never]
+                ? never
                 : {
-                    // `params` is the path; the query string is `query`. A `params` field the path
-                    // does not have could never be filled.
-                    readonly __error: 'this view declares params the route path does not have (query-string values belong in `query`)';
-                    readonly missing: Exclude<keyof ParamsOf<V['spec']>, PathParams<P>>;
+                    readonly __error: 'this view needs capabilities the app was not granted';
+                    readonly missing: MissingNeeds<NeedsOf<V['spec']>, AppNeeds>;
                 }
             : {
-                readonly __error: 'this route has path params the view does not declare in `params`';
-                readonly missing: Exclude<PathParams<P>, keyof ParamsOf<V['spec']>>;
+                // `params` is the path; the query string is `query`. A `params` field the path
+                // does not have could never be filled.
+                readonly __error: 'this view declares params the route path does not have (query-string values belong in `query`)';
+                readonly missing: Exclude<keyof ParamsOf<V['spec']>, PathParams<P>>;
             }
-        : never;
+        : {
+            readonly __error: 'this route has path params the view does not declare in `params`';
+            readonly missing: Exclude<PathParams<P>, keyof ParamsOf<V['spec']>>;
+        };
+
+type LayoutProblem<L extends LayoutClass, AppNeeds extends readonly CapabilityName[]> =
+    [MissingNeeds<NeedsOf<L['spec']>, AppNeeds>] extends [never]
+        ? never
+        : {
+            readonly __error: 'this route\'s layout needs capabilities the app was not granted';
+            readonly missing: MissingNeeds<NeedsOf<L['spec']>, AppNeeds>;
+        };
+
+type RouteCheck<P extends string, R, AppNeeds extends readonly CapabilityName[]> =
+    R extends ViewClass
+        ? [ViewProblem<P, R, AppNeeds>] extends [never] ? R : ViewProblem<P, R, AppNeeds>
+        : R extends RouteEntry
+            ? [ViewProblem<P, R['view'], AppNeeds>] extends [never]
+                ? [LayoutProblem<R['layout'], AppNeeds>] extends [never] ? R : LayoutProblem<R['layout'], AppNeeds>
+                : ViewProblem<P, R['view'], AppNeeds>
+            : never;
 
 /** Every route checked against its view. Intersected with the spec in `App()`. */
 export type CheckRoutes<R, AppNeeds extends readonly CapabilityName[]> = {

@@ -15,8 +15,8 @@
 import type { Action, IntentValue, Node } from '../description/types.js';
 import type {
     ApiOfSpec, Capabilities, CheckNeeds, CheckRoutes, ComponentClass, Injectables, Injected, InjectOf,
-    LayoutClass, MountArgs, NeedsOf, ParamsOf, PropsDecl, PropsOf, SchemaLike, SearchOf, ServiceClass, UnitHost,
-    UnitSpec, ViewClass,
+    LayoutClass, MountArgs, NeedsOf, ParamsOf, PropsDecl, PropsOf, Route, SchemaLike, SearchOf, ServiceClass,
+    UnitHost, UnitSpec, ViewClass,
 } from './types.js';
 import type { MountFailure } from './runtime.js';
 
@@ -71,13 +71,6 @@ export interface ViewSpec extends UnitSpec {
     readonly query?: SchemaLike<object>;
     readonly title?: string;
     /**
-     * The component this view is drawn inside. Consecutive pages with the same layout share one
-     * instance of it: its state (an open menu, a sidebar's scroll) survives navigation, and only the
-     * outlet changes. A layout is where a guard goes — a `when` with a `Redirect` — so every page in
-     * it is guarded at once. The desktop draws each window without it: the shell is its layout.
-     */
-    readonly layout?: LayoutClass;
-    /**
      * Hints for the desktop, ignored by a single-page site. Every field is a suggestion: a view does
      * not know which presentation it is in, and must not need to.
      */
@@ -98,7 +91,7 @@ export interface ComponentSpec extends UnitSpec {
 }
 
 export interface AppSpec extends UnitSpec {
-    readonly routes: { readonly [path: string]: ViewClass };
+    readonly routes: { readonly [path: string]: Route };
     /** Constructed at boot. Any other service is constructed on first injection. */
     readonly services?: readonly ServiceClass[];
     /**
@@ -257,6 +250,23 @@ export function App<const S extends AppSpec>(spec: S & { readonly routes: CheckR
         }
     }
     return AppBase;
+}
+
+/**
+ * Routes drawn inside a layout:
+ *
+ * ```ts
+ * const inConsole = within(ConsoleLayout);
+ * routes: { '/': Home, '/domains': inConsole(DomainList), '/domains/:domain': inConsole(Domain) }
+ * ```
+ *
+ * Consecutive pages in the same layout share one instance of it: its state (an open menu, a
+ * sidebar's scroll) survives navigation, and only the outlet changes. A layout is where a guard
+ * goes — a `when` with a `Redirect` — so every page in it is guarded at once. The desktop draws each
+ * window without it: the shell is its layout.
+ */
+export function within<const L extends LayoutClass>(layout: L) {
+    return <const V extends ViewClass>(view: V): { readonly view: V; readonly layout: L } => ({ view, layout });
 }
 
 /** Declare a component's props by type: `Component({ props: props<{ onDone: () => void }>() })`. */

@@ -25,7 +25,7 @@ import { mountPage } from '../window/page.js';
 import type { FrameChrome, Shell } from '../window/shell.js';
 import { WindowManager } from '../window/manager.js';
 import type { CommandRegistryOptions } from './registry.js';
-import { compileRoutes, type RouteMatch } from './routes.js';
+import { compileRoutes, routeParts, type RouteMatch } from './routes.js';
 import type { RouterBackend } from './router.js';
 import { createAppRuntime, type AppClass, type AppRuntime, type GrantedContext } from './runtime.js';
 import type { MountedApp } from './site.js';
@@ -149,8 +149,10 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
     const viewOf = (_owner: string, pattern: string): WindowView | undefined => {
         const existing = windowViews.get(pattern);
         if (existing !== undefined) return existing;
-        const view = App.spec.routes[pattern];
-        if (view === undefined) return undefined;
+        const route = App.spec.routes[pattern];
+        if (route === undefined) return undefined;
+        // The layout is not drawn here: on the desktop, the shell is every window's layout.
+        const { view } = routeParts(route);
         const hints = view.spec.window;
         const windowView: WindowView = {
             id: pattern,

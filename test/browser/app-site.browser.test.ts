@@ -9,7 +9,7 @@ import { userEvent } from '@vitest/browser/context';
 import { z } from 'zod';
 import { effect, element, signal, text, when, type Node } from '../../src/index.js';
 import {
-    App, command, Component, Link, mountSite, props, Redirect, Router, Service, View,
+    App, command, Component, Link, mountSite, props, Redirect, Router, Service, View, within,
     type LayoutProps, type MountedApp,
 } from '../../src/app/index.js';
 
@@ -93,6 +93,8 @@ class ConsoleLayout extends Component({ inject: { session: Session, router: Rout
     }
 }
 
+const inConsole = within(ConsoleLayout);
+
 class PublicView extends View({}) {
     render(): Node { return element('Stack', { props: { 'data-view': 'public' }, children: [] }); }
 }
@@ -110,7 +112,7 @@ class SignInView extends View({ inject: { session: Session } }) {
     }
 }
 
-class PageA extends View({ layout: ConsoleLayout, inject: { router: Router } }) {
+class PageA extends View({ inject: { router: Router } }) {
     render(): Node {
         return element('Stack', {
             props: { 'data-view': 'a' },
@@ -119,7 +121,7 @@ class PageA extends View({ layout: ConsoleLayout, inject: { router: Router } }) 
     }
 }
 
-class PageB extends View({ layout: ConsoleLayout }) {
+class PageB extends View({}) {
     render(): Node { return element('Stack', { props: { 'data-view': 'b' }, children: [] }); }
 }
 
@@ -139,7 +141,12 @@ class WatchView extends View({ inject: { watcher: Watcher } }) {
 class Watching extends App({ routes: { '/': PublicView, '/watch': WatchView } }) {}
 
 class Guarded extends App({
-    routes: { '/': PublicView, '/sign-in': SignInView, '/console/a': PageA, '/console/b': PageB },
+    routes: {
+        '/': PublicView,
+        '/sign-in': SignInView,
+        '/console/a': inConsole(PageA),
+        '/console/b': inConsole(PageB),
+    },
 }) {}
 
 // ---------------------------------------------------------------------------- harness

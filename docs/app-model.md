@@ -636,8 +636,14 @@ example, before the example relies on it:
    App, because nothing could run without it. A service injected lazily by one view only costs that
    view. Errors thrown later, in a handler, a command or an effect, are not caught here; that is a
    separate gap.
-3. **No layouts: every page rebuilt its own chrome.** **Fixed, with no new unit kind:** a view names
-   `layout`, a component taking `props<LayoutProps>()` (`{ outlet: Node }`). The site's outlet is
+3. **No layouts: every page rebuilt its own chrome.** **Fixed, with no new unit kind:** a route is
+   drawn inside a layout, a component taking `props<LayoutProps>()` (`{ outlet: Node }`). The first
+   version put `layout` on the view's spec. That was an import cycle waiting to happen: the page
+   imports the layout, the layout imports the pages its nav links to, and whichever module loads
+   first finds the other's class still in its temporal dead zone. So the layout is the **App's**
+   arrangement instead: `const inConsole = within(ConsoleLayout)`, then
+   `'/domains': inConsole(DomainList)`. Pages never import layouts. (`within(L, { ...routes })`
+   would read better, but it cannot be typed without a cast.) The site's outlet is
    two keyed levels: the outer is keyed by layout, the inner by route and path. So a layout stays
    mounted, with its state, while consecutive pages share it, and only the outlet swaps. The types
    refuse a layout that takes no `outlet`, and a layout needing what the App lacks. The desktop

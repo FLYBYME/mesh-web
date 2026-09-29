@@ -20,7 +20,7 @@ import { createDetachedScope, runDetached } from '../reactivity/scope.js';
 import { createCommandRegistry, type CommandRegistry, type CommandRegistryOptions } from './registry.js';
 import { attachRouter, Router, type RouterBackend } from './router.js';
 import type {
-    ComponentClass, ErasedInit, Injectables, MountableInstance, ServiceClass, UnitHost, UnitSpec, ViewClass,
+    ComponentClass, ErasedInit, Injectables, MountableInstance, Route, ServiceClass, UnitHost, UnitSpec, ViewClass,
 } from './types.js';
 
 /** Where a root registers its handlers: a window's table, today through `vx.on` / `vx.off`. */
@@ -35,7 +35,7 @@ export interface AppClass {
     readonly name: string;
     /** `routes` is named so a spec holding only routes still matches — TypeScript's weak-type rule. */
     readonly spec: UnitSpec & {
-        readonly routes: { readonly [path: string]: ViewClass };
+        readonly routes: { readonly [path: string]: Route };
         readonly services?: readonly ServiceClass[];
         readonly fallback?: (failure: MountFailure) => Node;
     };

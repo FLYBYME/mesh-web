@@ -107,7 +107,7 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
     // so the view inside is replaced. A view with no layout is its own outer item.
     const layoutKeys = new Map<LayoutClass, string>();
     const layoutKey = (match: RouteMatch): string => {
-        const layout = match.view.spec.layout;
+        const layout = match.layout;
         if (layout === undefined) return 'none';
         let key = layoutKeys.get(layout);
         if (key === undefined) layoutKeys.set(layout, key = `layout${layoutKeys.size}`);
@@ -115,7 +115,7 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
     };
 
     const outlet = (layout: LayoutClass | undefined): Node => each(
-        () => { const current = route(); return current === undefined || current.view.spec.layout !== layout ? [] : [current]; },
+        () => { const current = route(); return current === undefined || current.layout !== layout ? [] : [current]; },
         (match) => match.key,
         // Same key, new query: `match` is re-read, so the live view's `query()` follows it.
         (match) => runtime.view(match().view, match().raw, registry, undefined, () => match().query),
@@ -126,7 +126,7 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
             () => { const current = route(); return current === undefined ? [] : [current]; },
             layoutKey,
             (match) => {
-                const layout = match().view.spec.layout;
+                const layout = match().layout;
                 return layout === undefined ? outlet(undefined) : runtime.component(layout, { outlet: outlet(layout) }, registry);
             },
         ),

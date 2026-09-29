@@ -13,7 +13,7 @@
  */
 
 import type { Json } from '../description/types.js';
-import type { ViewClass } from './types.js';
+import type { LayoutClass, Route, ViewClass } from './types.js';
 
 type Segment = { readonly kind: 'static'; readonly value: string } | { readonly kind: 'param'; readonly name: string };
 
@@ -21,12 +21,15 @@ interface CompiledRoute {
     readonly pattern: string;
     readonly segments: readonly Segment[];
     readonly view: ViewClass;
+    readonly layout: LayoutClass | undefined;
 }
 
 export interface RouteMatch {
     /** The pattern that matched, e.g. `/domains/:zone/records`. */
     readonly pattern: string;
     readonly view: ViewClass;
+    /** The layout the route is drawn inside, if it was declared `within` one. */
+    readonly layout: LayoutClass | undefined;
     /** Path params, as strings, before the view's `params` schema — what `runtime.view` parses. */
     readonly raw: Readonly<Record<string, string>>;
     /** The query string, as strings, before the view's `query` schema. */
@@ -46,11 +49,11 @@ export interface RouteTable {
     href(view: ViewClass, params?: unknown): string;
 }
 
-export function compileRoutes(routes: { readonly [pattern: string]: ViewClass }): RouteTable {
-    const declared: CompiledRoute[] = Object.entries(routes).map(([pattern, view]) => ({
+export function compileRoutes(routes: { readonly [pattern: string]: Route }): RouteTable {
+    const declared: CompiledRoute[] = Object.entries(routes).map(([pattern, route]) => ({
         pattern,
         segments: parsePattern(pattern),
-        view,
+        ...routeParts(route),
     }));
 
     const shapes = new Map<string, string>();
@@ -102,7 +105,14 @@ export function compileRoutes(routes: { readonly [pattern: string]: ViewClass })
                 if (paramsSchema !== undefined && !paramsSchema.safeParse(path).success) continue;
                 const querySchema = route.view.spec.query;
                 if (querySchema !== undefined && !querySchema.safeParse(query).success) continue;
-                return { pattern: route.pattern, view: route.view, raw: path, query, key: `${route.pattern}?${canonical(path)}` };
+                return {
+                    pattern: route.pattern,
+                    view: route.view,
+                    layout: route.layout,
+                    raw: path,
+                    query,
+                    key: `${route.pattern}?${canonical(path)}`,
+                };
             }
             return undefined;
         },
@@ -129,6 +139,11 @@ export function compileRoutes(routes: { readonly [pattern: string]: ViewClass })
             return `/${path.join('/')}${q === '' ? '' : `?${q}`}`;
         },
     };
+}
+
+/** A route's view and layout, whether it was declared bare or `within` a layout. */
+export function routeParts(route: Route): { readonly view: ViewClass; readonly layout: LayoutClass | undefined } {
+    return 'kind' in route ? { view: route, layout: undefined } : route;
 }
 
 function parsePattern(pattern: string): readonly Segment[] {
