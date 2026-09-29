@@ -16,6 +16,7 @@ import type { CapabilityName } from '../contribution/capabilities.js';
 import type { Action, IntentValue, MountNode, MountedUnit, Node } from '../description/types.js';
 import { element, text } from '../description/build.js';
 import { computed } from '../reactivity/computed.js';
+import { createDetachedScope, runDetached } from '../reactivity/scope.js';
 import { createCommandRegistry, type CommandRegistry, type CommandRegistryOptions } from './registry.js';
 import { attachRouter, Router, type RouterBackend } from './router.js';
 import type {
@@ -143,17 +144,26 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
         constructing.push(Class);
         try {
             const cleanups: (() => void)[] = [];
-            const instance = Class.create({
+            // A service lives for the page, but is usually constructed on first injection — in the
+            // middle of mounting some view, inside that view's reactive scope. Constructed there, its
+            // effects and resources would be owned by the view and silently stop when the view left.
+            // So it gets its own scope, detached from whatever is being rendered, disposed with it.
+            const life = createDetachedScope();
+            const instance = runDetached(() => life.run(() => Class.create({
                 cx: project(Class.name, needsOf(Class.spec), cleanups),
                 inject: resolve(Class.spec.inject),
-            });
+            })));
             if (Class === Router && options.router !== undefined) attachRouter(instance, options.router);
             const retire = commands.add(Class.name, instance);
             services.set(Class, instance);
             teardowns.push(() => {
                 retire();
-                disposeOf(instance)?.();
-                runAll(cleanups);
+                try {
+                    disposeOf(instance)?.();
+                    runAll(cleanups);
+                } finally {
+                    life.dispose();
+                }
             });
             return instance;
         } finally {

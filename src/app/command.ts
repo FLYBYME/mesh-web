@@ -11,7 +11,7 @@
 import { normalizeBinding } from '../input/keys.js';
 import { signal } from '../reactivity/index.js';
 import type { ReadonlySignal } from '../reactivity/index.js';
-import type { Infer, InferInput, SchemaLike } from './types.js';
+import type { Infer, InferInput, SchemaIssue, SchemaLike } from './types.js';
 
 /** Marks an object made by `command()`, so the runtime can find commands among a unit's fields. */
 export const COMMAND = Symbol('mesh.command');
@@ -49,6 +49,8 @@ export class CommandSchemaError extends Error {
         readonly command: string,
         readonly side: 'input' | 'output',
         message: string,
+        /** Per-field problems, when the schema itemises them — what a form shows beside each field. */
+        readonly issues: readonly SchemaIssue[] = [],
     ) {
         super(`${command}: ${side} rejected — ${message}`);
         this.name = 'CommandSchemaError';
@@ -82,7 +84,7 @@ export function command(
     const check = (side: 'input' | 'output', schema: SchemaLike<unknown> | undefined, value: unknown): unknown => {
         if (schema === undefined) return value;
         const result = schema.safeParse(value);
-        if (!result.success) throw new CommandSchemaError(spec.title, side, result.error.message);
+        if (!result.success) throw new CommandSchemaError(spec.title, side, result.error.message, result.error.issues);
         return result.data;
     };
 

@@ -24,7 +24,21 @@ import type { AnyApiCall, Api } from '../net/api.js';
 export interface SchemaLike<T> {
     safeParse(value: unknown):
         | { readonly success: true; readonly data: T }
-        | { readonly success: false; readonly error: { readonly message: string } };
+        | { readonly success: false; readonly error: SchemaError };
+}
+
+/**
+ * What a failed parse says. `issues` is optional because only some schema libraries itemise; zod
+ * does, and it is what lets a form put "must be a number" beside the one field it is about.
+ */
+export interface SchemaError {
+    readonly message: string;
+    readonly issues?: readonly SchemaIssue[];
+}
+
+export interface SchemaIssue {
+    readonly path: readonly PropertyKey[];
+    readonly message: string;
 }
 
 /** What a schema produces — what `run` receives once the input has been parsed. */

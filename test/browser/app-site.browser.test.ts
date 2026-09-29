@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { userEvent } from '@vitest/browser/context';
 import { z } from 'zod';
-import { element, signal, text, when, type Node } from '../../src/index.js';
+import { effect, element, signal, text, when, type Node } from '../../src/index.js';
 import {
     App, command, Component, Link, mountSite, props, Redirect, Router, Service, View,
     type LayoutProps, type MountedApp,
@@ -122,6 +122,21 @@ class PageA extends View({ layout: ConsoleLayout, inject: { router: Router } }) 
 class PageB extends View({ layout: ConsoleLayout }) {
     render(): Node { return element('Stack', { props: { 'data-view': 'b' }, children: [] }); }
 }
+
+// ---------------------------------------------------------------------------- a service's own lifetime
+
+const watched = signal(0);
+let seen = -1;
+
+class Watcher extends Service({}) {
+    readonly stop = effect(() => { seen = watched(); });
+}
+
+class WatchView extends View({ inject: { watcher: Watcher } }) {
+    render(): Node { return element('Stack', { props: { 'data-view': 'watch' }, children: [] }); }
+}
+
+class Watching extends App({ routes: { '/': PublicView, '/watch': WatchView } }) {}
 
 class Guarded extends App({
     routes: { '/': PublicView, '/sign-in': SignInView, '/console/a': PageA, '/console/b': PageB },
@@ -324,6 +339,21 @@ describe('an App as a single-page site', () => {
         await frame();
         expect(root.querySelector('[data-layout]')?.textContent).toBe('layout clicks=0');
         expect(layoutsBuilt).toBe(built + 2);
+    });
+
+    it('keeps a lazily injected service\'s effects alive after the view that first injected it leaves', async () => {
+        history.pushState(null, '', '/watch');
+        site = mountSite(Watching, { root });
+        await frame();
+        expect(view()).toBe('watch');
+
+        // Constructed while WatchView mounted. Leaving WatchView must not stop the service's effect.
+        site.navigate('/');
+        await frame();
+        expect(view()).toBe('public');
+        watched.set(5);
+        await frame();
+        expect(seen).toBe(5);
     });
 
     it('leaves a modified click to the browser: the page does not navigate or cancel it', async () => {

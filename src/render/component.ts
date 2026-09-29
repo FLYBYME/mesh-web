@@ -844,6 +844,31 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
         },
     }),
     tag('Form', 'form'),
+    /** `for` names the control it labels; a label wrapping its control needs nothing. */
+    tag('Label', 'label'),
+    tag('Select', 'select', {
+        apply(el, name, value) {
+            if (name === 'value') {
+                if (!hasValue(el)) return false;
+                const next = value === null ? '' : String(value);
+                // A select can only take a value one of its options has, and on first render the
+                // options are its children, appended after its props. So: now, and once more after
+                // the children are in.
+                if (el.value !== next) el.value = next;
+                queueMicrotask(() => { if (el.value !== next) el.value = next; });
+                return true;
+            }
+            return applyFieldAccessibilityProps(el, name, value);
+        },
+    }),
+    tag('Option', 'option'),
+    /** Tables are for tabular data: the semantics (headers, scope, rows) are what a screen reader reads. */
+    tag('Table', 'table'),
+    tag('TableHead', 'thead'),
+    tag('TableBody', 'tbody'),
+    tag('TableRow', 'tr'),
+    tag('TableHeaderCell', 'th'),
+    tag('TableCell', 'td'),
     tag('List', 'ul'),
     tag('ListItem', 'li'),
     tag('Card', 'section'),
