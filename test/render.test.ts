@@ -822,15 +822,14 @@ describe('a view mounted inside an effect is not owned by that effect', () => {
 
             mounted.push(mountView(host, {
                 windowId: 'w1',
-                decl: {
+                view: {
                     id: 'main',
                     title: 'Posts',
                     render: () => element('List', {
                         children: [each(() => posts(), (p: string) => p, (p: () => string) =>
                             element('ListItem', { children: [text(() => p())] }))],
                     }),
-                } as never,
-                api: undefined,
+                },
                 params: {},
                 windows: { setTitle: () => {}, close: () => {} } as never,
                 resolve: resolveRenderer(components),
@@ -1350,15 +1349,14 @@ describe('a view registers its own handlers', () => {
 
         const view = mountView(host, {
             windowId,
-            decl: {
+            view: {
                 id: 'main',
                 title: 'Handler',
-                render: (vx: { on(fn: (value?: IntentValue) => void): Action }) => element('Button', {
+                render: (vx) => element('Button', {
                     intents: { activate: { action: vx.on(onPress) } },
                     children: [text('press')],
                 }),
-            } as never,
-            api: undefined,
+            },
             params: {},
             windows: { setTitle: () => {}, close: () => {} } as never,
             resolve: resolveRenderer(components),

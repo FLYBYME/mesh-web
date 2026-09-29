@@ -28,7 +28,7 @@
 
 import type { Json } from '../description/types.js';
 import type { Action } from '../description/types.js';
-import type { ViewDecl } from '../contribution/contract.js';
+import type { WindowView } from './view.js';
 import { effect } from '../reactivity/index.js';
 import type { RendererOptions } from '../render/index.js';
 import type { ProviderToken } from '../contribution/provider.js';
@@ -72,24 +72,17 @@ export type FrameChrome = (cx: FrameContext) => Frame;
 
 export interface ShellOptions {
     readonly manager: WindowManager;
-    /** The view declaration for a window. From the kernel, which knows every manifest. */
-    viewOf(owner: string, view: string): ViewDecl<never, never> | undefined;
-    /** What that window's process provides to its views. */
-    apiOf(owner: string): unknown;
-    /** What that window's process provides internally to its own views. */
-    internalOf?(owner: string): unknown;
     /**
-     * Whether the process owning a window has reached running and is ready to mount views.
-     *
-     * roadmap A5.7b: holds view mounting until start() resolves so views opened during start()
-     * never render against an undefined API.
+     * What a window shows, by its owner and view name — on the App desktop, one `WindowView` per
+     * route. (Once the part model's `ViewDecl`, with a process's API and internal state beside it.)
      */
-    isReady?(owner: string): boolean;
-    /** Which part/application owns this process, if known. */
+    viewOf(owner: string, view: string): WindowView | undefined;
+    /** Who owns a window, for error messages, if known. */
     partOf?(owner: string): string | undefined;
     readonly resolve: <T>(token: ProviderToken<T>) => T | undefined;
     readonly renderOptions: RendererOptions;
-    readonly onCommand: (action: Action) => void;
+    /** Where a `commandAction('id')` goes, if anywhere. */
+    readonly onCommand?: (action: Action) => void;
     /**
      * How **one window** is drawn. `defaultFrame` when a site has not said.
      *
@@ -141,16 +134,9 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
     const mounted = new Map<string, Mounted>();
 
     const build = (record: WindowRecord): Mounted | undefined => {
-        if (options.isReady !== undefined && !options.isReady(record.owner)) {
-            // The process is still starting. View mounting is held until start() resolves and the
-            // process reaches running, so vx.app is guaranteed to be defined (roadmap A5.7b).
-            return undefined;
-        }
-
-        const decl = options.viewOf(record.owner, record.view);
-        if (decl === undefined) {
-            // The manager refuses an undeclared view at `open`, so reaching here means the process
-            // went away between opening and painting. Skipped rather than thrown: a shell that
+        const view = options.viewOf(record.owner, record.view);
+        if (view === undefined) {
+            // Nothing answers for this window any more. Skipped rather than thrown: a shell that
             // throws mid-paint takes every other window down with it.
             return undefined;
         }
@@ -182,15 +168,13 @@ export function mountShell(root: Element, options: ShellOptions): Shell {
         const part = options.partOf?.(record.owner) ?? record.owner;
         const instance = mountView(built.content, {
             windowId: record.id,
-            decl,
-            api: options.apiOf(record.owner),
-            internal: options.internalOf?.(record.owner),
+            view,
             params: record.params,
             windows: manager,
             renderOptions: { ...options.renderOptions, ...(part !== undefined ? { part } : {}) },
             resolve: options.resolve,
             part,
-            onCommand: options.onCommand,
+            ...(options.onCommand === undefined ? {} : { onCommand: options.onCommand }),
         });
 
         return { frame: built, instance };

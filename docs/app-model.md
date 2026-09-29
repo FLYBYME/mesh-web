@@ -536,3 +536,31 @@ engine with platform services. A is in steps, each green.
   positioning, close/maximize under a real pointer, one window per route. That needed two things the
   desktop lacked: **`View({ window: { defaultSize, minSize, closable, tile } })`** — the part-era
   window hints, applied the way the window sink applied them — and a `frame` option.
+
+## 21. Phase 5c — A3/A4: the authoring surface is gone (2026-09-29)
+
+**What app code can import is now the app model and nothing that competes with it.**
+
+- **Deleted:** `contribution/contract.ts` and `contribution/api.ts` whole — `Application`,
+  `Extension`, `ViewDecl`/`ViewContext`, `Declarations` (`commands`, `keys`, `menus`, `settings`,
+  `stores`, `components`, `publishes`), `ApplicationInstance`/`KEEPS_NOTHING`, `construct`,
+  composites (`defineComposite`, `CompositeContract`), `defineComponent`/`CallableComponent`,
+  `CommandContract`/`BoundCommand`, `ApiDecl`/`checkBindings`, `Availability`. From `provider.ts`:
+  `consumes`, `Consumer`, `Provided`. From `session.ts`: `AUTH`, `AuthApi`, `Credentialed` (a service
+  is found by its class).
+- **The window layer has its own small contract** (`window/view.ts`): `WindowView` — id, title,
+  window hints, `render` — and `WindowViewContext` — the window's params, its handler table
+  (`on`/`off`), `windowId`. It is what the shell mounts, not something app code writes; the desktop
+  is its one user. The part-era context's `internal`/`app` are gone, and with them the three
+  `as never` casts `mountView` needed to fill them. The shell lost `apiOf`, `internalOf` and
+  `isReady`, which existed for processes.
+- `ErasedContext` moved into the broker, its only user.
+- **Tests:** `mountView` callers name a `view`, not a `decl` — which removed the `as never` their
+  declarations needed. Type assertions that had silently become checks against `any` when `Context`
+  went (five `@ts-expect-error`s reported unused) now target `Capabilities<Needs, Api>` — a unit's
+  `this.cx` type — and hold again. Five `as Context<…>` casts in the capability tests became checks.
+- **Left for B**, deliberately: the capabilities that only the part model needed (`commands`,
+  `windows`, `chrome`, the legacy `router` capability) still exist in the broker; `commandAction` and
+  the `command` kind of `Action` still exist in the description layer; and four pre-existing
+  `as any` casts in `models/models.ts`. B replaces the broker with platform services, and those go
+  with it.

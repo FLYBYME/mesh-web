@@ -1,3 +1,7 @@
+// The capabilities an App's context carries, and the shape of a session. The part model's authoring
+// surface — Application, Extension, ViewDecl/ViewContext, Declarations, composites, CommandDecl,
+// publishes/checkBindings, consumes/use — went with it (docs/app-model.md, phase 5c). An App is
+// written with `App`, `Service`, `View`, `Component` and `command` (src/app/).
 export type {
     CapabilityContext, CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands,
     Confirmation, ConfirmOptions, ContributionBase, Credentials, Dom, Log, NotificationHandle,
@@ -5,23 +9,7 @@ export type {
 } from './capabilities.js';
 export { needs } from './capabilities.js';
 
-export type { AuthApi, Credentialed, Session } from './session.js';
-export { AUTH } from './session.js';
+export type { Session } from './session.js';
 
-export type { Consumer, Provided, ProviderToken, ProviderTokens } from './provider.js';
-export { consumes, provider } from './provider.js';
-
-export type {
-    ApiOf, Application, ApplicationInstance, ApplicationStartResult, CommandDecl, Context, Declarations,
-    ErasedApplication, ErasedContext, ErasedContribution, ErasedExtension, Extension, KeyDecl,
-    MenuDecl, SessionRequirement, SettingDecl, ViewContext, ViewDecl,
-} from './contract.js';
-export { applicationInstance, construct, isApplication, isApplicationInstance, isExtension, KEEPS_NOTHING } from './contract.js';
-
-export type {
-    ApiDecl, Availability, BoundCommand, BoundComponent, CallableComponent, CommandContract,
-    ComponentContract, Composite, CompositeContract, ConfirmDecl, PartApi, Schema, StateContract,
-} from './api.js';
-export {
-    AVAILABLE, checkBindings, defineComponent, defineComposite, formatRefusal, schema,
-} from './api.js';
+export type { ProviderToken, ProviderTokens } from './provider.js';
+export { provider } from './provider.js';

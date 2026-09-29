@@ -23,10 +23,8 @@
 import { describe, expect, it } from 'vitest';
 import { IoManager } from '../src/kernel/io.js';
 import {
-    provider,
     call,
     computed,
-    consumes,
     createClient,
     createScope,
     createServices,
@@ -43,16 +41,12 @@ import {
     withHeaders,
     type Api,
     type AnyApiCall,
+    type Capabilities,
     type Models,
-    type Application,
-    type Context,
-    type Extension,
-    type ProviderToken,
     type NetRequest,
     type NetResponse,
     type Session,
     type Transport,
-    KEEPS_NOTHING,
 } from '../src/index.js';
 
 // ---------------------------------------------------------------------------- API descriptor
@@ -201,7 +195,8 @@ function createFakeTransport(handler: (req: NetRequest) => NetResponse | Promise
 describe('models capability type checking', () => {
     it('enforces that unknown collection names are compile errors', () => {
         type AppNeeds = readonly ['models'];
-        type AppContext = Context<AppNeeds, readonly [], typeof siteApi>;
+        // A unit's `this.cx` type for these needs and this API.
+        type AppContext = Capabilities<AppNeeds, typeof siteApi>;
 
         const typeAssert = (cx: AppContext) => {
             // Valid collections compile cleanly
@@ -221,7 +216,7 @@ describe('models capability type checking', () => {
 
     it('enforces that cx.models is absent without needs("models")', () => {
         type NoModelsNeeds = readonly ['mesh'];
-        type NoModelsContext = Context<NoModelsNeeds, readonly [], typeof siteApi>;
+        type NoModelsContext = Capabilities<NoModelsNeeds, typeof siteApi>;
 
         const typeAssert = (cx: NoModelsContext) => {
             // @ts-expect-error models is not declared in needs
@@ -232,7 +227,7 @@ describe('models capability type checking', () => {
 
     it('infers typed mutation inputs and outputs', () => {
         type AppNeeds = readonly ['models'];
-        type AppContext = Context<AppNeeds, readonly [], typeof siteApi>;
+        type AppContext = Capabilities<AppNeeds, typeof siteApi>;
 
         const typeAssert = (cx: AppContext) => {
             const parts = cx.models('part');

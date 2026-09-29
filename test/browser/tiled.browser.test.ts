@@ -88,7 +88,7 @@ function shell(): Shell {
 
                 const instance = mountView(host, {
                     windowId: record.id,
-                    decl: {
+                    view: {
                         id: record.view,
                         title: record.title,
                         // Twenty rows in a short window, so there is something to scroll.
@@ -102,8 +102,7 @@ function shell(): Shell {
                                     })),
                             ],
                         }),
-                    } as never,
-                    api: undefined,
+                    },
                     params: {},
                     windows: manager,
                     resolve: (() => createDomRenderer(typeof components !== 'undefined' ? components : createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => { } } },

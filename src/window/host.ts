@@ -15,24 +15,26 @@ import { createDetachedScope } from '../reactivity/scope.js';
 import type { ReactiveScope } from '../reactivity/types.js';
 import { createHandlerTable, type HandlerTable } from '../description/build.js';
 import type { Action, IntentValue, Json } from '../description/types.js';
-import type { ViewContext, ViewDecl } from '../contribution/contract.js';
+import type { WindowView, WindowViewContext } from './view.js';
 import { RENDERER, type Dispatcher, type Mounted, type RendererOptions } from '../render/index.js';
 import type { WindowManager } from './manager.js';
 import type { ProviderToken } from '../contribution/provider.js';
 
 export interface ViewHostOptions {
     readonly windowId: string;
-    readonly decl: ViewDecl<never, never, never>;
-    readonly api: unknown;
-    readonly internal?: unknown;
+    /** What this window shows. */
+    readonly view: WindowView;
     readonly params: Readonly<Record<string, Json>>;
     readonly windows: WindowManager;
     readonly resolve: <T>(token: ProviderToken<T>) => T | undefined;
     readonly renderOptions: RendererOptions;
-    /** The part or application owning this view, if known. */
+    /** Who owns this window, if known. Used in error messages. */
     readonly part?: string;
-    /** Commands go to the kernel; handlers come back to this view's own table. */
-    readonly onCommand: (action: Action) => void;
+    /**
+     * Where a `commandAction('id')` goes — the description layer's by-id action. Handlers come back to
+     * this window's own table. Absent, such an action is reported rather than dropped.
+     */
+    readonly onCommand?: (action: Action) => void;
 }
 
 export interface ViewInstance {
@@ -76,18 +78,19 @@ export function mountView(host: Element, options: ViewHostOptions): ViewInstance
             // `command('post.rename', slug)` on a field arrives as `run(slug, "the new title")`.
             // Appended rather than prepended because the declared arguments are the ones the author
             // wrote, and they should not move when a binding gains a value.
-            options.onCommand(
-                value === undefined
-                    ? action
-                    : { ...action, args: [...(action.args ?? []), value] },
-            );
+            const withValue = value === undefined ? action : { ...action, args: [...(action.args ?? []), value] };
+            if (options.onCommand === undefined) {
+                console.error(`"${action.id}" is a command id and nothing in this window runs them. Use a handler.`);
+                return;
+            }
+            options.onCommand(withValue);
         },
     };
 
-    const vx: ViewContext<never, never, never> = {
-        params: options.params as never,
-        app: options.api as never,
-        internal: options.internal as never,
+    // A window's params and handler table — no process state. (The part model's context also carried
+    // the Application's `internal` and published `app`, cast to fit through three `as never`s.)
+    const vx: WindowViewContext = {
+        params: options.params,
         /**
          * The table has always been here; nothing could reach it (roadmap A8.10).
          *
@@ -116,7 +119,7 @@ export function mountView(host: Element, options: ViewHostOptions): ViewInstance
     if (renderer === undefined) throw new Error('No renderer available to mount view.');
 
     scope.run(() => {
-        mounted = renderer.render(options.decl.render(vx), host, {
+        mounted = renderer.render(options.view.render(vx), host, {
             ...options.renderOptions,
             ...(part !== undefined ? { part } : {}),
             dispatch,

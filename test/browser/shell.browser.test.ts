@@ -338,7 +338,6 @@ describe('the shell positions windows without help from a stylesheet', () => {
         const shell = mountShell(host, {
             manager: new WindowManager({ width: 400, height: 300 }),
             viewOf: () => undefined,
-            apiOf: () => undefined,
             resolve: rendererOnly(), renderOptions: { dispatch: { dispatch: () => {} } },
             onCommand: () => {},
         });
@@ -359,7 +358,6 @@ describe('the shell positions windows without help from a stylesheet', () => {
         const shell = mountShell(host, {
             manager: new WindowManager({ width: 400, height: 300 }),
             viewOf: () => undefined,
-            apiOf: () => undefined,
             resolve: rendererOnly(), renderOptions: { dispatch: { dispatch: () => {} } },
             onCommand: () => {},
         });

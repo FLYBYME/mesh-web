@@ -30,7 +30,17 @@ import type {
 import type { ResizeEdge } from '../window/geometry.js';
 import { windowHost } from '../window/page.js';
 import type { WindowMode } from '../window/manager.js';
-import type { ErasedContext } from '../contribution/contract.js';
+
+/**
+ * A context with its types erased: whichever capabilities were declared, by name. What the App path
+ * hands the runtime as its grant (`startApp`), and what the runtime projects per unit. (Lived in the
+ * part model's contract; this is its only user now.)
+ */
+export type ErasedContext = {
+    readonly id: string;
+    onDispose(fn: () => void): void;
+    use(token: ProviderToken<unknown>): unknown;
+} & Partial<CapabilityMap>;
 import type { ProviderToken } from '../contribution/provider.js';
 import type { AnyApiCall, Api } from '../net/api.js';
 import { createClient, fetchTransport, withHeaders, type MeshClient } from '../net/client.js';

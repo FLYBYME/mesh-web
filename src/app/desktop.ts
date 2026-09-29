@@ -8,12 +8,12 @@
  *
  * Built on the existing window layer rather than beside it: the real `WindowManager` (drag, tile,
  * focus, stacking) and `mountPage`'s shell. The shell mounts a window through `viewOf(owner, view)`
- * → a `ViewDecl`, so each route is handed to it as one whose `render` mounts the route's view through
+ * → a `WindowView`, so each route is handed to it as one whose `render` mounts the route's view through
  * the runtime — in the window's own handler table, and in the window's command scope, so a key
  * reaches only the window in front (and the page's services).
  */
 
-import type { ViewContext, ViewDecl } from '../contribution/contract.js';
+import type { WindowView } from '../window/view.js';
 import { signal, type ReadonlySignal } from '../reactivity/index.js';
 import { computed } from '../reactivity/computed.js';
 import { IoManager } from '../kernel/io.js';
@@ -127,25 +127,27 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
     /** Live handlers across every window, counted where the runtime registers and removes them. */
     let handlers = 0;
 
-    /** One `ViewDecl` per route, made once: the shell asks for it every time it frames a window. */
-    const decls = new Map<string, ViewDecl<never, never>>();
-    const viewOf = (_owner: string, pattern: string): ViewDecl<never, never> | undefined => {
-        const existing = decls.get(pattern);
+    /** One `WindowView` per route, made once: the shell asks for it every time it frames a window. */
+    const windowViews = new Map<string, WindowView>();
+    const viewOf = (_owner: string, pattern: string): WindowView | undefined => {
+        const existing = windowViews.get(pattern);
         if (existing !== undefined) return existing;
         const view = App.spec.routes[pattern];
         if (view === undefined) return undefined;
         const hints = view.spec.window;
-        const decl: ViewDecl<never, never> = {
+        const windowView: WindowView = {
             id: pattern,
             title: view.spec.title ?? view.name,
             ...(hints === undefined ? {} : { window: hints }),
-            render: (vx: ViewContext<never, never>) => live.view(view, vx.params, {
+            // The route's view, mounted through the runtime in this window's handler table and in
+            // this window's command scope — so a key reaches only the window in front.
+            render: (vx) => live.view(view, vx.params, {
                 on: (fn) => { handlers++; return vx.on(fn); },
                 off: (action) => { handlers--; vx.off(action); },
             }, vx.windowId),
         };
-        decls.set(pattern, decl);
-        return decl;
+        windowViews.set(pattern, windowView);
+        return windowView;
     };
 
     // Windows carry their own dispatchers; nothing is drawn outside them that could dispatch.
@@ -154,10 +156,8 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
     const page = mountPage(options.root, {
         manager,
         viewOf,
-        apiOf: () => undefined,
         resolve: (token) => io.get(token),
         renderOptions: { dispatch },
-        onCommand: () => undefined,
         onWindow: (event, id) => {
             if (event === 'closed' && showing.delete(id)) bump();
         },

@@ -23,8 +23,15 @@ import {
     render,
     signal,
     when,
-    type Context,
+    type Dom,
 } from '../src/index.js';
+
+/** The declared `dom` capability, checked present rather than cast into a typed context. */
+function withDom(context: { readonly dom?: Dom }): { readonly dom: Dom } {
+    const dom = context.dom;
+    if (dom === undefined) throw new Error('dom was declared, so the broker must provide it');
+    return { dom };
+}
 
 describe('Surface (A7.5)', () => {
     it('is NOT registered in PRIMITIVES', () => {
@@ -68,7 +75,10 @@ describe('Surface (A7.5)', () => {
             new IoManager(),
         );
 
-        const cx = handle.context as Context<typeof DOM_NEEDS>;
+        // Declared, so present — checked rather than cast (this was `as Context<typeof DOM_NEEDS>`).
+        const dom = handle.context.dom;
+        if (dom === undefined) throw new Error('dom was declared, so the broker must provide it');
+        const cx = { dom };
         expect(cx.dom).toBeDefined();
         expect(typeof cx.dom.Surface).toBe('function');
         expect(typeof cx.dom.surface).toBe('function');
@@ -87,7 +97,7 @@ describe('Surface (A7.5)', () => {
             services,
             new IoManager(),
         );
-        const cx = handle.context as Context<typeof DOM_NEEDS>;
+        const cx = withDom(handle.context);
 
         const setupFn = vi.fn();
         const node = cx.dom.Surface({
@@ -126,7 +136,7 @@ describe('Surface (A7.5)', () => {
             services,
             new IoManager(),
         );
-        const cx = handle.context as Context<typeof DOM_NEEDS>;
+        const cx = withDom(handle.context);
 
         const teardown = vi.fn();
         let receivedEl: HTMLElement | undefined;
@@ -171,7 +181,7 @@ describe('Surface (A7.5)', () => {
             services,
             new IoManager(),
         );
-        const cx = handle.context as Context<typeof DOM_NEEDS>;
+        const cx = withDom(handle.context);
 
         const shown = signal(true);
         const teardown = vi.fn();
@@ -211,7 +221,7 @@ describe('Surface (A7.5)', () => {
             services,
             new IoManager(),
         );
-        const cx = handle.context as Context<typeof DOM_NEEDS>;
+        const cx = withDom(handle.context);
 
         const teardown = vi.fn();
         const setup = vi.fn(() => teardown);

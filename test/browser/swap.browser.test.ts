@@ -64,8 +64,7 @@ describe('a second renderer can be swapped in', () => {
 
         const instance = mountView(host, {
             windowId: 'w1',
-            decl: { id: 'main', title: 'Swapped', render: () => view } as never,
-            api: undefined,
+            view: { id: 'main', title: 'Swapped', render: () => view },
             params: {},
             windows,
             resolve: (token) => io.get(token),
@@ -91,8 +90,7 @@ describe('a second renderer can be swapped in', () => {
 
         const instance = mountView(document.createElement('div'), {
             windowId: 'w1',
-            decl: { id: 'main', title: 'Swapped', render: () => text('x') } as never,
-            api: undefined,
+            view: { id: 'main', title: 'Swapped', render: () => text('x') },
             params: {},
             windows,
             resolve: (token) => io.get(token),
