@@ -24,7 +24,7 @@ export type {
 export { isDynamic, read } from './types.js';
 
 export type { DialogOptions, ElementOptions, HandlerTable } from './build.js';
-export { command, createHandlerTable, dialog, each, element, empty, text, when } from './build.js';
+export { commandAction, createHandlerTable, dialog, each, element, empty, text, when } from './build.js';
 
 
 export type { Flat, FlatElement, FlatText } from './flatten.js';

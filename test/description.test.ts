@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { signal } from '../src/reactivity/index.js';
 import {
-    command, createHandlerTable, dialog, each, element, empty, findAll,
+    commandAction as command, createHandlerTable, dialog, each, element, empty, findAll,
     flatten, text, textOf, when,
 } from '../src/description/index.js';
 

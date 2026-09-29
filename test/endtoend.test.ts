@@ -31,7 +31,7 @@ function resolveRenderer(registry: ComponentRegistry): <T>(token: ProviderToken<
 import { describe, expect, it } from 'vitest';
 
 import {
-    Kernel, WindowManager, command, consumes, createRegistry, createServices, each, element,
+    Kernel, WindowManager, commandAction as command, consumes, createRegistry, createServices, each, element,
     flushSync, mountView, needs, provider, text, when, windowSink, PRIMITIVES,
     type Action, type Application, type Context, type Extension, type ViewContext, type ViewInstance, KEEPS_NOTHING,
 } from '../src/index.js';

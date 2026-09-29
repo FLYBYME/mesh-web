@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { page, userEvent } from '@vitest/browser/context';
 
 import {
-    Kernel, WindowManager, command, createRegistry, each, effect, element, mountView, needs,
+    Kernel, WindowManager, commandAction as command, createRegistry, each, effect, element, mountView, needs,
     provider, text, when, windowSink, PRIMITIVES,
     type Action, type Application, type Context, type ViewContext, type ViewInstance, KEEPS_NOTHING,
 } from '../../src/index.js';

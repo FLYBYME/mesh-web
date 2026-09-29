@@ -41,5 +41,15 @@ export * from './storage/index.js';
 export * from './models/index.js';
 export * from './instance.js';
 export * from './testing/index.js';
+/**
+ * **The app model, from the root and nowhere else** (docs/app-model.md).
+ *
+ * Not a subpath like `@flybyme/mesh-web/app`: a part's build keeps exactly one specifier external,
+ * `@flybyme/mesh-web`, and bundles everything else. A subpath would put a second copy of the runtime
+ * inside the part — its own `Router` class, which the kernel's runtime would not recognise. The
+ * legacy names it collided with were renamed: `command` → `commandAction`, `Router` →
+ * `RouterCapability`, `Component` → `CallableComponent`.
+ */
+export * from './app/index.js';
 
 import './kernel.css';

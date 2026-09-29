@@ -1,7 +1,7 @@
 export type {
     CapabilityContext, CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands,
     Confirmation, ConfirmOptions, ContributionBase, Credentials, Dom, Log, NotificationHandle,
-    Notifications, Router, RouterApplication, State, SurfaceOptions, WindowHandle, Windows,
+    Notifications, RouterCapability, RouterApplication, State, SurfaceOptions, WindowHandle, Windows,
 } from './capabilities.js';
 export { needs } from './capabilities.js';
 
@@ -19,7 +19,7 @@ export type {
 export { applicationInstance, construct, isApplication, isApplicationInstance, isExtension, KEEPS_NOTHING } from './contract.js';
 
 export type {
-    ApiDecl, Availability, BoundCommand, BoundComponent, CommandContract, Component,
+    ApiDecl, Availability, BoundCommand, BoundComponent, CallableComponent, CommandContract,
     ComponentContract, Composite, CompositeContract, ConfirmDecl, PartApi, Schema, StateContract,
 } from './api.js';
 export {

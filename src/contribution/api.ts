@@ -296,7 +296,8 @@ export function checkBindings(declared: ApiDecl, bound: PartApi | undefined, sou
  * and the rest. That is a design system, it is a real thing to choose or not choose, and a part
  * uses it by *name* through the component registry rather than by import.
  */
-export interface Component<P> extends ComponentContract<P> {
+/** Was `Component`; that name is the app model's now (docs/app-model.md §6). Legacy, phase 5c. */
+export interface CallableComponent<P> extends ComponentContract<P> {
     (props: P): DescriptionNode;
 }
 
@@ -324,13 +325,13 @@ export function defineComponent<P>(
     name: string,
     description: string,
     render: (props: P) => DescriptionNode,
-): Component<P> {
+): CallableComponent<P> {
     const fn = (props: P): DescriptionNode => render(props);
     return named(Object.assign(fn, {
         description,
         props: schema<P>(),
         render,
-    }), name) as Component<P>;
+    }), name) as CallableComponent<P>;
 }
 
 /** A composite: created per use, owns state while mounted, renders itself. */

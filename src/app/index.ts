@@ -1,6 +1,6 @@
 /**
- * The app model (docs/app-model.md). Not re-exported from `src/index.ts` yet: `Component` and
- * `ApiOf` are already names there, and the old ones go in phase 5 of the plan.
+ * The app model (docs/app-model.md). Re-exported from the package root (`src/index.ts`), which is
+ * the only way a part should import it.
  */
 
 export * from './types.js';

@@ -20,7 +20,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { effect, flushSync, signal } from '../src/reactivity/index.js';
 import { applyDefaultProp } from '../src/render/component.js';
-import { command, createHandlerTable, dialog, each, element, empty, text, when } from '../src/description/index.js';
+import { commandAction as command, createHandlerTable, dialog, each, element, empty, text, when } from '../src/description/index.js';
 import type { Action, IntentValue } from '../src/description/index.js';
 import { createRegistry, PRIMITIVES, render, type Dispatcher } from '../src/render/index.js';
 import { mountView } from '../src/window/host.js';

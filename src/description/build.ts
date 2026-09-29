@@ -107,8 +107,14 @@ export function dialog(options: DialogOptions): DialogNode {
 
 // ---------------------------------------------------------------------------- actions
 
-/** Invoke a declared command. In the palette, bindable to a key, callable from outside. */
-export function command(id: string, ...args: readonly Json[]): Action {
+/**
+ * Invoke a declared command by id — the legacy model's action. In the palette, bindable to a key,
+ * callable from outside.
+ *
+ * Was `command`; renamed because the app model's `command()` builds a command *object* and is the
+ * name app code should find (docs/app-model.md §7). Goes with the legacy model (phase 5c).
+ */
+export function commandAction(id: string, ...args: readonly Json[]): Action {
     return args.length > 0 ? { kind: 'command', id, args } : { kind: 'command', id };
 }
 

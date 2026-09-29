@@ -234,7 +234,8 @@ export interface RouterApplication {
  * what makes "this part can move other Applications on and off screen" visible in a manifest rather
  * than ambient.
  */
-export interface Router {
+/** The legacy `needs('router')` capability. Was `Router`; that name is the app model's service now. */
+export interface RouterCapability {
     /** Every Application this site could switch to, in composition order. */
     applications(): readonly RouterApplication[];
     /** The foreground Application's id, or `undefined` before the first navigation resolves. */
@@ -466,7 +467,7 @@ export interface CapabilityMap {
     readonly display: Display;
     readonly credentials: Credentials;
     readonly chrome: Chrome;
-    readonly router: Router;
+    readonly router: RouterCapability;
     readonly http: Http;
     readonly storage: Storage;
     readonly dom: Dom;

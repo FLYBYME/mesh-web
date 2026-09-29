@@ -15,7 +15,7 @@ import { userEvent } from '@vitest/browser/context';
 import '../../src/kernel.css';
 
 import {
-    command, dialog, element, flushSync, needs, provider, text,
+    commandAction as command, dialog, element, flushSync, needs, provider, text,
     type Application, type Context, type ProviderToken, type ViewContext, type ViewDecl, KEEPS_NOTHING,
 } from '../../src/index.js';
 import { cleanup, mountPart } from '../../src/testing/index.js';

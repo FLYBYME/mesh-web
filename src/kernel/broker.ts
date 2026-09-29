@@ -25,7 +25,7 @@ import type { Json, Node, Reactive } from '../description/types.js';
 import type {
     CapabilityMap, CapabilityName, Chrome, ChromeWindow, CommandImpl, Commands, Confirmation,
     ConfirmOptions, Credentials, Dom, Http, HttpRequest, HttpResponse, Log, NotificationHandle,
-    Notifications, Router, RouterApplication, State, Storage, SurfaceOptions, WindowHandle, Windows,
+    Notifications, RouterCapability, RouterApplication, State, Storage, SurfaceOptions, WindowHandle, Windows,
 } from '../contribution/capabilities.js';
 import type { ResizeEdge } from '../window/geometry.js';
 import { windowHost } from '../window/page.js';
@@ -914,7 +914,7 @@ function makeChrome(services: KernelServices): Chrome {
  * real one once `start()`'s `ready` resolves (`start.ts`). Capturing it here at activation time would
  * permanently bind the capability to the fake that was true a moment before the real one existed.
  */
-function makeRouter(services: KernelServices): Router {
+function makeRouter(services: KernelServices): RouterCapability {
     return {
         applications: () => services.router.applications(),
         current: () => services.router.current(),
