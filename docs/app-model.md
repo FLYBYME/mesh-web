@@ -311,3 +311,31 @@ of the router), `net`, `models`, capabilities.
   collisions are only known for what is mounted. That is the intended semantics, but it means a site
   review cannot list every command without running it — only every schema-bearing command on services
   and apps.
+
+## 12. Phase 1 findings (2026-09-28)
+
+Phase 1 (`src/app/`, `test/app-model.types.ts`, `test/app-command.test.ts`) changed the design in
+four places. Where the examples above disagree, this section and the code win.
+
+- **The spec is passed to the base, not written as statics.** A class cannot name its own statics in
+  its `extends` clause (`class A extends View<typeof A>` is a circularity error), so the base cannot
+  see a subclass's `static needs`. Instead: `class RecordsView extends View({ needs, inject, params })`.
+  The spec is still static and readable without constructing anything — `RecordsView.spec`.
+- **`View` and `ComponentBase` are named abstract classes, not class expressions.** Returned from a
+  function, a class expression's `abstract render()` is emitted to the `.d.ts` as a plain method, so a
+  package consumer could declare a view with no `render` and get no error. Found only by compiling
+  the type tests against the *emitted declarations*; the whole type-test file is now checked that way
+  as well as against source.
+- **Services are not narrowed.** Rule 4 narrows *capabilities* down the tree; injection is not
+  narrowed. A service is the sanctioned way to share power — a component without `mesh` may inject
+  `AuthService` and call `signIn`, which uses `mesh`. That is delegation through a narrow, typed
+  surface, not escalation. Who grants a service its own `needs` is still open (§11).
+- **Injection cycles cannot be written.** `extends Service({ inject: { b: B } })` is evaluated where the
+  class is written, so a service can only inject one declared before it (TS2449 otherwise). The
+  kernel's runtime cycle check becomes a backstop for cross-module import order, not the rule.
+- **A command has two types.** Callers pass the schema's *input* type; `run` receives its *output*.
+  `z.object({ ttl: z.number().default(300) })` accepts `{}` and produces `{ ttl: 300 }`. Read from
+  zod's `_input` phantom, falling back to the output type for any other schema — still no zod import.
+- **"Declared nothing" is `Record<never, never>`.** `Record<string, never>` has `keyof` `string`, which
+  made a param-less view accept every `:param` route — caught by an `@ts-expect-error` that stopped
+  failing.
