@@ -130,6 +130,7 @@ export async function mountPart(input: MountOptions | readonly PartRef[] | PartR
 
     let disposed = false;
     const site: MountedSite = {
+        kind: 'parts',
         kernel: started.kernel,
         manager: started.manager,
         page: started.page,

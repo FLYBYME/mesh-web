@@ -10,6 +10,7 @@ import type { CapabilityContext, CapabilityName } from '../contribution/capabili
 import type { Action, IntentValue, Node } from '../description/types.js';
 import type { Models } from '../models/types.js';
 import type { MeshClient } from '../net/client.js';
+import type { AnyApiCall, Api } from '../net/api.js';
 
 // ---------------------------------------------------------------------------- schemas
 
@@ -77,7 +78,7 @@ export interface UnitSpec {
     readonly needs?: readonly CapabilityName[];
     readonly inject?: Injectables;
     /** The API `cx.mesh` and `cx.models` are typed by. */
-    readonly api?: unknown;
+    readonly api?: Api<Record<string, AnyApiCall>>;
 }
 
 /**

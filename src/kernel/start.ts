@@ -69,7 +69,9 @@ import { WindowManager } from '../window/manager.js';
 import { browserHistory, routerSink } from '../router/router.js';
 import type { Action, IntentValue } from '../description/types.js';
 import { bindingTable, KERNEL_WINDOW_BINDINGS } from '../input/keys.js';
-import { createServices } from './broker.js';
+import { createContext, createServices } from './broker.js';
+import { mountSite, type MountedApp } from '../app/site.js';
+import type { AppClass } from '../app/runtime.js';
 import { Kernel, type Loaded } from './kernel.js';
 import { kernelLog, mountLogViewer, reasonOf, type KernelLog, type LogViewer } from './logs.js';
 
@@ -120,7 +122,7 @@ export interface Composition {
      * writes the setting as policy and it becomes one nobody can change.
      */
     readonly policy?: BuildPolicy;
-    readonly parts: readonly PartRef[];
+    readonly parts: readonly (PartRef | AppPartRef)[];
     /**
      * Where to mount.
      *
@@ -144,6 +146,7 @@ export interface Composition {
 }
 
 export interface Started {
+    readonly kind: 'parts';
     readonly kernel: Kernel;
     readonly manager: WindowManager;
     readonly page: Page;
@@ -162,58 +165,34 @@ export interface Started {
     dispose(): void;
 }
 
-export function start(composition: Composition): Started {
+/**
+ * Every existing typed caller composes legacy parts and gets `Started`; a composition that may
+ * hold an App gets the union, because that is what it may really return. mesh-serve's boot script is
+ * untyped and takes either.
+ */
+export function start(composition: Composition & { readonly parts: readonly PartRef[] }): Started;
+export function start(composition: Composition): Started | StartedApp;
+export function start(composition: Composition): Started | StartedApp {
     const doc = composition.root?.ownerDocument ?? globalThis.document;
     const root = composition.root ?? mountRoot(doc);
     const api = composition.api ?? readApi(doc);
+
+    // An app-model App boots on its own path (docs/app-model.md, phase 5a). The boot script
+    // mesh-serve writes is unchanged: it still hands `start` a list of default-exported classes.
+    const legacy: PartRef[] = [];
+    for (const part of composition.parts) {
+        if (isAppPart(part)) return startApp(part.contribution, part.id, composition, doc, root, api);
+        legacy.push(part);
+    }
 
     const manager = new WindowManager({
         width: root.clientWidth,
         height: root.clientHeight,
     });
 
-    const io = new IoManager();
-    if (io.get(STORAGE) === undefined) {
-        const hives = composition.hives ?? {
-            system: { provider: memoryProvider('system'), writable: false },
-            user: { provider: memoryProvider('user'), writable: true },
-            device: { provider: localProvider(), writable: true },
-            session: { provider: memoryProvider('session'), writable: true },
-        };
-        io.register(STORAGE, hives);
-        io.register(HOST_WINDOW_DRIVER, createHostWindowDriver());
-        io.register(ONLINE_DRIVER, createOnlineDriver());
-    }
-    const hives = io.resolve(STORAGE);
-
-    const services = createServices(undefined, {
-        apiOrigin: api,
-        hives,
-        logCapacity: composition.logCapacity,
-        // Installed by the page, never by the part that asks — that separation is the only reason
-        // `confirmation` is worth having.
-        confirm: domConfirm(doc),
-        /**
-         * **Live collections, which until now were switched off on every real page.**
-         *
-         * `createModels` takes an `eventSource` factory and passes it to `createEventStreamClient`,
-         * which returns `{ isAvailable: false }` when there is none — and a collection is only
-         * streamed when `isAvailable`. Nothing in this file ever supplied one. So the whole
-         * mechanism — `<name>.created|updated|deleted`, refetch on reconnect, the reason
-         * `models.ts` has 40 lines of subscription code — was dead in every deployed site, silently,
-         * because a list that never updates looks exactly like a list nothing changed.
-         *
-         * It is `createFetchEventSource` rather than the browser's `EventSource` because `/events`
-         * is gated and the native class **cannot send a header**. A gated stream needs the ticket,
-         * and the alternative — the ticket in the query string — writes a live credential into
-         * every access log between here and the server. The headers are read per attempt, not
-         * captured once, so a reconnect after a sign-in uses the ticket that exists then.
-         */
-        eventSource: (url) => createFetchEventSource(url, {
-            headers: () => kernel.services.credentials.headers?.() ?? {},
-        }),
-    });
-    const kernel = new Kernel({ services, io });
+    const kernel = createPageKernel(composition, doc, api);
+    const services = kernel.services;
+    const hives = kernel.io.resolve(STORAGE);
 
     /**
      * Four hives, and where each is backed.
@@ -268,20 +247,6 @@ export function start(composition: Composition): Started {
     const router = win === null ? undefined : routerSink(kernel, manager, browserHistory(win));
     if (router !== undefined) kernel.services.router = router;
 
-    /**
-     * How a declared API becomes a client, and the one place a credential could be handled.
-     *
-     * It is not handled here either: `withHeaders` takes a *function*, and the auth Extension fills
-     * it in through `needs('credentials')`. This installs the seam and never looks through it, which
-     * is the whole of *an Application never handles a credential* — it calls `cx.mesh.call(...)` and
-     * its request carries a ticket it has never seen.
-     */
-    kernel.services.meshClient = (declared) => createClient(declared as Api<Record<string, AnyApiCall>>, {
-        transport: withHeaders(
-            fetchTransport(api),
-            () => kernel.services.credentials.headers?.() ?? {},
-        ),
-    }) as MeshClient<unknown>;
 
     /**
      * **A constructor that throws is one missing part, not a blank page.**
@@ -295,7 +260,7 @@ export function start(composition: Composition): Started {
     const log = kernelLog(kernel.services.logs);
     const loaded: Loaded[] = [];
     const unconstructed: string[] = [];
-    for (const part of composition.parts) {
+    for (const part of legacy) {
         try {
             loaded.push({ id: part.id, contribution: construct(part) });
         } catch (cause) {
@@ -480,7 +445,7 @@ export function start(composition: Composition): Started {
     });
 
     return {
-        kernel, manager, page, settings, components, logViewer,
+        kind: 'parts', kernel, manager, page, settings, components, logViewer,
         ready,
         dispose() {
             stopPersisting();
@@ -516,6 +481,151 @@ function construct(part: PartRef): ErasedContribution {
 }
 
 /** The element the page did not have to contain. */
+/**
+ * The page's kernel services — storage hives, drivers, the API client, logs, credentials — shared by
+ * both boot paths, so an App gets the same capabilities a legacy part did, built the same way.
+ */
+function createPageKernel(composition: Composition, doc: Document, api: string): Kernel {
+    const io = new IoManager();
+    if (io.get(STORAGE) === undefined) {
+        const hives = composition.hives ?? {
+            system: { provider: memoryProvider('system'), writable: false },
+            user: { provider: memoryProvider('user'), writable: true },
+            device: { provider: localProvider(), writable: true },
+            session: { provider: memoryProvider('session'), writable: true },
+        };
+        io.register(STORAGE, hives);
+        io.register(HOST_WINDOW_DRIVER, createHostWindowDriver());
+        io.register(ONLINE_DRIVER, createOnlineDriver());
+    }
+    const hives = io.resolve(STORAGE);
+
+    const services = createServices(undefined, {
+        apiOrigin: api,
+        hives,
+        logCapacity: composition.logCapacity,
+        // Installed by the page, never by the part that asks — that separation is the only reason
+        // `confirmation` is worth having.
+        confirm: domConfirm(doc),
+        /**
+         * **Live collections, which until now were switched off on every real page.**
+         *
+         * `createModels` takes an `eventSource` factory and passes it to `createEventStreamClient`,
+         * which returns `{ isAvailable: false }` when there is none — and a collection is only
+         * streamed when `isAvailable`. Nothing in this file ever supplied one. So the whole
+         * mechanism — `<name>.created|updated|deleted`, refetch on reconnect, the reason
+         * `models.ts` has 40 lines of subscription code — was dead in every deployed site, silently,
+         * because a list that never updates looks exactly like a list nothing changed.
+         *
+         * It is `createFetchEventSource` rather than the browser's `EventSource` because `/events`
+         * is gated and the native class **cannot send a header**. A gated stream needs the ticket,
+         * and the alternative — the ticket in the query string — writes a live credential into
+         * every access log between here and the server. The headers are read per attempt, not
+         * captured once, so a reconnect after a sign-in uses the ticket that exists then.
+         */
+        eventSource: (url) => createFetchEventSource(url, {
+            headers: () => kernel.services.credentials.headers?.() ?? {},
+        }),
+    });
+    const kernel = new Kernel({ services, io });
+
+    /**
+     * How a declared API becomes a client, and the one place a credential could be handled.
+     *
+     * It is not handled here either: `withHeaders` takes a *function*, and the auth Extension fills
+     * it in through `needs('credentials')`. This installs the seam and never looks through it, which
+     * is the whole of *an Application never handles a credential* — it calls `cx.mesh.call(...)` and
+     * its request carries a ticket it has never seen.
+     */
+    kernel.services.meshClient = (declared) => createClient(declared as Api<Record<string, AnyApiCall>>, {
+        transport: withHeaders(
+            fetchTransport(api),
+            () => kernel.services.credentials.headers?.() ?? {},
+        ),
+    }) as MeshClient<unknown>;
+
+    return kernel;
+}
+
+// ---------------------------------------------------------------------------- app-model boot
+
+/** What `start` returns for an app-model App. */
+export interface StartedApp {
+    readonly kind: 'app';
+    readonly kernel: Kernel;
+    readonly site: MountedApp;
+    /** Resolved: an App's first view is mounted synchronously. Here so both boot results can be awaited alike. */
+    readonly ready: Promise<void>;
+    dispose(): void;
+}
+
+/** A part whose default export is an app-model App. The kernel constructs it — never `new`. */
+export interface AppPartRef {
+    readonly id: string;
+    readonly contribution: AppClass;
+    readonly options?: unknown;
+}
+
+/** Whether a part's default export is an app-model App (docs/app-model.md), not a legacy part. */
+export function isAppClass(contribution: unknown): contribution is AppClass {
+    return typeof contribution === 'function' && 'kind' in contribution && contribution.kind === 'app';
+}
+
+function isAppPart(part: PartRef | AppPartRef): part is AppPartRef {
+    return isAppClass(part.contribution);
+}
+
+/**
+ * Boot an App as a single-page site (docs/app-model.md, phase 5a).
+ *
+ * The App's `needs` become a real context through `createContext` — the same broker a legacy part
+ * went through — so `cx.mesh` is a client for the App's declared API with the page's credentials,
+ * `cx.storage` is the page's hives, `cx.notifications` reaches the kernel's own surface below. That
+ * context is the grant the runtime projects to every service, view and component.
+ *
+ * Windowed mode for Apps is phase 5b. Until then an App always boots as a website.
+ */
+function startApp(App: AppClass, partId: string, composition: Composition, doc: Document, root: Element, api: string): StartedApp {
+    const kernel = createPageKernel(composition, doc, api);
+    const log = kernelLog(kernel.services.logs);
+
+    const handle = createContext(
+        { id: partId, declaredBy: partId },
+        App.spec.needs ?? [],
+        [],
+        <T>(token: ProviderToken<T>): T | undefined => kernel.io.get(token),
+        kernel.services,
+        kernel.io,
+        App.spec.api,
+    );
+
+    let site: MountedApp;
+    try {
+        site = mountSite(App, { root, granted: handle.context, keys: doc });
+    } catch (cause) {
+        log.error(`${partId} could not start: ${reasonOf(cause)}`, { part: partId });
+        handle.dispose();
+        throw cause;
+    }
+
+    const notifications = mountNotifications(doc, root, kernel);
+    const logViewer = mountLogViewer(doc, root, kernel.services.logs);
+    log.info(`${partId} started as a site`, { part: partId });
+
+    return {
+        kind: 'app',
+        kernel,
+        site,
+        ready: Promise.resolve(),
+        dispose() {
+            site.dispose();
+            handle.dispose();
+            notifications.remove();
+            logViewer.dispose();
+        },
+    };
+}
+
 function mountRoot(doc: Document): Element {
     const created = doc.createElement('div');
     created.id = 'mesh-web-root';

@@ -415,3 +415,23 @@ Phase 4 added `src/app/routes.ts`, `router.ts`, `link.ts`, `site.ts`, the `Link`
   kernel — which is also where the App's capabilities stop being passed in by hand (`granted`).
 - Mutation-checked: claim modified clicks, or key matches by route alone, and the browser test
   fails (the second also fails a unit test).
+
+## 16. Phase 5a findings (2026-09-28)
+
+Phase 5 was re-ordered: deleting `Application`/`Extension` first would take the windowed desktop
+down before anything replaced it, and the one consumer that must keep working is a website. So:
+**5a** boots an App through the kernel as a site; **phase 6** rebuilds the company site on it;
+**5b** (windowed mode for Apps) and **5c** (the deletions) follow.
+
+- **`start()` boots an App.** mesh-serve's boot script is unchanged — it still passes default-exported
+  classes. A part whose export has `kind: 'app'` is booted by `startApp`: the App's `needs` go through
+  the kernel's own `createContext`, so `cx.mesh` is the page's client for the App's declared API
+  (credentials included), `cx.notifications` reaches the kernel's notification surface, `cx.storage`
+  is the page's hives. That context is the grant the runtime projects. The log viewer mounts too.
+- **One setup for both boot paths.** Storage hives, drivers, services and the API client moved from
+  `start()` into `createPageKernel`, so a legacy part and an App get capabilities built one way.
+- **`start()` is overloaded,** not widened: a composition of legacy parts still returns `Started`
+  (every existing typed caller); one that may hold an App returns `Started | StartedApp`, which is
+  what it may really return. `kind` tells them apart.
+- `UnitSpec.api` is now `Api<...>` rather than `unknown`, so it flows to `createContext` without a
+  cast and `cx.mesh` stays typed by the specific API.
