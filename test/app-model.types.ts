@@ -13,7 +13,7 @@
 import { z } from 'zod';
 import { element, text, type Node } from '../src/index.js';
 import { needs } from '../src/contribution/capabilities.js';
-import { App, Component, command, props, Service, View } from '../src/app/index.js';
+import { App, Component, command, props, Router, Service, View } from '../src/app/index.js';
 
 const nothing = (): Node => element('Stack', { children: [] });
 
@@ -199,6 +199,27 @@ export class ParamOnParamlessView extends App({
         '/things/:id': HomeView,
     },
 }) {}
+
+// ---------------------------------------------------------------------------- links
+
+export class Nav extends Component({ inject: { router: Router } }) {
+    render(): Node {
+        const { router } = this.inject;
+        router.href(HomeView);
+        router.href(RecordsView, { zone: 'example.com' });          // `page` has a default, so optional
+        router.href(RecordsView, { zone: 'example.com', page: 2 });
+
+        // @ts-expect-error RecordsView needs `zone`
+        router.href(RecordsView, {});
+        // @ts-expect-error RecordsView takes params, so they must be given
+        router.href(RecordsView);
+        // @ts-expect-error HomeView takes no params
+        router.href(HomeView, { zone: 'example.com' });
+        // @ts-expect-error `page` is a number
+        router.href(RecordsView, { zone: 'example.com', page: 'two' });
+        return nothing();
+    }
+}
 
 // ---------------------------------------------------------------------------- statics are readable
 

@@ -734,6 +734,18 @@ function bindIntents(
         });
     }
 
+    if (intents.navigate) {
+        // Only the click the page should keep: primary button, no modifier, not already handled.
+        // Anything else — a new tab, a new window, a download — is the browser following an ordinary
+        // link, which is why `Link` is an `<a href>` and not a button. The value is the href.
+        el.addEventListener('click', (e) => {
+            if (!(e instanceof MouseEvent)) return;
+            if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            e.preventDefault();
+            fire('navigate', e, el.getAttribute('href'));
+        });
+    }
+
     if (intents.context) {
         el.addEventListener('contextmenu', (e) => fire('context', e));
     }

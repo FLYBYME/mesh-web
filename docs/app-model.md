@@ -390,3 +390,28 @@ Phase 3 added `src/app/registry.ts`, the `COMMAND` brand, and tests (`test/app-c
   kernel's rule, now shared).
 - Mutation-checked: stop retiring commands on dispose and the browser test fails on the registry
   (a disposed owner's command still live) and two unit tests fail with it.
+
+## 15. Phase 4 findings (2026-09-28)
+
+Phase 4 added `src/app/routes.ts`, `router.ts`, `link.ts`, `site.ts`, the `Link` primitive, the
+`navigate` intent's wiring, and tests (`test/app-routes.test.ts`, `test/browser/app-site.browser.test.ts`).
+
+- **`mountSite(App, { root })` is the single-page path, and it needs no kernel:** renderer, one
+  handler table, the browser's history, one view per URL. The outlet is an `each` over zero or one
+  match keyed by route + params, so the existing reconciler does the swapping.
+- **Matching includes the view's schema.** A URL whose params do not parse falls through to the next
+  route, then to not-found — never an exception from inside rendering. Static segments beat params
+  whatever the declaration order; two patterns matching the same URLs are refused.
+- **A change of params is a new view instance** (params are constructor input); anything else leaves
+  the instance alone. The old instance's commands and handlers go with it.
+- **`Router` is an ordinary injected service** with a typed `href(View, params)`: a link that names a
+  param the view does not take, or misses one it needs, does not compile.
+- **`Link` is a real `<a href>`.** The `navigate` intent — declared in `IntentName` since the start
+  and never wired — now claims only a plain primary click; ctrl/cmd/shift/alt/middle click is left
+  to the browser, so new tabs, copying the address and crawlers all work.
+- **A view's `title` is the document's.**
+- **Windowed mode moved to phase 5.** Windows come from the kernel's window manager, so "the same
+  routes as windows" and "the focused window's key wins" belong with booting an App through the
+  kernel — which is also where the App's capabilities stop being passed in by hand (`granted`).
+- Mutation-checked: claim modified clicks, or key matches by route alone, and the browser test
+  fails (the second also fails a unit test).

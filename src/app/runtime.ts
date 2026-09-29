@@ -15,6 +15,7 @@
 import type { CapabilityName } from '../contribution/capabilities.js';
 import type { Action, IntentValue, MountNode, MountedUnit, Node } from '../description/types.js';
 import { createCommandRegistry, type CommandRegistry, type CommandRegistryOptions } from './registry.js';
+import { attachRouter, Router, type RouterBackend } from './router.js';
 import type {
     ComponentClass, ErasedInit, Injectables, MountableInstance, ServiceClass, UnitHost, UnitSpec, ViewClass,
 } from './types.js';
@@ -30,7 +31,7 @@ export interface AppClass {
     readonly kind: 'app';
     readonly name: string;
     /** `routes` is named so a spec holding only routes still matches — TypeScript's weak-type rule. */
-    readonly spec: UnitSpec & { readonly routes: object; readonly services?: readonly ServiceClass[] };
+    readonly spec: UnitSpec & { readonly routes: { readonly [path: string]: ViewClass }; readonly services?: readonly ServiceClass[] };
     create(init: ErasedInit): object;
 }
 
@@ -55,6 +56,8 @@ export interface AppRuntime {
 
 export interface AppRuntimeOptions {
     readonly commands?: CommandRegistryOptions;
+    /** What the built-in `Router` service answers for. Supplied by `mountSite`. */
+    readonly router?: RouterBackend;
 }
 
 export function createAppRuntime(App: AppClass, granted: GrantedContext, options: AppRuntimeOptions = {}): AppRuntime {
@@ -111,6 +114,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                 cx: project(Class.name, needsOf(Class.spec), cleanups),
                 inject: resolve(Class.spec.inject),
             });
+            if (Class === Router && options.router !== undefined) attachRouter(instance, options.router);
             const retire = commands.add(Class.name, instance);
             services.set(Class, instance);
             teardowns.push(() => {

@@ -848,6 +848,12 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
     tag('ListItem', 'li'),
     tag('Card', 'section'),
     tag('Badge', 'span'),
+    /**
+     * A real `<a href>`. Bound to `navigate`, a plain left click is the page's to handle and every
+     * other way of following a link — middle click, ctrl/cmd/shift click, "open in new tab", a
+     * crawler — still works, because the element is an ordinary link to an ordinary URL.
+     */
+    tag('Link', 'a'),
     {
         name: 'Draggable',
         spaceIsTextInput: false,
