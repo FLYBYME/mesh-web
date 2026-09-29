@@ -59,9 +59,15 @@ describe('command()', () => {
         expect(failing.running()).toBe(false);
     });
 
-    it('carries its title and key for whatever lists it', () => {
-        const add = command({ title: 'New record', key: 'mod+n', run: () => undefined });
+    it('carries its title and key for whatever lists it, the key normalised', () => {
+        const add = command({ title: 'New record', key: 'Alt + N', run: () => undefined });
         expect(add.title).toBe('New record');
-        expect(add.key).toBe('mod+n');
+        expect(add.key).toBe('alt+n');
+    });
+
+    it('refuses a key that cannot parse when the command is made, not by never firing', () => {
+        // There is no `mod` modifier. Written by hand in the first draft of the design doc, which is
+        // exactly the mistake this catches.
+        expect(() => command({ title: 'New record', key: 'mod+n', run: () => undefined })).toThrow(/two keys/);
     });
 });

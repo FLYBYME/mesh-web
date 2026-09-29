@@ -180,7 +180,12 @@ export type PathParams<P extends string> =
 export interface ViewClass {
     readonly kind: 'view';
     readonly name: string;
-    readonly spec: UnitSpec & { readonly params?: SchemaLike<object> };
+    /**
+     * Every key a view spec can have, listed: an interface of only optional properties is a "weak
+     * type", and a spec sharing none of them (`{ title }` alone, if `title` were missing here) is
+     * refused as having nothing in common with it.
+     */
+    readonly spec: UnitSpec & { readonly params?: SchemaLike<object>; readonly title?: string };
     create(init: ErasedInit): MountableInstance;
 }
 

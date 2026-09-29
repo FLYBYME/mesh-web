@@ -225,6 +225,23 @@ export const BROWSER_TAB_RESERVED: readonly string[] = [
     'f5', 'ctrl+r', 'meta+r',
 ];
 
+/**
+ * The kernel's own window bindings (`kernel/start.ts`), chosen against `BROWSER_TAB_RESERVED`.
+ *
+ * Here rather than inside the kernel's key listener so anything else that binds keys can see them.
+ * The app-model command registry refuses these for the same reason it refuses the browser's: a
+ * second listener on `alt+n` ran its command *and* minimised the window, and every click after that
+ * went to an invisible element — found by the phase 3 browser test, not by reading.
+ */
+export const KERNEL_WINDOW_BINDINGS: readonly { readonly binding: string; readonly command: string }[] = [
+    { binding: 'alt+w', command: 'window.close' },
+    { binding: 'alt+m', command: 'window.maximize' },
+    { binding: 'alt+n', command: 'window.minimize' },
+    { binding: 'alt+`', command: 'window.cycle' },
+    { binding: 'alt+t', command: 'window.mode' },
+    { binding: 'ctrl+alt+q', command: 'kernel.logs' },
+];
+
 /** Nothing is reserved. For an Electron shell or a kiosk that owns the whole keyboard. */
 export const NOTHING_RESERVED: readonly string[] = [];
 

@@ -143,7 +143,7 @@ export class RecordsView extends View {
 
     readonly add = command({
         title: 'New record',
-        key: 'mod+n',
+        key: 'alt+k',
         run: () => this.adding.set(true),
     });
 
@@ -226,7 +226,7 @@ owns it.
 ```ts
 readonly create = command({
     title: 'New record',
-    key: 'mod+n',
+    key: 'alt+k',
     input: z.object({ type: RecordType, name: z.string(), value: z.string() }),
     output: DnsRecordSchema,
     run: async (input) => { /* ... */ },
@@ -234,7 +234,7 @@ readonly create = command({
 ```
 
 - **No `implement`.** The declaration is the implementation.
-- **Lifetime is the owner's.** A view's commands are live while the view is mounted — so `mod+n`
+- **Lifetime is the owner's.** A view's commands are live while the view is mounted — so `alt+k`
   means "new record in the view in front of you", which the old global-id model could not say. An
   app's commands live with the app; a service's are global.
 - **The schema does real work:** input is validated at the boundary; the palette can build a form
@@ -364,3 +364,29 @@ Phase 2 added `src/app/runtime.ts`, the `mount` description node, `HandlerTable.
 - **Verified by pressing:** the browser test types and clicks through two `LoginForm`s sharing one
   `AuthService`, and flips a third in and out of a `when` five times. Breaking handler removal on
   purpose fails it (7 live handlers where 5 should be).
+
+## 14. Phase 3 findings (2026-09-28)
+
+Phase 3 added `src/app/registry.ts`, the `COMMAND` brand, and tests (`test/app-commands.test.ts`,
+`test/browser/app-commands.browser.test.ts`).
+
+- **A command is live exactly as long as its owner.** The runtime collects every own field holding a
+  command when it constructs a unit, and retires them *first* on teardown, so no key can reach a unit
+  that is going. Services' and the app's are live for the page. `runtime.commands.live` is a signal a
+  palette can read.
+- **Two live commands on one key: the newest wins,** and the older one answers again the moment the
+  newer owner goes. Right for a single page; in windowed mode "in front" should mean the focused
+  window, which is phase 4's to decide.
+- **Keys are checked early.** `command()` normalises its key and throws on one that cannot parse —
+  there is no `mod` modifier, which this document's own first examples got wrong. A chord someone
+  else already answers is refused when the owner mounts, naming who: the browser's
+  (`BROWSER_TAB_RESERVED`) or **the kernel's own window bindings**. The browser test found the second:
+  a component on `alt+n` ran its command *and* minimised the window, and every click after went to an
+  invisible element. Those bindings now live in `input/keys.ts` as `KERNEL_WINDOW_BINDINGS`, used by
+  both the kernel and the registry.
+- **A keyed command with input runs with `{}`;** its schema's defaults decide whether that is enough.
+  Any failure goes to `onError` — never an unhandled rejection.
+- **Plain keystrokes in a text field are never taken;** a modifier chord still works there (the
+  kernel's rule, now shared).
+- Mutation-checked: stop retiring commands on dispose and the browser test fails on the registry
+  (a disposed owner's command still live) and two unit tests fail with it.

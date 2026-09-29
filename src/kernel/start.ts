@@ -68,7 +68,7 @@ import { windowSink } from '../window/sink.js';
 import { WindowManager } from '../window/manager.js';
 import { browserHistory, routerSink } from '../router/router.js';
 import type { Action, IntentValue } from '../description/types.js';
-import { bindingTable } from '../input/keys.js';
+import { bindingTable, KERNEL_WINDOW_BINDINGS } from '../input/keys.js';
 import { createServices } from './broker.js';
 import { Kernel, type Loaded } from './kernel.js';
 import { kernelLog, mountLogViewer, reasonOf, type KernelLog, type LogViewer } from './logs.js';
@@ -860,14 +860,7 @@ function mountKeys(
      * a binding that fires the command *and* the browser's own action is worse than no binding.
      * `alt` is the escape hatch a page actually owns.
      */
-    const defaults: readonly { binding: string; command: string }[] = [
-        { binding: 'alt+w', command: 'window.close' },
-        { binding: 'alt+m', command: 'window.maximize' },
-        { binding: 'alt+n', command: 'window.minimize' },
-        { binding: 'alt+`', command: 'window.cycle' },
-        { binding: 'alt+t', command: 'window.mode' },
-        { binding: 'ctrl+alt+q', command: 'kernel.logs' },
-    ];
+    const defaults = KERNEL_WINDOW_BINDINGS;
 
     const onKey = (event: KeyboardEvent): void => {
         // A binding must never eat what somebody is typing. The window layer has no business

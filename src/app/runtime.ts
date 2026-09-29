@@ -14,6 +14,7 @@
 
 import type { CapabilityName } from '../contribution/capabilities.js';
 import type { Action, IntentValue, MountNode, MountedUnit, Node } from '../description/types.js';
+import { createCommandRegistry, type CommandRegistry, type CommandRegistryOptions } from './registry.js';
 import type {
     ComponentClass, ErasedInit, Injectables, MountableInstance, ServiceClass, UnitHost, UnitSpec, ViewClass,
 } from './types.js';
@@ -28,7 +29,8 @@ export interface HandlerRegistry {
 export interface AppClass {
     readonly kind: 'app';
     readonly name: string;
-    readonly spec: UnitSpec & { readonly services?: readonly ServiceClass[] };
+    /** `routes` is named so a spec holding only routes still matches — TypeScript's weak-type rule. */
+    readonly spec: UnitSpec & { readonly routes: object; readonly services?: readonly ServiceClass[] };
     create(init: ErasedInit): object;
 }
 
@@ -41,6 +43,8 @@ export type GrantedContext = { readonly [K in CapabilityName]?: unknown };
 export interface AppRuntime {
     /** The App instance. */
     readonly app: object;
+    /** Every command on a live unit — services and the app for the page's life, views and components while mounted. */
+    readonly commands: CommandRegistry;
     /** A root node for a view, with raw params (from a URL) parsed through the view's schema. */
     view(view: ViewClass, rawParams: unknown, handlers: HandlerRegistry): MountNode;
     /** A root node for a component. */
@@ -49,11 +53,16 @@ export interface AppRuntime {
     dispose(): void;
 }
 
-export function createAppRuntime(App: AppClass, granted: GrantedContext): AppRuntime {
+export interface AppRuntimeOptions {
+    readonly commands?: CommandRegistryOptions;
+}
+
+export function createAppRuntime(App: AppClass, granted: GrantedContext, options: AppRuntimeOptions = {}): AppRuntime {
     const grant = needsOf(App.spec);
     const services = new Map<ServiceClass, object>();
     const constructing: ServiceClass[] = [];
     const teardowns: (() => void)[] = [];
+    const commands = createCommandRegistry(options.commands);
 
     /** A unit's `cx`: the declared capabilities out of the grant, plus its own `onDispose`. */
     const project = (who: string, needs: readonly CapabilityName[], cleanups: (() => void)[]): object => {
@@ -102,8 +111,10 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext): AppRun
                 cx: project(Class.name, needsOf(Class.spec), cleanups),
                 inject: resolve(Class.spec.inject),
             });
+            const retire = commands.add(Class.name, instance);
             services.set(Class, instance);
             teardowns.push(() => {
+                retire();
                 disposeOf(instance)?.();
                 runAll(cleanups);
             });
@@ -136,9 +147,12 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext): AppRun
                 const actions: Action[] = [];
                 const cleanups: (() => void)[] = [];
                 let instance: MountableInstance | undefined;
+                let retire: (() => void) | undefined;
 
+                // Commands go first: nothing may run a command on a unit that is already going.
                 const teardown = (): void => {
                     try {
+                        retire?.();
                         instance?.dispose?.();
                     } finally {
                         runAll(cleanups);
@@ -164,6 +178,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext): AppRun
                         host,
                         ...extra,
                     });
+                    retire = commands.add(Class.name, instance);
                     const node: Node = instance.render();
                     return { node, dispose: teardown };
                 } catch (error) {
@@ -178,9 +193,11 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext): AppRun
     const appCleanups: (() => void)[] = [];
     for (const Class of App.spec.services ?? []) service(Class);
     const app = App.create({ cx: project(App.name, grant, appCleanups), inject: resolve(App.spec.inject) });
+    const retireApp = commands.add(App.name, app);
 
     return {
         app,
+        commands,
         view(view, rawParams, handlers) {
             const schema = view.spec.params;
             let params: unknown = {};
@@ -195,6 +212,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext): AppRun
             return mount(component, { props }, handlers, grant, `the app (${App.name})`);
         },
         dispose() {
+            retireApp();
             disposeOf(app)?.();
             runAll(appCleanups);
             for (const teardown of teardowns.splice(0).reverse()) teardown();

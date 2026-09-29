@@ -7,3 +7,4 @@ export * from './types.js';
 export * from './units.js';
 export * from './command.js';
 export * from './runtime.js';
+export * from './registry.js';

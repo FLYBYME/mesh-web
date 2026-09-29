@@ -3,28 +3,44 @@
  * owns it (docs/app-model.md §7). There is no `implement` and no id to keep in step — the object is
  * the command.
  *
- * Finding a mounted unit's commands and binding their keys is the kernel's job (phase 3). What is
- * here already works on its own: input is validated before `run`, output after, and `running` is a
- * signal a button can read.
+ * On its own a command validates input before `run` and output after, and `running` is a signal a
+ * button can read. The runtime finds a unit's commands when it constructs the unit — any own field
+ * holding one — and makes them live, keys included, until the unit is disposed (`registry.ts`).
  */
 
+import { normalizeBinding } from '../input/keys.js';
 import { signal } from '../reactivity/index.js';
 import type { ReadonlySignal } from '../reactivity/index.js';
 import type { Infer, InferInput, SchemaLike } from './types.js';
 
+/** Marks an object made by `command()`, so the runtime can find commands among a unit's fields. */
+export const COMMAND = Symbol('mesh.command');
+
 export interface CommandInfo {
     readonly title: string;
-    /** A binding like `mod+n`. Live while the command's owner is. */
+    /**
+     * A binding like `alt+n` — live while the command's owner is. Checked when the command is made:
+     * a binding that cannot parse throws here rather than never firing. (There is no `mod`; and a
+     * browser-reserved chord like `ctrl+n` is refused when the owner mounts.)
+     */
     readonly key?: string;
     readonly description?: string;
 }
 
 /** `I` is what a caller passes (the schema's input side); `run`'s own parameter is the parsed output. */
 export interface Command<I, O> extends CommandInfo {
+    readonly [COMMAND]: true;
     readonly input?: SchemaLike<unknown>;
     readonly output?: SchemaLike<O>;
     readonly running: ReadonlySignal<boolean>;
     run(...args: [I] extends [void] ? [] : [input: I]): Promise<O>;
+}
+
+/** A command with its types erased — what the registry holds. */
+export type AnyCommand = Command<unknown, unknown>;
+
+export function isCommand(value: unknown): value is AnyCommand {
+    return typeof value === 'object' && value !== null && COMMAND in value;
 }
 
 /** Thrown when input or output does not match the command's schema. The message is the schema's. */
@@ -71,8 +87,9 @@ export function command(
     };
 
     return {
+        [COMMAND]: true,
         title: spec.title,
-        ...(spec.key !== undefined ? { key: spec.key } : {}),
+        ...(spec.key !== undefined ? { key: normalizeBinding(spec.key) } : {}),
         ...(spec.description !== undefined ? { description: spec.description } : {}),
         ...(spec.input !== undefined ? { input: spec.input } : {}),
         ...(spec.output !== undefined ? { output: spec.output } : {}),
