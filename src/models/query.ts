@@ -33,15 +33,34 @@ export type SessionSource =
  * Does this item match the query filters?
  * Used to filter live event additions and updates so query views do not receive excluded rows.
  */
+/** Find-input keys that shape the result (paging, ordering, projection) rather than filter it. */
+const NOT_FILTERS = new Set(['limit', 'offset', 'skip', 'page', 'sort', 'order', 'fields', 'populate', 'searchFields']);
+
+/**
+ * The equality filter inside a find input. A CRUD `find` takes `{ query: { field: value }, sort,
+ * limit, search }`: the filter is `query`, not the input itself. Comparing an item against the
+ * whole input — which has no `query` field an item could match — rejected every event, so a
+ * filtered list (a zone's records) never updated live. A flat input (`{ tag: 't1' }`) is still
+ * read as its own filter.
+ */
+function filterOf(input: Record<string, unknown>): Record<string, unknown> {
+    const nested = input.query;
+    if (nested !== null && typeof nested === 'object' && !Array.isArray(nested)) {
+        const search = input.search;
+        return { ...(nested as Record<string, unknown>), ...(typeof search === 'string' ? { search } : {}) };
+    }
+    return input;
+}
+
 export function matchesQuery(item: unknown, query: unknown): boolean {
     if (!query || typeof query !== 'object') return true;
     if (!item || typeof item !== 'object') return true;
     const itemRec = item as Record<string, unknown>;
-    const queryRec = query as Record<string, unknown>;
+    const queryRec = filterOf(query as Record<string, unknown>);
 
     for (const [key, value] of Object.entries(queryRec)) {
         if (value === undefined || value === null) continue;
-        if (key === 'limit' || key === 'offset' || key === 'skip' || key === 'page' || key === 'sort' || key === 'order') {
+        if (NOT_FILTERS.has(key)) {
             continue;
         }
         if (key in itemRec) {
@@ -62,6 +81,38 @@ export function matchesQuery(item: unknown, query: unknown): boolean {
         }
     }
     return true;
+}
+
+/**
+ * Rows in the order the query asked for. A live event adds or changes a row locally, and the list
+ * must stay in the order the server would have returned it — a newest-first list shows a new row
+ * first, not appended at the bottom. `sort` is the CRUD shape: `'name'`, `'-createdAt'`, or a list
+ * of those; anything else leaves the order alone.
+ */
+export function sortedByQuery<T>(rows: readonly T[], query: unknown): readonly T[] {
+    if (!query || typeof query !== 'object') return rows;
+    const sort = (query as Record<string, unknown>).sort;
+    const keys = (typeof sort === 'string' ? sort.split(/[\s,]+/) : Array.isArray(sort) ? sort : [])
+        .filter((k): k is string => typeof k === 'string' && k !== '')
+        .map((k) => (k.startsWith('-') ? { field: k.slice(1), dir: -1 } : { field: k, dir: 1 }));
+    if (keys.length === 0) return rows;
+    const value = (row: T, field: string): unknown => (row !== null && typeof row === 'object' ? (row as Record<string, unknown>)[field] : undefined);
+    return [...rows].sort((a, b) => {
+        for (const { field, dir } of keys) {
+            const x = value(a, field);
+            const y = value(b, field);
+            if (x === y) continue;
+            if (x === undefined || x === null) return 1;
+            if (y === undefined || y === null) return -1;
+            // Plain comparison, not localeCompare: the database orders by code point ("B" before
+            // "a"), and a row placed by an event must sit where a fresh fetch would put it.
+            const sx = typeof x === 'number' ? x : String(x);
+            const sy = typeof y === 'number' ? y : String(y);
+            const order = sx < sy ? -1 : sx > sy ? 1 : 0;
+            if (order !== 0) return order * dir;
+        }
+        return 0;
+    });
 }
 
 export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer {
@@ -235,21 +286,22 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
                 // Deduplicate by ID to prevent double-applying local writes: replace in place
                 const next = [...currentRows];
                 next[existingIndex] = item as TItem;
-                this._data.set(next);
-                this._rows.set(next);
-                this._loading.set(false);
-                this._empty.set(next.length === 0);
-                this._status.set(next.length === 0 ? 'empty' : 'ready');
+                this.commit(next, currentQuery);
                 return;
             }
         }
 
-        const next = [...currentRows, item as TItem];
-        this._data.set(next);
-        this._rows.set(next);
+        this.commit([...currentRows, item as TItem], currentQuery);
+    }
+
+    /** Rows changed by an event or a local write: kept in the query's order, and the status with them. */
+    private commit(next: readonly TItem[], currentQuery: unknown): void {
+        const ordered = sortedByQuery(next, currentQuery);
+        this._data.set(ordered);
+        this._rows.set(ordered);
         this._loading.set(false);
-        this._empty.set(false);
-        this._status.set('ready');
+        this._empty.set(ordered.length === 0);
+        this._status.set(ordered.length === 0 ? 'empty' : 'ready');
     }
 
     applyUpdated(payload: unknown): void {
@@ -268,28 +320,14 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
             if (matches) {
                 const next = [...currentRows];
                 next[existingIndex] = item as TItem;
-                this._data.set(next);
-                this._rows.set(next);
-                this._loading.set(false);
-                this._empty.set(next.length === 0);
-                this._status.set(next.length === 0 ? 'empty' : 'ready');
+                this.commit(next, currentQuery);
             } else {
                 // No longer matches query view: remove from view
-                const next = currentRows.filter((_, idx) => idx !== existingIndex);
-                this._data.set(next);
-                this._rows.set(next);
-                this._loading.set(false);
-                this._empty.set(next.length === 0);
-                this._status.set(next.length === 0 ? 'empty' : 'ready');
+                this.commit(currentRows.filter((_, idx) => idx !== existingIndex), currentQuery);
             }
         } else if (matches) {
             // New item now matches view
-            const next = [...currentRows, item as TItem];
-            this._data.set(next);
-            this._rows.set(next);
-            this._loading.set(false);
-            this._empty.set(false);
-            this._status.set('ready');
+            this.commit([...currentRows, item as TItem], currentQuery);
         }
     }
 
@@ -304,12 +342,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
             (r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id,
         );
         if (existingIndex >= 0) {
-            const next = currentRows.filter((_, idx) => idx !== existingIndex);
-            this._data.set(next);
-            this._rows.set(next);
-            this._loading.set(false);
-            this._empty.set(next.length === 0);
-            this._status.set(next.length === 0 ? 'empty' : 'ready');
+            this.commit(currentRows.filter((_, idx) => idx !== existingIndex), this.queryFn ? this.queryFn() : undefined);
         }
     }
 

@@ -486,24 +486,31 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
         find: (query?: TQuery | (() => TQuery)) => instantiateQuery(query),
         invalidate,
 
+        // A live collection's own writes are applied to its open lists from the result, and not
+        // refetched: the event the write causes arrives next and is de-duplicated by id. Refetching
+        // every open list after every write is what a collection without a stream has to do, and
+        // it used to do it even with one.
         async create(...input: CreateInputOf<TCalls, C> extends void ? [] : [input: CreateInputOf<TCalls, C>]) {
             const action = `${name}.create`;
             const value = await mesh.call(action, input[0]);
-            await invalidate();
+            if (isStreamed) for (const q of activeQueries) q.applyCreated(value);
+            else await invalidate();
             return value as CreateOutputOf<TCalls, C>;
         },
 
         async update(...input: UpdateInputOf<TCalls, C> extends void ? [] : [input: UpdateInputOf<TCalls, C>]) {
             const action = `${name}.update`;
             const value = await mesh.call(action, input[0]);
-            await invalidate();
+            if (isStreamed) for (const q of activeQueries) q.applyUpdated(value);
+            else await invalidate();
             return value as UpdateOutputOf<TCalls, C>;
         },
 
         async delete(...input: DeleteInputOf<TCalls, C> extends void ? [] : [input: DeleteInputOf<TCalls, C>]) {
             const action = `${name}.delete`;
             const value = await mesh.call(action, input[0]);
-            await invalidate();
+            if (isStreamed) for (const q of activeQueries) q.applyDeleted(input[0]);
+            else await invalidate();
             return value as DeleteOutputOf<TCalls, C>;
         },
 

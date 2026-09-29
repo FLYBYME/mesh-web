@@ -1277,6 +1277,112 @@ describe('session-aware collections', () => {
             expect(parts.rows()[0]?.name).toBe('Updated in place');
         });
 
+        // The real CRUD shape: `find({ query: { field }, sort })`, as every generated client has it.
+        interface Rec { readonly id: string; readonly zone: string; readonly name: string; readonly createdAt: string }
+        interface RecFind { readonly query?: { readonly zone?: string }; readonly sort?: string; readonly search?: string }
+        const crudApi = defineApi({
+            id: 'crud-models',
+            exposure: 'sha256:crud1234',
+            calls: {
+                'rec.find': call<RecFind, readonly Rec[]>('GET', '/recs'),
+                'rec.create': call<Omit<Rec, 'id' | 'createdAt'>, Rec>('POST', '/recs'),
+                'rec.update': call<{ id: string; name?: string }, Rec>('PUT', '/recs'),
+                'rec.delete': call<{ id: string }, { success: boolean }>('DELETE', '/recs'),
+            },
+            events: ['rec.created', 'rec.updated', 'rec.deleted'],
+        });
+        const plainApi = defineApi({
+            id: 'crud-plain',
+            exposure: 'sha256:plain1234',
+            calls: {
+                'rec.find': call<RecFind, readonly Rec[]>('GET', '/recs'),
+                'rec.create': call<Omit<Rec, 'id' | 'createdAt'>, Rec>('POST', '/recs'),
+            },
+        });
+
+        it('applies events to a list filtered the CRUD way ({ query, sort }), in the list\'s order', async () => {
+            MockEventSource.instances = [];
+            const fake = createFakeTransport(() => jsonResponse(200, [
+                { id: 'r1', zone: 'z1', name: 'old', createdAt: '2026-01-01' },
+            ]));
+            const client = createClient(crudApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof crudApi>(client, undefined, undefined, crudApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+            const zoneOne = models('rec').find({ query: { zone: 'z1' }, sort: '-createdAt' });
+            await new Promise((r) => setTimeout(r, 20));
+            const es = MockEventSource.instances[0]!;
+
+            // In the filter: added — and first, because the list is newest first.
+            es.emit('rec.created', { id: 'r2', zone: 'z1', name: 'new', createdAt: '2026-02-01' });
+            expect(zoneOne.rows().map((r) => r.id)).toEqual(['r2', 'r1']);
+
+            // Another zone's record: not this list's.
+            es.emit('rec.created', { id: 'r3', zone: 'z2', name: 'elsewhere', createdAt: '2026-03-01' });
+            expect(zoneOne.rows().map((r) => r.id)).toEqual(['r2', 'r1']);
+
+            // Moved out of the filter by an update: leaves the list.
+            es.emit('rec.updated', { id: 'r1', item: { id: 'r1', zone: 'z2', name: 'old', createdAt: '2026-01-01' } });
+            expect(zoneOne.rows().map((r) => r.id)).toEqual(['r2']);
+            zoneOne.dispose();
+        });
+
+        it('does not refetch after its own writes when live: the result, then the event, update the lists', async () => {
+            MockEventSource.instances = [];
+            let finds = 0;
+            const fake = createFakeTransport((req) => {
+                if (req.method === 'GET') { finds++; return jsonResponse(200, [{ id: 'r1', zone: 'z1', name: 'a', createdAt: '2026-01-01' }]); }
+                if (req.method === 'POST') return jsonResponse(200, { id: 'r2', zone: 'z1', name: 'b', createdAt: '2026-02-01' });
+                if (req.method === 'PUT') return jsonResponse(200, { id: 'r2', zone: 'z1', name: 'B', createdAt: '2026-02-01' });
+                return jsonResponse(200, { success: true });
+            });
+            const client = createClient(crudApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof crudApi>(client, undefined, undefined, crudApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+            const recs = models('rec');
+            const list = recs.find({ query: { zone: 'z1' }, sort: 'name' });
+            await new Promise((r) => setTimeout(r, 20));
+            expect(finds).toBe(1);
+
+            await recs.create({ zone: 'z1', name: 'b' });
+            expect(list.rows().map((r) => r.name)).toEqual(['a', 'b']);
+            // The event for the same write: de-duplicated, not doubled.
+            MockEventSource.instances[0]!.emit('rec.created', { id: 'r2', zone: 'z1', name: 'b', createdAt: '2026-02-01' });
+            expect(list.rows()).toHaveLength(2);
+
+            await recs.update({ id: 'r2', name: 'B' });
+            expect(list.rows().map((r) => r.name)).toEqual(['B', 'a']);
+            await recs.delete({ id: 'r1' });
+            expect(list.rows().map((r) => r.id)).toEqual(['r2']);
+
+            // Three writes, and still the one fetch that loaded the list.
+            expect(finds).toBe(1);
+            list.dispose();
+        });
+
+        it('still refetches after its own writes when the api streams nothing for the collection', async () => {
+            let finds = 0;
+            const fake = createFakeTransport((req) => {
+                if (req.method === 'GET') { finds++; return jsonResponse(200, []); }
+                return jsonResponse(200, { id: 'r9', zone: 'z1', name: 'x', createdAt: '2026-01-01' });
+            });
+            const client = createClient(plainApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof plainApi>(client, undefined, undefined, plainApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+            const recs = models('rec');
+            const list = recs.find({ query: { zone: 'z1' } });
+            await new Promise((r) => setTimeout(r, 20));
+            expect(list.live()).toBe(false);
+            await recs.create({ zone: 'z1', name: 'x' });
+            expect(finds).toBe(2);
+            list.dispose();
+        });
+
         it('resyncs active queries via refetch() on stream reconnect', async () => {
             MockEventSource.instances = [];
             let fetchCount = 0;
