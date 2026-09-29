@@ -4,7 +4,7 @@
  * `granted`. The boot script's contract is unchanged: a list of default-exported classes.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { userEvent } from '@vitest/browser/context';
 import '../../src/kernel.css';
 import { call, defineApi, element, needs, signal, text, type Node } from '../../src/index.js';
@@ -110,9 +110,29 @@ describe('start() boots an App', () => {
         class Uses extends View({ inject: { greedy: Greedy } }) {
             render(): Node { return element('Stack', { children: [] }); }
         }
-        class Narrow extends App({ routes: { '/': Uses } }) {}
-
+        // A boot service is constructed with the App, so the App does not start.
+        class Narrow extends App({ services: [Greedy], routes: { '/': Uses } }) {}
         expect(() => start({ application: 'narrow', root, parts: [{ id: 'narrow', contribution: Narrow }] }))
             .toThrow(/Greedy needs 'storage', which the app \(Narrow\) was not granted/);
+    });
+
+    it('boots, but replaces the view, when only a view\'s lazily injected service is refused', async () => {
+        class Greedy extends Service({ needs: needs('storage') }) {}
+        class Uses extends View({ inject: { greedy: Greedy } }) {
+            render(): Node { return element('Stack', { children: [] }); }
+        }
+        class Lazy extends App({ routes: { '/': Uses } }) {}
+
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        try {
+            history.replaceState(null, '', '/');
+            const started = start({ application: 'lazy', root, parts: [{ id: 'lazy', contribution: Lazy }] });
+            stop = () => started.dispose();
+            await frame();
+            expect(root.querySelector('[data-mount-error="Uses"]')?.textContent).toBe('Uses could not be shown.');
+            expect(String(errors.mock.calls[0]?.[1])).toMatch(/Greedy needs 'storage'/);
+        } finally {
+            errors.mockRestore();
+        }
     });
 });

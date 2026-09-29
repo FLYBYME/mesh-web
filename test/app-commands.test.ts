@@ -3,7 +3,7 @@
  * instance when the runtime constructs it, live — palette entry and key — until it is disposed.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { element, type Action, type Node } from '../src/index.js';
 import {
@@ -26,6 +26,20 @@ function press(chord: { key: string; alt?: boolean; ctrl?: boolean }): KeyPress 
         prevented: false,
         preventDefault() { this.prevented = true; },
     };
+}
+
+/**
+ * A refused mount no longer throws out of `instantiate` — the unit is replaced by the fallback and
+ * the refusal goes to the console. This returns what was reported.
+ */
+function refusal(mount: () => unknown): string {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+        mount();
+        return spy.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+    } finally {
+        spy.mockRestore();
+    }
 }
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -108,7 +122,7 @@ describe('commands live as long as their owners', () => {
         }
         const runtime = createAppRuntime(Site, {});
         const before = runtime.commands.live().length;
-        expect(() => runtime.component(Greedy, {}, handlers).instantiate()).toThrow(/ctrl\+n, which the browser already answers/);
+        expect(refusal(() => runtime.component(Greedy, {}, handlers).instantiate())).toMatch(/ctrl\+n, which the browser already answers/);
         expect(runtime.commands.live()).toHaveLength(before);
         runtime.dispose();
     });
@@ -121,8 +135,8 @@ describe('commands live as long as their owners', () => {
             render(): Node { return nothing(); }
         }
         const runtime = createAppRuntime(Site, {});
-        expect(() => runtime.component(Clash, {}, handlers).instantiate())
-            .toThrow(/alt\+n, which the kernel's window\.minimize already answers/);
+        expect(refusal(() => runtime.component(Clash, {}, handlers).instantiate()))
+            .toMatch(/alt\+n, which the kernel's window\.minimize already answers/);
         runtime.dispose();
     });
 

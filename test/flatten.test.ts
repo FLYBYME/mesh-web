@@ -5,11 +5,22 @@ import {
     createHandlerTable, dialog, each, element, empty, findAll,
     flatten, text, textOf, when,
 } from '../src/description/index.js';
-import type { FlatElement, SurfaceNode } from '../src/description/index.js';
+import type { Flat, FlatElement, Node, SurfaceNode } from '../src/description/index.js';
 
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+/** The one element a node flattens to — failing the test, not casting, when it is anything else. */
+function only(node: Node): FlatElement {
+    return elementAt(flatten(node), 0);
+}
+
+function elementAt(tree: readonly Flat[], index: number): FlatElement {
+    const flat = tree[index];
+    if (flat?.kind !== 'element') throw new Error(`expected an element at ${index}, got ${flat?.kind ?? 'nothing'}`);
+    return flat;
+}
 
 function makeSurface(overrides: Partial<SurfaceNode> = {}): SurfaceNode {
     return {
@@ -33,13 +44,13 @@ describe('SurfaceNode flattening', () => {
 
     it('always includes data-mesh-surface in props', () => {
         const node = makeSurface();
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.props['data-mesh-surface']).toBe('placeholder');
     });
 
     it('merges extra props into the flat output alongside data-mesh-surface', () => {
         const node = makeSurface({ props: { role: 'region', tabIndex: 0 } });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.props).toMatchObject({
             'data-mesh-surface': 'placeholder',
             role: 'region',
@@ -49,19 +60,19 @@ describe('SurfaceNode flattening', () => {
 
     it('has empty children always', () => {
         const node = makeSurface();
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.children).toEqual([]);
     });
 
     it('preserves the key when provided', () => {
         const node = makeSurface({ key: 'my-surface' });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.key).toBe('my-surface');
     });
 
     it('key is absent when not provided', () => {
         const node = makeSurface();
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect('key' in flat).toBe(false);
     });
 
@@ -75,11 +86,11 @@ describe('SurfaceNode flattening', () => {
     it('resolves reactive extra props', () => {
         const label = signal('hello');
         const node = makeSurface({ props: { 'aria-label': () => label() } });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.props['aria-label']).toBe('hello');
 
         label.set('world');
-        const [updated] = flatten(node) as FlatElement[];
+        const updated = only(node);
         expect(updated.props['aria-label']).toBe('world');
     });
 });
@@ -120,32 +131,32 @@ describe('flatten() with arrays', () => {
 describe('element key and intents in flat output', () => {
     it('preserves a string key', () => {
         const node = element('Button', { key: 'btn-save' });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.key).toBe('btn-save');
     });
 
     it('preserves a number key', () => {
         const node = element('Row', { key: 42 });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.key).toBe(42);
     });
 
     it('key field is absent (not even undefined) when no key given', () => {
         const node = element('Button', {});
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect('key' in flat).toBe(false);
     });
 
     it('preserves intents on a flat element', () => {
         const intents = { activate: { action: { kind: 'command' as const, id: 'my.cmd' } } };
         const node = element('Button', { intents });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.intents).toEqual(intents);
     });
 
     it('intents field is absent when no intents given', () => {
         const node = element('Button', {});
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect('intents' in flat).toBe(false);
     });
 });
@@ -160,8 +171,8 @@ describe('each() key assignment', () => {
         // render returns element with no key → each() fills it in
         const tree = flatten(each(items, (i) => i.id, () => element('Row', {})));
         expect(tree).toHaveLength(2);
-        expect((tree[0] as FlatElement).key).toBe('x');
-        expect((tree[1] as FlatElement).key).toBe('y');
+        expect(elementAt(tree, 0).key).toBe('x');
+        expect(elementAt(tree, 1).key).toBe('y');
     });
 
     it('preserves an existing key on a rendered element (does not overwrite)', () => {
@@ -170,8 +181,8 @@ describe('each() key assignment', () => {
             each(items, (i) => i.id, () => element('Row', { key: 'hardcoded' })),
         );
         // existing key is kept
-        expect((tree[0] as FlatElement).key).toBe('hardcoded');
-        expect((tree[1] as FlatElement).key).toBe('hardcoded');
+        expect(elementAt(tree, 0).key).toBe('hardcoded');
+        expect(elementAt(tree, 1).key).toBe('hardcoded');
     });
 
     it('does not assign keys to text nodes inside each()', () => {
@@ -188,8 +199,8 @@ describe('each() key assignment', () => {
     it('handles numeric keys from each()', () => {
         const items = [10, 20];
         const tree = flatten(each(items, (n) => n, () => element('Cell', {})));
-        expect((tree[0] as FlatElement).key).toBe(10);
-        expect((tree[1] as FlatElement).key).toBe(20);
+        expect(elementAt(tree, 0).key).toBe(10);
+        expect(elementAt(tree, 1).key).toBe(20);
     });
 });
 
@@ -202,7 +213,7 @@ describe('dialog() node flattening', () => {
         const node = dialog({ open: true, children: [text('body')] });
         const tree = flatten(node);
         expect(tree).toHaveLength(1);
-        const flat = tree[0] as FlatElement;
+        const flat = elementAt(tree, 0);
         expect(flat.props.open).toBe(true);
         expect(textOf(tree)).toBe('body');
     });
@@ -211,7 +222,7 @@ describe('dialog() node flattening', () => {
         const node = dialog({ open: false, children: [text('body')] });
         const tree = flatten(node);
         expect(tree).toHaveLength(1);
-        const flat = tree[0] as FlatElement;
+        const flat = elementAt(tree, 0);
         expect(flat.props.open).toBe(false);
         expect(flat.children).toEqual([]);
         expect(textOf(tree)).toBe('');
@@ -230,26 +241,26 @@ describe('dialog() node flattening', () => {
 
     it('preserves a key on dialog node', () => {
         const node = dialog({ open: false, key: 'dlg-1' });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.key).toBe('dlg-1');
     });
 
     it('key is absent when not provided', () => {
         const node = dialog({ open: false });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect('key' in flat).toBe(false);
     });
 
     it('preserves intents on dialog node', () => {
         const intents = { dismiss: { action: { kind: 'command' as const, id: 'dlg.close' } } };
         const node = dialog({ open: false, intents });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.intents).toEqual(intents);
     });
 
     it('intents absent when not provided', () => {
         const node = dialog({ open: false });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect('intents' in flat).toBe(false);
     });
 
@@ -258,27 +269,23 @@ describe('dialog() node flattening', () => {
             open: false,
             props: { ariaLabel: 'my dialog', title: 'My Dialog', class: 'modal' },
         });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.props.ariaLabel).toBe('my dialog');
         expect(flat.props.title).toBe('My Dialog');
         expect(flat.props.class).toBe('modal');
     });
 
     it('open prop in DialogProps is ignored — open comes from the open option', () => {
-        // Even if someone sneaks open into props, it is skipped and only the option is used.
-        const node = dialog({
-            open: true,
-            // @ts-expect-error - deliberately testing runtime behaviour; `open` is skipped by flattenDialog
-            props: { open: false },
-        });
-        const [flat] = flatten(node) as FlatElement[];
+        // `DialogProps` allows `open`, but flattenDialog skips it: the option is the only source.
+        const node = dialog({ open: true, props: { open: false } });
+        const flat = only(node);
         // The option wins: open=true
         expect(flat.props.open).toBe(true);
     });
 
     it('flattens component as "Dialog"', () => {
         const node = dialog({ open: false });
-        const [flat] = flatten(node) as FlatElement[];
+        const flat = only(node);
         expect(flat.component).toBe('Dialog');
     });
 });
@@ -299,8 +306,8 @@ describe('findAll()', () => {
         );
         const buttons = findAll(tree, 'Button');
         expect(buttons).toHaveLength(2);
-        expect(textOf([buttons[0]])).toBe('A');
-        expect(textOf([buttons[1]])).toBe('B');
+        expect(textOf(buttons.slice(0, 1))).toBe('A');
+        expect(textOf(buttons.slice(1, 2))).toBe('B');
     });
 
     it('finds components nested multiple levels deep', () => {

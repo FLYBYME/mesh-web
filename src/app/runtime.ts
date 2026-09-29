@@ -14,6 +14,8 @@
 
 import type { CapabilityName } from '../contribution/capabilities.js';
 import type { Action, IntentValue, MountNode, MountedUnit, Node } from '../description/types.js';
+import { element, text } from '../description/build.js';
+import { computed } from '../reactivity/computed.js';
 import { createCommandRegistry, type CommandRegistry, type CommandRegistryOptions } from './registry.js';
 import { attachRouter, Router, type RouterBackend } from './router.js';
 import type {
@@ -31,8 +33,31 @@ export interface AppClass {
     readonly kind: 'app';
     readonly name: string;
     /** `routes` is named so a spec holding only routes still matches — TypeScript's weak-type rule. */
-    readonly spec: UnitSpec & { readonly routes: { readonly [path: string]: ViewClass }; readonly services?: readonly ServiceClass[] };
+    readonly spec: UnitSpec & {
+        readonly routes: { readonly [path: string]: ViewClass };
+        readonly services?: readonly ServiceClass[];
+        readonly fallback?: (failure: MountFailure) => Node;
+    };
     create(init: ErasedInit): object;
+}
+
+/** What failed to mount, handed to the App's `fallback`. */
+export interface MountFailure {
+    /** The class name of the view or component that threw. */
+    readonly unit: string;
+    readonly error: unknown;
+}
+
+/**
+ * What stands in for a unit that threw while being constructed or rendered. Says which unit, not
+ * why: the error itself goes to the console, where the log viewer shows it — a visitor gets a gap
+ * with a label rather than a stack trace, and the rest of the page.
+ */
+function defaultFallback(failure: MountFailure): Node {
+    return element('Stack', {
+        props: { role: 'alert', 'data-mount-error': failure.unit },
+        children: [text(`${failure.unit} could not be shown.`)],
+    });
 }
 
 /**
@@ -49,8 +74,12 @@ export interface AppRuntime {
     /**
      * A root node for a view, with raw params (from a URL) parsed through the view's schema.
      * `scope` names the window it is in, on a desktop; everything mounted beneath it inherits it.
+     *
+     * `rawQuery` is read reactively and parsed through the view's `query` schema on every change, so
+     * the instance follows the query string without being rebuilt. A query that stops parsing keeps
+     * the last good value — the router has already turned that URL into a 404, which disposes the view.
      */
-    view(view: ViewClass, rawParams: unknown, handlers: HandlerRegistry, scope?: string): MountNode;
+    view(view: ViewClass, rawParams: unknown, handlers: HandlerRegistry, scope?: string, rawQuery?: () => unknown): MountNode;
     /** A root node for a component. */
     component(component: ComponentClass, props: unknown, handlers: HandlerRegistry, scope?: string): MountNode;
     /** The page is going: every service's `onDispose` and `dispose()`, last constructed first. */
@@ -69,6 +98,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
     const constructing: ServiceClass[] = [];
     const teardowns: (() => void)[] = [];
     const commands = createCommandRegistry(options.commands);
+    const fallback = App.spec.fallback ?? defaultFallback;
 
     /** A unit's `cx`: the declared capabilities out of the grant, plus its own `onDispose`. */
     const project = (who: string, needs: readonly CapabilityName[], cleanups: (() => void)[]): object => {
@@ -139,7 +169,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
 
     const mount = (
         Class: ViewClass | ComponentClass,
-        extra: Pick<ErasedInit, 'params' | 'props'>,
+        extra: Pick<ErasedInit, 'params' | 'query' | 'props'>,
         handlers: HandlerRegistry,
         hostNeeds: readonly CapabilityName[],
         hostName: string,
@@ -190,9 +220,12 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                     const node: Node = instance.render();
                     return { node, dispose: teardown };
                 } catch (error) {
-                    // Whatever it registered before failing goes with it.
+                    // Whatever it registered before failing goes with it — and then this mount is the
+                    // error boundary: the unit that failed is replaced by the fallback, and its
+                    // siblings, its parent and the rest of the page carry on.
                     teardown();
-                    throw error;
+                    console.error(`${Class.name} failed to mount:`, error);
+                    return { node: fallback({ unit: Class.name, error }), dispose: () => undefined };
                 }
             },
         };
@@ -206,7 +239,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
     return {
         app,
         commands,
-        view(view, rawParams, handlers, scope) {
+        view(view, rawParams, handlers, scope, rawQuery) {
             const schema = view.spec.params;
             let params: unknown = {};
             if (schema !== undefined) {
@@ -214,7 +247,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                 if (!parsed.success) throw new Error(`${view.name}: params rejected — ${parsed.error.message}`);
                 params = parsed.data;
             }
-            return mount(view, { params }, handlers, grant, `the app (${App.name})`, scope);
+            return mount(view, { params, query: parseQuery(view, rawQuery ?? (() => ({}))) }, handlers, grant, `the app (${App.name})`, scope);
         },
         component(component, props, handlers, scope) {
             return mount(component, { props }, handlers, grant, `the app (${App.name})`, scope);
@@ -227,6 +260,24 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
             services.clear();
         },
     };
+}
+
+/**
+ * A view's `this.query`: the raw query through its schema, recomputed only when the raw query
+ * changes. The first parse must succeed — a view is never constructed from a query it rejects.
+ */
+function parseQuery(view: ViewClass, rawQuery: () => unknown): () => unknown {
+    const schema = view.spec.query;
+    if (schema === undefined) return () => ({});
+
+    const first = schema.safeParse(rawQuery() ?? {});
+    if (!first.success) throw new Error(`${view.name}: query rejected — ${first.error.message}`);
+    let last: unknown = first.data;
+    return computed(() => {
+        const parsed = schema.safeParse(rawQuery() ?? {});
+        if (parsed.success) last = parsed.data;
+        return last;
+    });
 }
 
 function needsOf(spec: UnitSpec): readonly CapabilityName[] {

@@ -76,6 +76,11 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
         const open = new Set(manager.stacked().map((r) => r.id));
         for (const [id, shown] of showing) {
             if (shown.key === match.key && open.has(id)) {
+                // Same path, perhaps a new query: the window's view follows it without a rebuild.
+                if (shown !== match) {
+                    showing.set(id, match);
+                    bump();
+                }
                 manager.focus(id);
                 return;
             }
@@ -144,7 +149,7 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
             render: (vx) => live.view(view, vx.params, {
                 on: (fn) => { handlers++; return vx.on(fn); },
                 off: (action) => { handlers--; vx.off(action); },
-            }, vx.windowId),
+            }, vx.windowId, () => { changed(); return showing.get(vx.windowId)?.query ?? {}; }),
         };
         windowViews.set(pattern, windowView);
         return windowView;

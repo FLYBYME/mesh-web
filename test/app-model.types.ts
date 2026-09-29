@@ -143,14 +143,17 @@ class HomeView extends View({}) {
 
 class RecordsView extends View({
     needs: needs('mesh', 'models'),
-    params: z.object({ zone: z.string(), page: z.coerce.number().default(1) }),
+    params: z.object({ zone: z.string() }),
+    query: z.object({ page: z.coerce.number().default(1) }),
 }) {
     render(): Node {
         const zone: string = this.params.zone;
-        const page: number = this.params.page;
+        const page: number = this.query().page;
         void zone; void page;
         // @ts-expect-error 'record' is not in RecordsView's params schema
         void this.params.record;
+        // @ts-expect-error the query is `query()`, not a params field
+        void this.params.page;
         return this.mount(ZoneList);
     }
 }
@@ -182,6 +185,19 @@ export class MissingParam extends App({
     routes: {
         // @ts-expect-error ':record' is not in RecordsView's params
         '/domains/:zone/records/:record': RecordsView,
+    },
+}) {}
+
+class PagedByParams extends View({
+    params: z.object({ zone: z.string(), page: z.coerce.number() }),
+}) {
+    render(): Node { return nothing(); }
+}
+
+export class ExtraParam extends App({
+    routes: {
+        // @ts-expect-error `page` is not in the path, so it could never be filled — it belongs in `query`
+        '/domains/:zone': PagedByParams,
     },
 }) {}
 
@@ -217,6 +233,8 @@ export class Nav extends Component({ inject: { router: Router } }) {
         router.href(HomeView, { zone: 'example.com' });
         // @ts-expect-error `page` is a number
         router.href(RecordsView, { zone: 'example.com', page: 'two' });
+        // @ts-expect-error `pgae` is neither a param nor a query field
+        router.href(RecordsView, { zone: 'example.com', pgae: 2 });
         return nothing();
     }
 }

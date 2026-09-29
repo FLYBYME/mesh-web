@@ -29,6 +29,7 @@ class HomeView extends View({ inject: { router: Router }, title: 'Home' }) {
 class ZoneView extends View({
     inject: { router: Router },
     params: z.object({ zone: z.string().min(3) }),
+    query: z.object({ page: z.coerce.number().int().positive().default(1) }),
     title: 'Zone',
 }) {
     readonly clicks = signal(0);
@@ -39,6 +40,11 @@ class ZoneView extends View({
             props: { 'data-view': 'zone' },
             children: [
                 element('Text', { props: { 'data-zone': '' }, children: [text(() => `${this.params.zone} clicks=${this.clicks()}`)] }),
+                element('Text', { props: { 'data-page': '' }, children: [text(() => `page ${this.query().page}`)] }),
+                this.mount(Link, {
+                    href: this.inject.router.href(ZoneView, { zone: this.params.zone, page: 2 }),
+                    children: [text('page 2')],
+                }),
                 element('Button', {
                     props: { 'aria-label': 'click' },
                     intents: { activate: { action: this.on(() => this.clicks.set(this.clicks() + 1)) } },
@@ -154,6 +160,34 @@ describe('an App as a single-page site', () => {
         await userEvent.keyboard('{Alt>}k{/Alt}');
         await frame();
         expect(zone()).toBe('other.net clicks=1');
+    });
+
+    it('keeps the instance when only the query changes: state survives, `query()` follows the URL', async () => {
+        history.pushState(null, '', '/zones/example.com');
+        site = mountSite(Site, { root });
+        await frame();
+        expect(root.querySelector('[data-page]')?.textContent).toBe('page 1');
+
+        await userEvent.click(root.querySelector('[aria-label="click"]')!);
+        await frame();
+        const handlers = site.handlerCount();
+
+        await userEvent.click(link('page 2'));
+        await frame();
+        expect(location.search).toBe('?page=2');
+        expect(root.querySelector('[data-page]')?.textContent).toBe('page 2');
+        // Same instance: its clicks are still there, and nothing was re-registered.
+        expect(zone()).toBe('example.com clicks=1');
+        expect(site.handlerCount()).toBe(handlers);
+
+        await goBack();
+        expect(root.querySelector('[data-page]')?.textContent).toBe('page 1');
+        expect(zone()).toBe('example.com clicks=1');
+
+        // A query the view refuses is a 404, like refused params.
+        site.navigate('/zones/example.com?page=zero');
+        await frame();
+        expect(root.querySelector('[data-not-found]')).not.toBeNull();
     });
 
     it('shows not-found for a URL nothing matches, and for params the view\'s schema refuses', async () => {

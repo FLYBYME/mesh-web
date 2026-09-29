@@ -15,7 +15,8 @@ class New extends View({}) { render(): Node { return nothing(); } }
 class User extends View({ params: z.object({ id: z.coerce.number().int().positive() }) }) { render(): Node { return nothing(); } }
 class Handle extends View({ params: z.object({ handle: z.string().regex(/^[a-z]+$/) }) }) { render(): Node { return nothing(); } }
 class Records extends View({
-    params: z.object({ zone: z.string().min(3), page: z.coerce.number().default(1) }),
+    params: z.object({ zone: z.string().min(3) }),
+    query: z.object({ page: z.coerce.number().int().positive().default(1) }),
 }) { render(): Node { return nothing(); } }
 
 const table = compileRoutes({
@@ -45,9 +46,15 @@ describe('route table', () => {
         expect(table.match('/nowhere', '')).toBeUndefined();
     });
 
-    it('merges the query into params, with the path winning a clash', () => {
+    it('keeps path params and the query apart, so a query cannot spoof a path param', () => {
         const m = table.match('/domains/example.com/records', '?page=3&zone=spoofed');
-        expect(m?.raw).toEqual({ zone: 'example.com', page: '3' });
+        expect(m?.raw).toEqual({ zone: 'example.com' });
+        expect(m?.query).toEqual({ page: '3', zone: 'spoofed' });
+    });
+
+    it('treats a query the view rejects as no match', () => {
+        expect(table.match('/domains/example.com/records', '?page=-1')).toBeUndefined();
+        expect(table.match('/domains/example.com/records', '')?.view).toBe(Records);
     });
 
     it('decodes path segments, and a segment that cannot decode matches nothing', () => {
@@ -55,10 +62,10 @@ describe('route table', () => {
         expect(table.match('/domains/%E0%A4%A/records', '')).toBeUndefined();
     });
 
-    it('keys a match by route and params, so the same URL is the same key and any change is a new one', () => {
+    it('keys a match by route and path params only: a new query is the same instance, a new path is not', () => {
         const a = table.match('/domains/example.com/records', '?page=2');
-        const b = table.match('/domains/example.com/records', '?page=2');
-        const c = table.match('/domains/example.com/records', '?page=3');
+        const b = table.match('/domains/example.com/records', '?page=3');
+        const c = table.match('/domains/other.com/records', '?page=2');
         expect(a?.key).toBe(b?.key);
         expect(a?.key).not.toBe(c?.key);
     });

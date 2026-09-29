@@ -97,6 +97,7 @@ export interface ErasedInit {
     readonly cx: object;
     readonly inject: { readonly [name: string]: object };
     readonly params?: unknown;
+    readonly query?: () => unknown;
     readonly props?: unknown;
     readonly host?: UnitHost;
 }
@@ -122,6 +123,8 @@ export type NeedsOf<S> = S extends { readonly needs: infer N extends readonly Ca
 export type InjectOf<S> = S extends { readonly inject: infer I extends Injectables } ? I : None;
 export type ApiOfSpec<S> = S extends { readonly api: infer A } ? A : unknown;
 export type ParamsOf<S> = S extends { readonly params: infer P } ? Infer<P> : None;
+/** A view's parsed `query`. Not `QueryOf`: that is the models' find-query type, exported beside this. */
+export type SearchOf<S> = S extends { readonly query: infer Q } ? Infer<Q> : None;
 export type PropsOf<S> = S extends { readonly props: PropsDecl<infer P> } ? P : None;
 
 /** `inject: { auth: AuthService }` → `this.inject.auth: AuthService`. */
@@ -188,6 +191,7 @@ export interface ViewClass {
      */
     readonly spec: UnitSpec & {
         readonly params?: SchemaLike<object>;
+        readonly query?: SchemaLike<object>;
         readonly title?: string;
         readonly window?: {
             readonly tile?: string;
@@ -202,11 +206,18 @@ export interface ViewClass {
 type RouteCheck<P extends string, V, AppNeeds extends readonly CapabilityName[]> =
     V extends ViewClass
         ? [Exclude<PathParams<P>, keyof ParamsOf<V['spec']>>] extends [never]
-            ? [MissingNeeds<NeedsOf<V['spec']>, AppNeeds>] extends [never]
-                ? V
+            ? [Exclude<keyof ParamsOf<V['spec']>, PathParams<P>>] extends [never]
+                ? [MissingNeeds<NeedsOf<V['spec']>, AppNeeds>] extends [never]
+                    ? V
+                    : {
+                        readonly __error: 'this view needs capabilities the app was not granted';
+                        readonly missing: MissingNeeds<NeedsOf<V['spec']>, AppNeeds>;
+                    }
                 : {
-                    readonly __error: 'this view needs capabilities the app was not granted';
-                    readonly missing: MissingNeeds<NeedsOf<V['spec']>, AppNeeds>;
+                    // `params` is the path; the query string is `query`. A `params` field the path
+                    // does not have could never be filled.
+                    readonly __error: 'this view declares params the route path does not have (query-string values belong in `query`)';
+                    readonly missing: Exclude<keyof ParamsOf<V['spec']>, PathParams<P>>;
                 }
             : {
                 readonly __error: 'this route has path params the view does not declare in `params`';

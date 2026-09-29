@@ -6,8 +6,9 @@
  * same routes, and arrives with the kernel integration (phase 5).
  *
  * The outlet is an `each` over zero or one route matches, keyed by `RouteMatch.key`, so the
- * existing reconciler does the swapping: a new route or new params disposes the old view instance
- * (and everything it mounted) and constructs a new one; anything else leaves it alone.
+ * existing reconciler does the swapping: a new route or new path params disposes the old view
+ * instance (and everything it mounted) and constructs a new one; a new query string only updates the
+ * live instance's `query()`.
  */
 
 import { createHandlerTable, each, element, text, when } from '../description/build.js';
@@ -99,7 +100,8 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
         each(
             () => { const current = route(); return current === undefined ? [] : [current]; },
             (match) => match.key,
-            (match) => runtime.view(match().view, match().raw, registry),
+            // Same key, new query: `match` is re-read, so the live view's `query()` follows it.
+            (match) => runtime.view(match().view, match().raw, registry, undefined, () => match().query),
         ),
         when(() => route() === undefined, () => notFound(history.pathname())),
     ];

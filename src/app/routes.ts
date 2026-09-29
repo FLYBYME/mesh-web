@@ -27,11 +27,15 @@ export interface RouteMatch {
     /** The pattern that matched, e.g. `/domains/:zone/records`. */
     readonly pattern: string;
     readonly view: ViewClass;
-    /** Path params and query, as strings, before the view's schema — what `runtime.view` parses. */
+    /** Path params, as strings, before the view's `params` schema — what `runtime.view` parses. */
     readonly raw: Readonly<Record<string, string>>;
+    /** The query string, as strings, before the view's `query` schema. */
+    readonly query: Readonly<Record<string, string>>;
     /**
-     * Same route and same params ⇒ same key. The site mounts one view instance per key, so a change
-     * of params is a new instance (params are constructor input), and anything else is not.
+     * Same route and same **path** params ⇒ same key. The site mounts one view instance per key, so
+     * `/domains/a` → `/domains/b` is a new instance (path params are constructor input), while
+     * `?page=1` → `?page=2` is the same instance with its `query` updated — a list keeps its scroll,
+     * selection and open dialogs when its filters change.
      */
     readonly key: string;
 }
@@ -93,11 +97,12 @@ export function compileRoutes(routes: { readonly [pattern: string]: ViewClass })
                 }
                 if (!fits) continue;
 
-                // Path params win over a query param of the same name: the path is what was routed.
-                const raw = { ...query, ...path };
-                const schema = route.view.spec.params;
-                if (schema !== undefined && !schema.safeParse(raw).success) continue;
-                return { pattern: route.pattern, view: route.view, raw, key: `${route.pattern}?${canonical(raw)}` };
+                // Both halves must parse for the route to match; a URL that does not is not found.
+                const paramsSchema = route.view.spec.params;
+                if (paramsSchema !== undefined && !paramsSchema.safeParse(path).success) continue;
+                const querySchema = route.view.spec.query;
+                if (querySchema !== undefined && !querySchema.safeParse(query).success) continue;
+                return { pattern: route.pattern, view: route.view, raw: path, query, key: `${route.pattern}?${canonical(path)}` };
             }
             return undefined;
         },

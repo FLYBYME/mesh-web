@@ -588,3 +588,53 @@ bullets. Split:
   now named positively. `test/browser/kernel-css.browser.test.ts` asserts a single-page site
   scrolls (and fails against the old selector), that an unthemed page is not painted, that the
   desktop is still pinned, and that the dark theme gives the old look back.
+
+## 23. Future: server-side rendering (wanted, not now — 2026-09-29)
+
+The owner wants SSR; it is deliberately deferred behind the reference app. The plan, so it is not
+re-derived:
+
+- **How a request renders:** match the URL with the same route table; a *fresh runtime per request*
+  (never shared — one visitor's state must not reach another's page); construct the services and
+  the view; `flatten()` — which already instantiates mount nodes, reads them and disposes them, so
+  components need nothing special; serialize to HTML; send it with the boot script. The client
+  boots and takes over. `Link` is a real `<a href>`, so a server page navigates before any script.
+- **Missing:** a string renderer — primitives are defined by `create()` calling
+  `document.createElement`, so each needs its tag and attribute rules declared as data; server-side
+  capabilities (`mesh` over the server's `fetch` with no visitor credentials; inert storage,
+  notifications, display); waiting for a page's data before flattening (the runtime tracks the
+  collections a render created and waits for them to settle, with a timeout); a gateway hook.
+- **Hard parts:** data (a one-shot snapshot shows loading states); running a site's code in the
+  platform's node per request (a sandbox and time-limit question before anyone else's code gets
+  it); handing over without a flash (re-render and replace first; hydration later, if it matters).
+- **Order:** (1) prerender param-less public routes at release time — no per-request code, most of
+  the benefit for a public site; (2) per-request rendering with data waiting, isolated;
+  (3) hydration.
+
+## 24. Reference-app gaps, closed one at a time (2026-09-29)
+
+The owner's question before writing a large UI: *what does an advanced site look like in this
+model, and is it the right shape?* The answer is a reference app (`examples/console`) built on the
+model. Building it lists what the model lacks, and each gap is closed in the framework, not in the
+example, before the example relies on it:
+
+1. **Query-string state rebuilt the view.** Path params and the query were merged into `params`, and
+   the route key covered both, so `?page=2` disposed the list and built a new one, losing scroll,
+   selection and open dialogs. **Fixed:** a view declares `params` (the path, fixed for the
+   instance's life) and `query` (reactive: `this.query()`). The route key is the pattern plus
+   the path params only, so a query change keeps the instance and updates `query()`. On the
+   desktop, the window showing that path follows it. Both schemas are part of matching, so a
+   query the view refuses is a 404. The types refuse a `params` field the path does not have
+   ("belongs in `query`"). `router.href(View, { zone, page })` takes both, with query fields
+   optional. `SearchOf<S>` is the type (not `QueryOf`, which models already exports).
+   A query cannot spoof a path param any more: they are no longer merged.
+2. **One throwing component blanked the page.** A constructor or `render()` that threw propagated
+   out of the renderer. **Fixed:** every mount is an error boundary. The unit's registrations are
+   removed, the error goes to the console (so to the log viewer), and the unit is replaced by the
+   App's `fallback({ unit, error })` or, by default, a labelled `role="alert"` box. Its siblings,
+   its parent and the rest of the page carry on. A **boot** service that is refused still stops the
+   App, because nothing could run without it. A service injected lazily by one view only costs that
+   view. Errors thrown later, in a handler, a command or an effect, are not caught here; that is a
+   separate gap.
+3. Still open: layouts (a persistent shell across pages), guards/redirects, forms from schemas, a
+   design system of real components, lazy routes.

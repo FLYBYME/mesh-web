@@ -50,6 +50,14 @@ function label(unit: { readonly node: Node }): string {
 }
 const nothing = (): Node => element('Stack', { children: [] });
 
+/** A failed mount reports to the console; a test that expects one records it instead of printing. */
+function silenceConsoleError(): { readonly calls: unknown[][]; restore(): void } {
+    const calls: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { calls.push(args); };
+    return { calls, restore: () => { console.error = original; } };
+}
+
 // ---------------------------------------------------------------------------- units under test
 
 const log: string[] = [];
@@ -164,16 +172,48 @@ describe('app runtime', () => {
         runtime.dispose();
     });
 
-    it('removes what a constructor registered before it threw', () => {
+    it('replaces a unit that throws with the fallback, after removing what it registered', () => {
         class Broken extends Component({}) {
             readonly first = this.on(() => undefined);
             render(): Node { throw new Error('render failed'); }
         }
+        const errors = silenceConsoleError();
         const runtime = createAppRuntime(Site, granted);
         const reg = registry();
-        expect(() => runtime.component(Broken, {}, reg).instantiate()).toThrow('render failed');
+        const unit = runtime.component(Broken, {}, reg).instantiate();
         expect(reg.live.size).toBe(0);
+        expect(flatten(unit.node)).toEqual([{
+            kind: 'element', component: 'Stack', props: { role: 'alert', 'data-mount-error': 'Broken' },
+            children: [{ kind: 'text', value: 'Broken could not be shown.' }],
+        }]);
+        expect(errors.calls.map(([message]) => message)).toEqual(['Broken failed to mount:']);
+        unit.dispose();
         runtime.dispose();
+        errors.restore();
+    });
+
+    it('contains a failure to the unit: the siblings and the parent still render', () => {
+        class Broken extends Component({}) {
+            render(): Node { throw new Error('nope'); }
+        }
+        class Host extends Component({}) {
+            render(): Node {
+                return element('Stack', { children: [this.mount(Broken), this.mount(Clicker, { label: 'ok' })] });
+            }
+        }
+        class Custom extends App({
+            needs: needs('storage'),
+            routes: {},
+            fallback: ({ unit }) => element('Text', { children: [text(`[${unit}]`)] }),
+        }) {}
+        const errors = silenceConsoleError();
+        const runtime = createAppRuntime(Custom, granted);
+        const [stack] = flatten(runtime.component(Host, {}, registry()).instantiate().node);
+        if (stack?.kind !== 'element') throw new Error('expected an element');
+        expect(stack.children.map((c) => (c.kind === 'element' ? c.component : c.kind))).toEqual(['Text', 'Button']);
+        expect(stack.children[0]).toEqual({ kind: 'element', component: 'Text', props: {}, children: [{ kind: 'text', value: '[Broken]' }] });
+        runtime.dispose();
+        errors.restore();
     });
 
     it('refuses a component that needs what the app was not granted — at run time too', () => {
@@ -188,9 +228,15 @@ describe('app runtime', () => {
         class Uses extends Component({ inject: { mailer: Mailer } }) {
             render(): Node { return nothing(); }
         }
+        const errors = silenceConsoleError();
         const runtime = createAppRuntime(Site, granted);
-        expect(() => runtime.component(Uses, {}, registry()).instantiate()).toThrow(/Mailer needs 'mesh'/);
+        // Refused while mounting Uses, so Uses is what the boundary replaces.
+        const unit = runtime.component(Uses, {}, registry()).instantiate();
+        expect(errors.calls[0]?.[1]).toBeInstanceOf(Error);
+        expect(String(errors.calls[0]?.[1])).toMatch(/Mailer needs 'mesh'/);
+        expect(flatten(unit.node)[0]).toMatchObject({ props: { 'data-mount-error': 'Uses' } });
         runtime.dispose();
+        errors.restore();
     });
 
     it('reports an injection cycle rather than recursing — the backstop for cross-module cycles', () => {

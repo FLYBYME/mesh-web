@@ -15,9 +15,10 @@
 import type { Action, IntentValue, Node } from '../description/types.js';
 import type {
     ApiOfSpec, Capabilities, CheckNeeds, CheckRoutes, ComponentClass, Injectables, Injected, InjectOf,
-    MountArgs, NeedsOf, ParamsOf, PropsDecl, PropsOf, SchemaLike, ServiceClass, UnitHost, UnitSpec,
-    ViewClass,
+    MountArgs, NeedsOf, ParamsOf, PropsDecl, PropsOf, SchemaLike, SearchOf, ServiceClass, UnitHost,
+    UnitSpec, ViewClass,
 } from './types.js';
+import type { MountFailure } from './runtime.js';
 
 // ---------------------------------------------------------------------------- what the kernel passes
 
@@ -28,6 +29,8 @@ export interface ServiceInit<S> {
 
 export interface ViewInit<S> extends ServiceInit<S> {
     readonly params: ParamsOf<S>;
+    /** Read reactively: the query string changes under a live instance. */
+    readonly query: () => SearchOf<S>;
     readonly host: UnitHost;
 }
 
@@ -55,8 +58,17 @@ function hostOf(unit: object): UnitHost {
 export type ServiceSpec = UnitSpec;
 
 export interface ViewSpec extends UnitSpec {
-    /** Parsed from the URL — path params and query — before the view is constructed. */
+    /**
+     * The path params (`/domains/:domain`), parsed before the view is constructed. Fixed for the
+     * instance's life: a different value is a different page, so a different instance.
+     */
     readonly params?: SchemaLike<object>;
+    /**
+     * The query string (`?q=…&page=2`), parsed and **reactive**: `this.query()` follows the URL, and
+     * changing only the query does not rebuild the view — a list keeps its scroll, selection and open
+     * dialogs when its filters or page change.
+     */
+    readonly query?: SchemaLike<object>;
     readonly title?: string;
     /**
      * Hints for the desktop, ignored by a single-page site. Every field is a suggestion: a view does
@@ -82,6 +94,12 @@ export interface AppSpec extends UnitSpec {
     readonly routes: { readonly [path: string]: ViewClass };
     /** Constructed at boot. Any other service is constructed on first injection. */
     readonly services?: readonly ServiceClass[];
+    /**
+     * What a view or component that throws while constructing or rendering is replaced by. Every
+     * mount is a boundary, so one broken widget costs its own box, not the page. Errors thrown
+     * later — in a handler, a command, an effect — are not caught here.
+     */
+    readonly fallback?: (failure: MountFailure) => Node;
 }
 
 // ---------------------------------------------------------------------------- Service
@@ -123,11 +141,14 @@ export abstract class ViewBase<S extends ViewSpec> {
     readonly cx: Capabilities<NeedsOf<S>, ApiOfSpec<S>>;
     readonly inject: Injected<InjectOf<S>>;
     readonly params: ParamsOf<S>;
+    /** The parsed query string, read reactively — `text(() => this.query().page)`. */
+    readonly query: () => SearchOf<S>;
 
     constructor(init: ViewInit<S>) {
         this.cx = init.cx;
         this.inject = init.inject;
         this.params = init.params;
+        this.query = init.query;
         hosts.set(this, init.host);
     }
 

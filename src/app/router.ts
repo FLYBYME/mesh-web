@@ -22,9 +22,19 @@ export interface RouterBackend {
     href(view: ViewClass, params: unknown): string;
 }
 
-/** `href(View)` for a view without params; `href(View, params)` — the schema's input type — for one with. */
+/** The query a link may set: any of the schema's input fields, none required. */
+type QueryArg<S> = S extends { readonly query: infer Q } ? Partial<InferInput<Q>> : Record<never, never>;
+
+/**
+ * `href(View)` for a view without params; `href(View, params)` — the schema's input type — for one
+ * with. Query fields ride in the same object and are all optional: `href(Records, { zone, page: 2 })`.
+ */
 export type HrefArgs<V extends ViewClass> =
-    V['spec'] extends { readonly params: infer P } ? [params: InferInput<P>] : [];
+    V['spec'] extends { readonly params: infer P }
+        ? [params: InferInput<P> & QueryArg<V['spec']>]
+        : V['spec'] extends { readonly query: object }
+            ? [query?: QueryArg<V['spec']>]
+            : [];
 
 const backends = new WeakMap<object, RouterBackend>();
 
