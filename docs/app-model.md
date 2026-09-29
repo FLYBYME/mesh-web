@@ -690,8 +690,10 @@ example, before the example relies on it:
     - Services write through commands and bump a `changed` signal that reads depend on.
 
 **Open, found by the example, not yet decided:**
-- **Sort of a paged list** is client-side within one page, which is wrong for a server-paged
-  list. It belongs in `query` and in the API call. The table should take a controlled sort.
+- ~~**Sort of a paged list** was client-side within one page.~~ **Fixed in the example:**
+  `dataTable` takes a controlled `sort` (columns name a `sortKey`). The domain list keeps `sort`
+  and `dir` in `query`, and the API sorts before paging. Local `compare` sorting remains for
+  tables whose rows are all on screen.
 - **Page titles are static strings.** A detail page cannot say which domain it shows.
   Likely fix: `title` may be a function of the instance.
 - **Cache invalidation** is one `changed` counter per service. That is fine at this size; at

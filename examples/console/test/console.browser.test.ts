@@ -64,6 +64,13 @@ function link(text: string): HTMLAnchorElement {
 const rows = (): string[] => [...root.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td')?.textContent ?? '');
 const problem = (field: string): string => $(`[data-problem-for="${field}"]`)?.textContent ?? '';
 
+/** `history.back()` is asynchronous: wait for the popstate it causes. */
+async function goBack(): Promise<void> {
+    const popped = new Promise((resolve) => addEventListener('popstate', resolve, { once: true }));
+    history.back();
+    await popped;
+}
+
 async function signIn(): Promise<void> {
     await userEvent.fill(byLabel('Email'), 'ada@example.com');
     await userEvent.fill(byLabel('Password'), 'correct horse');
@@ -103,23 +110,30 @@ describe('the reference console', () => {
         await until(() => expect(rows()).toHaveLength(8));
         expect($('[data-page-of]')?.textContent).toBe('Page 1 of 3');
 
-        // Open the add panel, sort by name descending: both are this instance's own state.
+        // Open the add panel — this instance's own state.
         await userEvent.keyboard('{Alt>}a{/Alt}');
         await until(() => expect(byLabel('Domain')).toBeTruthy());
-        await userEvent.click(button('Domain'));
+
+        // Sort is the URL's and the server's: descending across all 23, not within one page.
+        expect($('th[aria-sort="ascending"]')?.textContent).toBe('Domain ▲');
         await userEvent.click(button('Domain ▲'));
-        await until(() => expect(rows()[0]).toBe('fjord.net'));
+        await until(() => expect(rows()[0]).toBe('undertow.net'));
+        expect(new URLSearchParams(location.search).get('dir')).toBe('desc');
 
         await userEvent.click(link('Next →'));
         await until(() => expect($('[data-page-of]')?.textContent).toBe('Page 2 of 3'));
-        await until(() => expect(rows()[0]).toBe('reef.org'));
+        await until(() => expect(rows()[0]).toBe('marina.io'));
         expect(new URLSearchParams(location.search).get('page')).toBe('2');
-        // Same instance: the panel is still open and the sort still applies.
+        // Same instance throughout: the panel is still open. The link kept the sort.
         expect(byLabel('Domain')).toBeTruthy();
         expect($('th[aria-sort="descending"]')).not.toBeNull();
 
+        await goBack();
+        await goBack();
+        await until(() => expect(rows()[0]).toBe('atoll.app'));
+
         await userEvent.fill(byLabel('Search domains'), 'dev');
-        await until(() => expect(rows()).toEqual(['swell.dev', 'kelp.dev', 'jetty.dev', 'harbor.dev', 'cove.dev']));
+        await until(() => expect(rows()).toEqual(['cove.dev', 'harbor.dev', 'jetty.dev', 'kelp.dev', 'swell.dev']));
         expect(new URLSearchParams(location.search).get('q')).toBe('dev');
 
         await userEvent.fill(byLabel('Search domains'), 'zzz');

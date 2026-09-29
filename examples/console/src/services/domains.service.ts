@@ -12,7 +12,7 @@
 
 import { command, Service, signal } from '@flybyme/mesh-web';
 import { z } from 'zod';
-import { FakeApi, RECORD_TYPES, type DnsRecord, type Domain, type Page } from '../api/fake-api.js';
+import { FakeApi, RECORD_TYPES, type DnsRecord, type Domain, type DomainSort, type Page } from '../api/fake-api.js';
 
 const DOMAIN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
@@ -24,9 +24,9 @@ export const domainName = z.string().trim().toLowerCase().regex(DOMAIN, 'Enter a
 export class Domains extends Service({ inject: { api: FakeApi } }) {
     readonly changed = signal(0);
 
-    list(q: string, page: number): Promise<Page<Domain>> {
+    list(q: string, page: number, sort: DomainSort, direction: 1 | -1): Promise<Page<Domain>> {
         this.changed();
-        return this.inject.api.listDomains({ q, page, pageSize: PAGE_SIZE });
+        return this.inject.api.listDomains({ q, page, pageSize: PAGE_SIZE, sort, direction });
     }
 
     get(name: string): Promise<Domain> {

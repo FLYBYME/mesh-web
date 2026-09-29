@@ -18,6 +18,9 @@ export interface Domain {
     readonly created: string;
 }
 
+export const DOMAIN_SORTS = ['name', 'status', 'created'] as const;
+export type DomainSort = typeof DOMAIN_SORTS[number];
+
 export interface DnsRecord {
     readonly id: string;
     readonly domain: string;
@@ -76,12 +79,19 @@ export class FakeApi extends Service({}) {
         });
     }
 
-    listDomains(query: { readonly q: string; readonly page: number; readonly pageSize: number }): Promise<Page<Domain>> {
+    listDomains(query: {
+        readonly q: string;
+        readonly page: number;
+        readonly pageSize: number;
+        readonly sort: DomainSort;
+        readonly direction: 1 | -1;
+    }): Promise<Page<Domain>> {
         return this.#reply(() => {
             const q = query.q.trim().toLowerCase();
+            // Sorted before paging — which is why the sort has to be the server's, not the table's.
             const all = [...this.#domains.values()]
                 .filter((d) => q === '' || d.name.includes(q))
-                .sort((a, b) => a.name.localeCompare(b.name));
+                .sort((a, b) => (a[query.sort].localeCompare(b[query.sort]) || a.name.localeCompare(b.name)) * query.direction);
             const start = (query.page - 1) * query.pageSize;
             return { items: all.slice(start, start + query.pageSize), total: all.length };
         });

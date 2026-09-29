@@ -11,7 +11,7 @@ import {
     command, element, Link, resource, Router, signal, text, View, when, type Node,
 } from '@flybyme/mesh-web';
 import { z } from 'zod';
-import type { Domain } from '../../api/fake-api.js';
+import { DOMAIN_SORTS, type Domain, type DomainSort } from '../../api/fake-api.js';
 import { Domains, PAGE_SIZE } from '../../services/domains.service.js';
 import { emptyState, loaded, pageHeader } from '../../ui/async.js';
 import { commandForm } from '../../ui/command-form.js';
@@ -27,10 +27,19 @@ export class DomainListView extends View({
     query: z.object({
         q: z.string().default(''),
         page: z.coerce.number().int().positive().default(1),
+        sort: z.enum(DOMAIN_SORTS).default('name'),
+        dir: z.enum(['asc', 'desc']).default('asc'),
     }),
     title: 'Domains · Harbor DNS',
 }) {
-    readonly list = resource(() => this.inject.domains.list(this.query().q, this.query().page));
+    readonly list = resource(() => {
+        const { q, page, sort, dir } = this.query();
+        return this.inject.domains.list(q, page, sort, dir === 'asc' ? 1 : -1);
+    });
+
+    /** This list's URL with some of its state changed — every link and control here goes through it. */
+    readonly at = (change: { q?: string; page?: number; sort?: DomainSort; dir?: 'asc' | 'desc' }): string =>
+        this.inject.router.href(DomainListView, { ...this.query(), ...change });
     readonly adding = signal(false);
 
     readonly AddDomainForm = commandForm(this.inject.domains.create, {
@@ -71,7 +80,7 @@ export class DomainListView extends View({
                     props: { type: 'search', 'aria-label': 'Search domains', placeholder: 'Search…', value: q, class: 'ui-search' },
                     intents: {
                         change: {
-                            action: this.on((v) => router.replace(router.href(DomainListView, { q: typeof v === 'string' ? v : '', page: 1 }))),
+                            action: this.on((v) => router.replace(this.at({ q: typeof v === 'string' ? v : '', page: 1 }))),
                         },
                     },
                 }),
@@ -83,24 +92,33 @@ export class DomainListView extends View({
                             label: 'Domains',
                             rows: () => page().items,
                             key: (d) => d.name,
+                            // The server sorts, before paging; the table shows the URL's sort and
+                            // turns a header click into a new URL (back to page 1).
+                            sort: {
+                                current: () => ({ key: this.query().sort, direction: this.query().dir === 'asc' ? 1 : -1 }),
+                                change: (next) => {
+                                    const sort = DOMAIN_SORTS.find((s) => s === next.key);
+                                    if (sort !== undefined) router.navigate(this.at({ sort, dir: next.direction === 1 ? 'asc' : 'desc', page: 1 }));
+                                },
+                            },
                             columns: [
                                 {
                                     header: 'Domain',
                                     cell: (d) => this.mount(Link, { href: () => router.href(DomainView, { domain: d().name }), children: [text(() => d().name)] }),
-                                    compare: (a, b) => a.name.localeCompare(b.name),
+                                    sortKey: 'name',
                                 },
                                 {
                                     header: 'Status',
                                     cell: (d) => element('Badge', { props: { 'data-status': () => d().status }, children: [text(() => d().status)] }),
-                                    compare: (a, b) => a.status.localeCompare(b.status),
+                                    sortKey: 'status',
                                 },
-                                { header: 'Added', cell: (d) => text(() => d().created), compare: (a, b) => a.created.localeCompare(b.created), align: 'end' },
+                                { header: 'Added', cell: (d) => text(() => d().created), sortKey: 'created', align: 'end' },
                             ],
                         }),
                         this.mount(Pager, {
                             page: () => this.query().page,
                             pages: () => Math.ceil(page().total / PAGE_SIZE),
-                            href: (n) => router.href(DomainListView, { q: q(), page: n }),
+                            href: (n) => this.at({ page: n }),
                         }),
                     ],
                     () => emptyState(
