@@ -515,3 +515,24 @@ engine with platform services. A is in steps, each green.
     leaves one it was given).
 - **A failed App is not a blank page:** the page says it could not start and why, the log panel is
   mounted, and the error still propagates.
+
+## 20. Phase 5c — A2: the part machinery is gone (2026-09-29)
+
+- **Deleted:** `Kernel` (boot, processes, providers, start/stop/restart), the manifest and its merge,
+  the dependency graph, the legacy router (`routerSink`, `match.ts`'s `/<app>/<view>` scheme) and
+  the window sink. `router/router.ts` keeps only `HistoryLike` and `browserHistory`.
+- **Tests:** those of the deleted machinery went (kernel lifecycle, manifest, publishes, the legacy
+  router and URL parser, the part end-to-end, the chrome capability over the window sink, the
+  manifest's key checks). Every capability test that booted a `Kernel` only to reach a context was
+  ported to the context an App is really given — the broker's `createContext`, the call `startApp`
+  makes — read through an app-model service so it arrives **typed, with no cast**: confirm, storage
+  (reload survival), models (including the session end-to-end, now through an ordinary session
+  service), net, kernel-log (call failures never log a ticket, header, password or body), drivers.
+  Where a test used a `Kernel` as a typed token store, it is an `IoManager`, which is what that was.
+  Three casts came out on the way (`as unknown as Context`, two `as any` renderer lookups — one of
+  which answered *every* token with the renderer).
+- **The window-layer tests run on the App desktop** (`mountDesktop`), the real shell and default
+  frame — sizes, drag with pointer capture, the resize grip and minimum, frames that cannot break
+  positioning, close/maximize under a real pointer, one window per route. That needed two things the
+  desktop lacked: **`View({ window: { defaultSize, minSize, closable, tile } })`** — the part-era
+  window hints, applied the way the window sink applied them — and a `frame` option.

@@ -22,6 +22,7 @@ import { createDomRenderer } from '../render/dom.js';
 import { RENDERER, type Dispatcher } from '../render/renderer.js';
 import { browserHistory, type HistoryLike } from '../router/router.js';
 import { mountPage } from '../window/page.js';
+import type { FrameChrome, Shell } from '../window/shell.js';
 import { WindowManager } from '../window/manager.js';
 import type { CommandRegistryOptions } from './registry.js';
 import { compileRoutes, type RouteMatch } from './routes.js';
@@ -39,10 +40,14 @@ export interface DesktopOptions {
     readonly mode?: 'windowed' | 'tiled';
     /** Where the renderer is found. The kernel passes its own; alone, one is made. */
     readonly io?: IoManager;
+    /** How one window is drawn. The shell's `defaultFrame` when a site has not said. */
+    readonly frame?: FrameChrome;
 }
 
 export interface MountedDesktop extends MountedApp {
     readonly manager: WindowManager;
+    /** The window layer: where each window's frame is (`shell.hostOf(id)`). */
+    readonly shell: Shell;
 }
 
 export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDesktop {
@@ -75,11 +80,19 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
                 return;
             }
         }
+        // The view's window hints, applied the way the part-era window sink applied them.
+        const hints = match.view.spec.window;
         const record = manager.open({
             owner,
             view: match.pattern,
             params: match.raw,
             title: match.view.spec.title ?? match.view.name,
+            ...(hints?.tile === undefined ? {} : { tile: hints.tile }),
+            ...(hints?.defaultSize === undefined ? {} : { size: hints.defaultSize }),
+            ...(hints?.minSize === undefined
+                ? {}
+                : { minSize: { width: hints.minSize.width ?? 0, height: hints.minSize.height ?? 0 } }),
+            closable: hints?.closable ?? true,
         });
         showing.set(record.id, match);
         manager.focus(record.id);
@@ -121,9 +134,11 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
         if (existing !== undefined) return existing;
         const view = App.spec.routes[pattern];
         if (view === undefined) return undefined;
+        const hints = view.spec.window;
         const decl: ViewDecl<never, never> = {
             id: pattern,
             title: view.spec.title ?? view.name,
+            ...(hints === undefined ? {} : { window: hints }),
             render: (vx: ViewContext<never, never>) => live.view(view, vx.params, {
                 on: (fn) => { handlers++; return vx.on(fn); },
                 off: (action) => { handlers--; vx.off(action); },
@@ -146,6 +161,7 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
         onWindow: (event, id) => {
             if (event === 'closed' && showing.delete(id)) bump();
         },
+        ...(options.frame === undefined ? {} : { frame: options.frame }),
     });
 
     const measure = (): void => {
@@ -168,6 +184,7 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
         runtime: live,
         route,
         manager,
+        shell: page.shell,
         navigate: backend.navigate,
         handlerCount: () => handlers,
         dispose() {

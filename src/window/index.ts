@@ -12,8 +12,6 @@ export { isTile, tileNames, tileRects, tiles } from './layout.js';
 export type { ViewHostOptions, ViewInstance } from './host.js';
 export { mountView } from './host.js';
 
-export { windowSink } from './sink.js';
-
 export type { Frame, FrameChrome, FrameContext, FrameState, Shell, ShellOptions } from './shell.js';
 export { defaultFrame, drag, mountShell } from './shell.js';
 

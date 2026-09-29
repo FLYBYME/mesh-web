@@ -10,10 +10,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    Kernel, call, createClient, createServices, defineApi, describe as describeError, diffExposure, exposureDifference, fetchApiSpec,
-    needs, provider, toApiSpec, withHeaders, MeshCallError,
-    type Api, type Application, type Context, type ExposureDescriptor, type ExposureDifference, type NetRequest, type NetResponse, type Transport, KEEPS_NOTHING,
+    App, Service, call, createAppRuntime, createClient, createContext, createServices, defineApi, describe as describeError,
+    diffExposure, exposureDifference, fetchApiSpec, needs, toApiSpec, withHeaders, MeshCallError,
+    type Api, type ExposureDescriptor, type ExposureDifference, type NetRequest, type NetResponse, type Transport,
 } from '../src/index.js';
+import { IoManager } from '../src/kernel/io.js';
 
 // ---------------------------------------------------------------------------- a generated API
 
@@ -422,87 +423,73 @@ describe('failures are named, not numbered', () => {
 
 // ---------------------------------------------------------------------------- the capability
 
-interface ConsoleApi {
-    readonly whoami: () => Promise<string>;
-}
-const CONSOLE = provider<ConsoleApi>('test.console');
+let console_: Console | undefined;
+const constructed = (): Console | undefined => console_;
+const ConsoleBase = Service({ needs: needs('mesh', 'log'), api: siteApi });
 
-const CONSOLE_NEEDS = needs('mesh', 'log');
-
-class ConsoleApp implements Application<typeof CONSOLE_NEEDS, readonly [], typeof CONSOLE> {
-    readonly needs = CONSOLE_NEEDS;
-    readonly provides = CONSOLE;
-    readonly api = siteApi;
-
-    async start(cx: Context<typeof CONSOLE_NEEDS, readonly [], typeof siteApi>): Promise<{ api: ConsoleApi } & typeof KEEPS_NOTHING> {
-        return {
-            ...KEEPS_NOTHING,
-            api: {
-                whoami: async () => {
-                    try {
-                        const result = await cx.mesh.call('session.whoami');
-                        return result.userId;
-                    } catch (e) {
-                        cx.log.warn(e instanceof MeshCallError ? describeError(e.error) : String(e));
-                        return 'anonymous';
-                    }
-                },
-            },
-        };
+/** Calls the API it declared, typed by it; says what went wrong in the log. */
+class Console extends ConsoleBase {
+    constructor(...args: ConstructorParameters<typeof ConsoleBase>) {
+        super(...args);
+        console_ = this;
+    }
+    async whoami(): Promise<string> {
+        try {
+            const result = await this.cx.mesh.call('session.whoami');
+            return result.userId;
+        } catch (e) {
+            this.cx.log.warn(e instanceof MeshCallError ? describeError(e.error) : String(e));
+            return 'anonymous';
+        }
     }
 }
 
+class ConsoleSite extends App({ needs: needs('mesh', 'log'), api: siteApi, services: [Console], routes: {} }) {}
+
 describe('mesh as a capability', () => {
+    /** Boot the site on a page whose API answers with `reply`, the context built as `startApp` builds it. */
     const bootWith = (reply: (request: NetRequest) => NetResponse) => {
         const services = createServices();
         const fake = fakeTransport(reply);
         services.meshClient = (api) => createClient(api as Api<Record<string, never>>, { transport: fake.transport });
 
-        const kernel = new Kernel({ services });
-        kernel.boot([{ id: 'console', contribution: new ConsoleApp() as never }]);
-        return { kernel, fake };
+        const io = new IoManager();
+        const granted = createContext({ id: 'console', declaredBy: 'console' }, ['mesh', 'log'], [], (t) => io.get(t), services, io, siteApi).context;
+        console_ = undefined;
+        createAppRuntime(ConsoleSite, granted);
+        // Read through a function: the compiler cannot see the constructor assign it.
+        const service = constructed();
+        if (service === undefined) throw new Error('expected the console service');
+        return { service, fake };
     };
 
-    it('reaches the Application, scoped to the API it declared', async () => {
-        const { kernel, fake } = bootWith(() => json(200, { userId: 'u1', roles: ['user'] }));
-        const pid = await kernel.start('console');
-
-        const api = kernel.processes.find((p) => p.pid === pid)!.api as ConsoleApi;
-        expect(await api.whoami()).toBe('u1');
+    it('reaches the service, scoped to the API it declared', async () => {
+        const { service, fake } = bootWith(() => json(200, { userId: 'u1', roles: ['user'] }));
+        expect(await service.whoami()).toBe('u1');
         expect(fake.sent[0]!.url).toBe('/api/session/whoami');
     });
 
-    it('is absent from a context that did not ask for it', async () => {
-        const NO_MESH = needs('log');
-        const cx = {} as Context<typeof NO_MESH>;
-
-        // @ts-expect-error mesh was not declared in needs
-        void cx.mesh;
-    });
-
-    it('refuses to start an Application that asked for mesh without declaring an api', async () => {
-        const NEEDS = needs('mesh');
-
-        class Bad implements Application<typeof NEEDS> {
-            readonly needs = NEEDS;
-            async start(): Promise<typeof KEEPS_NOTHING> { /* never reached */ return KEEPS_NOTHING; }
+    it('is absent from a unit that did not ask for it', () => {
+        class Quiet extends Service({ needs: needs('log') }) {
+            peek(): void {
+                // @ts-expect-error mesh was not declared in needs
+                void this.cx.mesh;
+            }
         }
-
-        const kernel = new Kernel();
-        kernel.boot([{ id: 'bad', contribution: new Bad() as never }]);
-
-        // A manifest mistake, so it fails loudly at start rather than yielding a client that can
-        // call nothing.
-        await expect(kernel.start('bad')).rejects.toThrow(/without declaring an api/);
+        expect(Quiet.spec.needs).toEqual(['log']);
     });
 
-    it('records the APIs a site talks to before anything runs', () => {
-        const { kernel } = bootWith(() => json(200, {}));
+    it('refuses a context that asks for mesh without an api to bind it to', () => {
+        // A manifest mistake, so it fails loudly rather than yielding a client that can call nothing.
+        const io = new IoManager();
+        expect(() => createContext({ id: 'bad', declaredBy: 'bad' }, ['mesh'], [], (t) => io.get(t), createServices(), io))
+            .toThrow(/without declaring an api/);
+    });
 
-        // spec/network.md section 4 — the list a review, a CSP or an audit wants, available from
-        // the manifest with nothing started.
-        expect(kernel.processes).toHaveLength(0);
-        expect(kernel.manifest.apis.map((a) => a.decl.id)).toEqual(['surfdns']);
+    it('says which API a site talks to before anything runs', () => {
+        // spec/network.md section 4 — the list a review, a CSP or an audit wants: the App's static
+        // spec, readable with nothing constructed.
+        expect(ConsoleSite.spec.api.id).toBe('surfdns');
     });
 });
 

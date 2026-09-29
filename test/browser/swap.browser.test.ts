@@ -20,7 +20,7 @@ import { describe, expect, it } from 'vitest';
 
 import { element, text } from '../../src/description/build.js';
 import type { Node } from '../../src/description/types.js';
-import { Kernel } from '../../src/kernel/kernel.js';
+import { IoManager } from '../../src/kernel/io.js';
 import { RENDERER, type Mounted, type Renderer, type RendererOptions } from '../../src/render/index.js';
 import { mountView } from '../../src/window/host.js';
 
@@ -54,8 +54,8 @@ describe('a second renderer can be swapped in', () => {
     it('receives the description, and never touches the DOM', () => {
         const { renderer, seen } = recordingRenderer();
 
-        const kernel = new Kernel();
-        kernel.provide(RENDERER, renderer);
+        const io = new IoManager();
+        io.register(RENDERER, renderer);
 
         // A real host element, so that "the DOM was not touched" is a claim about something that
         // could have been touched.
@@ -68,7 +68,7 @@ describe('a second renderer can be swapped in', () => {
             api: undefined,
             params: {},
             windows,
-            resolve: (token) => kernel.provided(token),
+            resolve: (token) => io.get(token),
             renderOptions: { dispatch: { dispatch: () => {} } },
             onCommand: () => {},
         });
@@ -86,8 +86,8 @@ describe('a second renderer can be swapped in', () => {
         // seam is where that would silently stop happening.
         const { renderer, seen } = recordingRenderer();
 
-        const kernel = new Kernel();
-        kernel.provide(RENDERER, renderer);
+        const io = new IoManager();
+        io.register(RENDERER, renderer);
 
         const instance = mountView(document.createElement('div'), {
             windowId: 'w1',
@@ -95,7 +95,7 @@ describe('a second renderer can be swapped in', () => {
             api: undefined,
             params: {},
             windows,
-            resolve: (token) => kernel.provided(token),
+            resolve: (token) => io.get(token),
             renderOptions: { dispatch: { dispatch: () => {} } },
             onCommand: () => {},
         });

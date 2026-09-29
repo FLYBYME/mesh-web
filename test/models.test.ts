@@ -21,6 +21,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { IoManager } from '../src/kernel/io.js';
 import {
     provider,
     call,
@@ -31,13 +32,18 @@ import {
     createServices,
     defineApi,
     flushSync,
-    Kernel,
+    App,
+    Service,
+    createAppRuntime,
+    createContext,
     needs,
     recordingWindows,
     signal,
     type ReadonlySignal,
     withHeaders,
     type Api,
+    type AnyApiCall,
+    type Models,
     type Application,
     type Context,
     type Extension,
@@ -97,48 +103,58 @@ interface StatRecord {
  * were incidental to every assertion below — the tests care that a ticket appears and requests
  * reload, not how it was obtained.
  */
-interface TestSession {
-    readonly session: ReadonlySignal<Session | null>;
-    signIn(): void;
-    signOut(): void;
-}
+const SessionBase = Service({ needs: needs('credentials') });
 
-const TEST_SESSION: ProviderToken<TestSession> = provider<TestSession>('test/session');
-const SESSION_NEEDS = needs('credentials', 'state');
+/** A session, as a service: the shape of the company site's `AuthService`, minus the API calls. */
+class TestSession extends SessionBase {
+    readonly session = signal<Session | null>(null);
+    #ticket: string | undefined;
 
-class SessionExtension implements Extension<typeof SESSION_NEEDS, readonly [], typeof TEST_SESSION> {
-    readonly needs = SESSION_NEEDS;
-    readonly provides = TEST_SESSION;
-
-    activate(cx: Context<typeof SESSION_NEEDS>): TestSession {
-        const session = cx.state.signal<Session | null>(null);
-        let ticket: string | undefined;
-
+    constructor(...args: ConstructorParameters<typeof SessionBase>) {
+        super(...args);
         // Attached once, before any request can be made — the lookup runs per request, so a ticket
         // that arrives later rides the next call rather than the next page load.
-        cx.credentials.attach(
+        this.cx.credentials.attach(
             (): Readonly<Record<string, string>> =>
-                (ticket === undefined ? {} : { authorization: `Bearer ${ticket}` }),
-            session,
+                (this.#ticket === undefined ? {} : { authorization: `Bearer ${this.#ticket}` }),
+            this.session,
         );
-
-        return {
-            session,
-            signIn: () => {
-                ticket = 'tk-alice';
-                session.set({
-                    userId: 'alice',
-                    displayName: 'Alice',
-                    roles: ['admin'],
-                    expiresAt: Date.now() + 3_600_000,
-                });
-            },
-            signOut: () => {
-                ticket = undefined;
-                session.set(null);
-            },
-        };
     }
+
+    signIn(): void {
+        this.#ticket = 'tk-alice';
+        this.session.set({ userId: 'alice', displayName: 'Alice', roles: ['admin'], expiresAt: Date.now() + 3_600_000 });
+    }
+
+    signOut(): void {
+        this.#ticket = undefined;
+        this.session.set(null);
+    }
+}
+
+/**
+ * An App with a session service and `cx.models` for `api`, on `services` — both granted from one
+ * context, as `startApp` would. Returns the collections and the session to sign in and out with.
+ */
+function signedApp<A extends Api<Record<string, AnyApiCall>>>(services: ReturnType<typeof createServices>, api: A): {
+    readonly models: Models<A>;
+    readonly auth: TestSession;
+} {
+    let grabbed: Models<A> | undefined;
+    let auth: TestSession | undefined;
+    const Base = Service({ needs: needs('models'), api, inject: { session: TestSession } });
+    class Grab extends Base {
+        constructor(...args: ConstructorParameters<typeof Base>) {
+            super(...args);
+            grabbed = this.cx.models;
+            auth = this.inject.session;
+        }
+    }
+    class Host extends App({ needs: needs('models', 'credentials'), api, services: [TestSession, Grab], routes: {} }) {}
+    const io = new IoManager();
+    createAppRuntime(Host, createContext({ id: 'app', declaredBy: 'app' }, ['models', 'credentials'], [], (t) => io.get(t), services, io, api).context);
+    if (grabbed === undefined || auth === undefined) throw new Error('expected models and a session');
+    return { models: grabbed, auth };
 }
 
 const siteApi = defineApi({
@@ -233,35 +249,52 @@ describe('models capability type checking', () => {
 
 // ---------------------------------------------------------------------------- Runtime capability tests
 
-describe('models capability in Kernel', () => {
-    const APP_NEEDS = needs('models', 'state');
-
-    class TestApp implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
-        readonly needs = APP_NEEDS;
-        readonly api = siteApi;
-
-        startResult: Context<typeof APP_NEEDS, readonly [], typeof siteApi> | null = null;
-
-        async start(cx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
-            this.startResult = cx;
-            return KEEPS_NOTHING;
+/**
+ * `cx.models` for `siteApi`, as an App is granted it: the broker's `createContext` (what `startApp`
+ * calls), read through an app-model service so it arrives typed by the API — no cast. Replaces
+ * booting a `Kernel` and a test Application only to capture their context.
+ */
+function modelsFor(services: ReturnType<typeof createServices>): Models<typeof siteApi> {
+    let grabbed: Models<typeof siteApi> | undefined;
+    const Base = Service({ needs: needs('models'), api: siteApi });
+    class Grab extends Base {
+        constructor(...args: ConstructorParameters<typeof Base>) {
+            super(...args);
+            grabbed = this.cx.models;
         }
     }
+    class Host extends App({ needs: needs('models'), api: siteApi, services: [Grab], routes: {} }) {}
+    const io = new IoManager();
+    createAppRuntime(Host, createContext({ id: 'app', declaredBy: 'app' }, ['models'], [], (t) => io.get(t), services, io, siteApi).context);
+    if (grabbed === undefined) throw new Error('expected cx.models');
+    return grabbed;
+}
+
+describe('models capability, as an App is granted it', () => {
+    /** Holds the collection — typed by the API through its spec, no cast. */
+    let catalog: Catalog | undefined;
+    const Base = Service({ needs: needs('models'), api: siteApi });
+    class Catalog extends Base {
+        readonly parts = this.cx.models('part');
+        constructor(...args: ConstructorParameters<typeof Base>) {
+            super(...args);
+            catalog = this;
+        }
+    }
+    class Host extends App({ needs: needs('models'), api: siteApi, services: [Catalog], routes: {} }) {}
 
     it('boots and provides cx.models bound to the declared API', async () => {
         const fake = createFakeTransport(() => jsonResponse(200, [{ id: 'p1', name: 'Part 1', tag: 't1' }]));
         const services = createServices();
         services.meshClient = (api) => createClient(api, { transport: fake.transport });
 
-        const kernel = new Kernel({ services });
-        const app = new TestApp();
-        kernel.boot([{ id: 'test-app', contribution: app }]);
+        // The broker builds the App's context exactly as `startApp` does.
+        const io = new IoManager();
+        const granted = createContext({ id: 'test-app', declaredBy: 'test-app' }, ['models'], [], (t) => io.get(t), services, io, siteApi).context;
+        createAppRuntime(Host, granted);
 
-        await kernel.start('test-app');
-
-        expect(app.startResult).not.toBeNull();
-        const cx = app.startResult!;
-        const parts = cx.models('part');
+        if (catalog === undefined) throw new Error('expected the catalog service to be constructed');
+        const parts = catalog.parts;
         expect(parts.name).toBe('part');
 
         // Let the initial fetch resolve
@@ -276,17 +309,10 @@ describe('models capability in Kernel', () => {
         expect(parts.error()).toBeNull();
     });
 
-    it('fails to start if models was declared without an api', async () => {
-        const BAD_NEEDS = needs('models');
-        class BadApp implements Application<typeof BAD_NEEDS> {
-            readonly needs = BAD_NEEDS;
-            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
-        }
-
-        const kernel = new Kernel();
-        kernel.boot([{ id: 'bad', contribution: new BadApp() }]);
-
-        await expect(kernel.start('bad')).rejects.toThrow(/without declaring an api/);
+    it('refuses to build a context with models and no api to bind them to', () => {
+        const io = new IoManager();
+        expect(() => createContext({ id: 'bad', declaredBy: 'bad' }, ['models'], [], (t) => io.get(t), createServices(), io))
+            .toThrow(/without declaring an api/);
     });
 });
 
@@ -303,21 +329,7 @@ describe('status tracking and query behavior', () => {
         const services = createServices();
         services.meshClient = (api) => createClient(api, { transport: fake.transport });
 
-        const kernel = new Kernel({ services });
-        let capturedCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi> | null = null;
-
-        class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
-            readonly needs = APP_NEEDS;
-            readonly api = siteApi;
-            async start(cx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
-                capturedCx = cx;
-                return KEEPS_NOTHING;
-            }
-        }
-
-        kernel.boot([{ id: 'app', contribution: new App() }]);
-        await kernel.start('app');
-        const cx = capturedCx!;
+        const cx = { models: modelsFor(services) };
 
         const parts = cx.models('part');
 
@@ -365,20 +377,7 @@ describe('status tracking and query behavior', () => {
         const services = createServices();
         services.meshClient = (api) => createClient(api, { transport: fake.transport });
 
-        const kernel = new Kernel({ services });
-        let cx!: Context<typeof APP_NEEDS, readonly [], typeof siteApi>;
-
-        class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
-            readonly needs = APP_NEEDS;
-            readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
-                cx = startCx;
-                return KEEPS_NOTHING;
-            }
-        }
-
-        kernel.boot([{ id: 'app', contribution: new App() }]);
-        await kernel.start('app');
+        const cx = { models: modelsFor(services) };
 
         const parts = cx.models('part');
         await parts.refetch();
@@ -407,20 +406,7 @@ describe('status tracking and query behavior', () => {
         const services = createServices();
         services.meshClient = (api) => createClient(api, { transport: fake.transport });
 
-        const kernel = new Kernel({ services });
-        let cx!: Context<typeof APP_NEEDS, readonly [], typeof siteApi>;
-
-        class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
-            readonly needs = APP_NEEDS;
-            readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
-                cx = startCx;
-                return KEEPS_NOTHING;
-            }
-        }
-
-        kernel.boot([{ id: 'app', contribution: new App() }]);
-        await kernel.start('app');
+        const cx = { models: modelsFor(services) };
 
         const tagFilter = signal('widgets');
         const query = cx.models('part', () => ({ tag: tagFilter() }));
@@ -452,20 +438,7 @@ describe('status tracking and query behavior', () => {
         const services = createServices();
         services.meshClient = (api) => createClient(api, { transport: fake.transport });
 
-        const kernel = new Kernel({ services });
-        let cx!: Context<typeof APP_NEEDS, readonly [], typeof siteApi>;
-
-        class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
-            readonly needs = APP_NEEDS;
-            readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
-                cx = startCx;
-                return KEEPS_NOTHING;
-            }
-        }
-
-        kernel.boot([{ id: 'app', contribution: new App() }]);
-        await kernel.start('app');
+        const cx = { models: modelsFor(services) };
 
         const searchSignal = signal('query1');
         const query = cx.models('part', () => ({ search: searchSignal() }));
@@ -542,20 +515,7 @@ describe('mutation invalidation', () => {
         const services = createServices();
         services.meshClient = (api) => createClient(api, { transport: fake.transport });
 
-        const kernel = new Kernel({ services });
-        let cx!: Context<typeof APP_NEEDS, readonly [], typeof siteApi>;
-
-        class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
-            readonly needs = APP_NEEDS;
-            readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
-                cx = startCx;
-                return KEEPS_NOTHING;
-            }
-        }
-
-        kernel.boot([{ id: 'app', contribution: new App() }]);
-        await kernel.start('app');
+        const cx = { models: modelsFor(services) };
 
         const parts = cx.models('part');
         await parts.refetch();
@@ -604,20 +564,7 @@ describe('mutation invalidation', () => {
         const services = createServices();
         services.meshClient = (api) => createClient(api, { transport: fake.transport });
 
-        const kernel = new Kernel({ services });
-        let cx!: Context<typeof APP_NEEDS, readonly [], typeof siteApi>;
-
-        class App implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
-            readonly needs = APP_NEEDS;
-            readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
-                cx = startCx;
-                return KEEPS_NOTHING;
-            }
-        }
-
-        kernel.boot([{ id: 'app', contribution: new App() }]);
-        await kernel.start('app');
+        const cx = { models: modelsFor(services) };
 
         const parts = cx.models('part');
         const stats = cx.models('stat');
@@ -873,22 +820,8 @@ describe('session-aware collections', () => {
         const services = createServices();
         services.meshClient = (api) => createClient(api, { transport: fake.transport });
 
-        const kernel = new Kernel({ services });
-        const APP_NEEDS = needs('models');
-
-        let cx!: Context<typeof APP_NEEDS, readonly [], typeof siteApi>;
-        class PublicApp implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
-            readonly needs = APP_NEEDS;
-            readonly api = siteApi;
-            async start(startCx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
-                cx = startCx;
-                return KEEPS_NOTHING;
-            }
-        }
-
-        // Boot WITHOUT AuthExtension
-        kernel.boot([{ id: 'pub-app', contribution: new PublicApp() }]);
-        await kernel.start('pub-app');
+        // Nothing on this page signs anyone in: no credentials were ever attached.
+        const cx = { models: modelsFor(services) };
 
         const parts = cx.models('part');
         expect(parts.loading()).toBe(true);
@@ -993,32 +926,9 @@ describe('session-aware collections', () => {
                 transport: withHeaders(fake.transport, () => services.credentials.headers?.() ?? {}),
             });
 
-            const kernel = new Kernel({ services });
-            const authExt = new SessionExtension();
+            const { models, auth } = signedApp(services, siteApi);
 
-            const APP_NEEDS = needs('models');
-            const APP_CONSUMES = consumes(TEST_SESSION);
-
-            let appCx!: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof siteApi>;
-            class SecretApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES, undefined, typeof siteApi> {
-                readonly needs = APP_NEEDS;
-                readonly consumes = APP_CONSUMES;
-                readonly api = siteApi;
-                readonly session = 'required' as const;
-
-                async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
-                    appCx = cx;
-                    return KEEPS_NOTHING;
-                }
-            }
-
-            kernel.boot([
-                { id: 'auth', contribution: authExt },
-                { id: 'app', contribution: new SecretApp() },
-            ]);
-            await kernel.start('app');
-
-            const parts = appCx.models('part');
+            const parts = models('part');
             expect(parts.loading()).toBe(true);
             await new Promise((r) => setTimeout(r, 20));
 
@@ -1028,7 +938,7 @@ describe('session-aware collections', () => {
             expect(parts.error()?.kind).toBe('unauthorized');
 
             // Sign in
-            const authApi = appCx.use(TEST_SESSION);
+            const authApi = auth;
             authApi.signIn();
             flushSync();
             await new Promise((r) => setTimeout(r, 15));
@@ -1130,40 +1040,17 @@ describe('session-aware collections', () => {
                     transport: withHeaders(fake.transport, () => services.credentials.headers?.() ?? {}),
                 });
 
-                const kernel = new Kernel({ services });
-                const authExt = new SessionExtension();
-
-                const APP_NEEDS = needs('models');
-                const APP_CONSUMES = consumes(TEST_SESSION);
-
-                let appCx!: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof gatedApi>;
-                class GatedApp implements Application<typeof APP_NEEDS, typeof APP_CONSUMES, undefined, typeof gatedApi> {
-                    readonly needs = APP_NEEDS;
-                    readonly consumes = APP_CONSUMES;
-                    readonly api = gatedApi;
-                    readonly session = 'required' as const;
-
-                    async start(cx: Context<typeof APP_NEEDS, typeof APP_CONSUMES, typeof gatedApi>): Promise<typeof KEEPS_NOTHING> {
-                        appCx = cx;
-                        return KEEPS_NOTHING;
-                    }
-                }
-
-                kernel.boot([
-                    { id: 'auth', contribution: authExt },
-                    { id: 'app', contribution: new GatedApp() },
-                ]);
-                await kernel.start('app');
+                const { models, auth } = signedApp(services, gatedApi);
 
                 // App creates collection query before sign-in:
-                const parts = appCx.models('part');
+                const parts = models('part');
                 // Should not have fired blind request!
                 expect(requestsCount).toBe(0);
                 expect(parts.status()).toBe('idle');
                 expect(parts.loading()).toBe(false);
 
                 // Now sign in
-                const authApi = appCx.use(TEST_SESSION);
+                const authApi = auth;
                 authApi.signIn();
                 flushSync();
                 await new Promise((r) => setTimeout(r, 15));

@@ -13,9 +13,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    BROWSER_TAB_RESERVED, InvalidBinding, Kernel, bindingTable, chordOf, formatBinding,
-    isGamepad, mergeManifests, normalizeBinding, parseBinding, reservedSet,
-    type Application, KEEPS_NOTHING,
+    BROWSER_TAB_RESERVED, InvalidBinding, bindingTable, chordOf, formatBinding,
+    isGamepad, normalizeBinding, parseBinding, reservedSet,
 } from '../src/index.js';
 
 /** A KeyboardEvent's shape, without needing a DOM to make one. */
@@ -124,71 +123,8 @@ describe('bindings the host takes first', () => {
     });
 });
 
-describe('the manifest refuses a binding that would half-work', () => {
-    const app = (id: string, keys: string): { id: string; declarations: { commands: { id: string; title: string }[]; keys: { command: string; keys: string }[] } } => ({
-        id,
-        declarations: {
-            commands: [{ id: `${id}.act`, title: 'Act' }],
-            keys: [{ command: `${id}.act`, keys }],
-        },
-    });
-
-    it('reports a reserved binding as a load-time conflict, and does not bind it', () => {
-        const manifest = mergeManifests([app('blog', 'ctrl+n')]);
-
-        // The command would fire *and* the browser would open a window. That looks like it worked,
-        // which is worse than not firing — so it is refused where every other conflict is.
-        const conflict = manifest.conflicts.find((c) => c.kind === 'binding');
-        expect(conflict?.key).toBe('ctrl+n');
-        expect(conflict?.message).toMatch(/takes that binding first/);
-        expect(manifest.bindings.has('ctrl+n')).toBe(false);
-    });
-
-    it('binds it when the host does not reserve it', () => {
-        const manifest = mergeManifests([app('blog', 'ctrl+n')], []);
-
-        expect(manifest.conflicts).toHaveLength(0);
-        expect(manifest.bindings.get('ctrl+n')?.decl.command).toBe('blog.act');
-    });
-
-    it('collides on the normal form, not on the string', () => {
-        // Two Applications, two spellings, one shortcut. Without normalising in the manifest these
-        // are two entries and both authors believe they own it.
-        const manifest = mergeManifests([app('a', 'ctrl+shift+p'), app('b', 'Shift+Ctrl+P')]);
-
-        const conflict = manifest.conflicts.find((c) => c.kind === 'binding');
-        expect(conflict?.claimants).toEqual(['a', 'b']);
-        expect(manifest.bindings.size).toBe(1);
-    });
-
-    it('reports a binding that is not one rather than dropping it', () => {
-        const manifest = mergeManifests([app('blog', 'ctrl+')]);
-
-        // An Application that declared nonsense gets told, instead of quietly having no shortcut.
-        expect(manifest.conflicts[0]?.message).toMatch(/which is not one/);
-    });
-});
-
-describe('the kernel exposes what is bound', () => {
-    it('resolves a keypress to a command through the manifest', async () => {
-        const NEEDS = [] as const;
-
-        class Blog implements Application<typeof NEEDS> {
-            readonly needs = NEEDS;
-            readonly commands = [{ id: 'blog.add', title: 'New post' }];
-            readonly keys = [{ command: 'blog.add', keys: 'Alt+N' }];
-            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
-        }
-
-        const kernel = new Kernel();
-        kernel.boot([{ id: 'blog', contribution: new Blog() as never }]);
-
-        // Declared `Alt+N`, stored as `alt+n`, and reached from an event that says `n` — three
-        // spellings, one binding, which is the whole point.
-        const table = bindingTable(
-            [...kernel.manifest.bindings].map(([binding, entry]) => ({ binding, command: entry.decl.command })),
-        );
-
-        expect(table.resolve(press('n', { alt: true }))).toBe('blog.add');
-    });
-});
+// The manifest's binding checks and the kernel's keypress resolution went with the part model.
+// Their rules live on in the app model's command registry (test/app-commands.test.ts): a reserved
+// chord is refused when its owner mounts, a key is normalised when a command is made (so two
+// spellings are one binding), a binding that cannot parse throws there, and a keypress resolves to
+// the live command that owns it.

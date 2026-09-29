@@ -14,11 +14,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-    App, KERNEL_SOURCE, Kernel, Service, View, call, consumes, createClient, createServices, defineApi, element,
-    needs, provider, start, text, withHeaders, KEEPS_NOTHING,
-    type Application, type Context, type Extension, type LogRecord, type NetRequest, type NetResponse, type Node,
+    App, KERNEL_SOURCE, Service, View, call, createAppRuntime, createClient, createContext, createServices, defineApi,
+    element, needs, start, text, withHeaders,
+    type LogRecord, type MeshClient, type Models, type NetRequest, type NetResponse, type Node,
 } from '../src/index.js';
-import { AVAILABLE, schema, type ApiDecl } from '../src/contribution/api.js';
+import { IoManager } from '../src/kernel/io.js';
 
 // ---------------------------------------------------------------------------- helpers
 
@@ -57,33 +57,19 @@ const siteApi = defineApi({
     },
 });
 
-const APP_NEEDS = needs('mesh', 'models');
-
-class Catalog implements Application<typeof APP_NEEDS, readonly [], undefined, typeof siteApi> {
-    readonly needs = APP_NEEDS;
-    readonly api = siteApi;
-    cx: Context<typeof APP_NEEDS, readonly [], typeof siteApi> | undefined;
-
-    async start(cx: Context<typeof APP_NEEDS, readonly [], typeof siteApi>): Promise<typeof KEEPS_NOTHING> {
-        this.cx = cx;
-        return KEEPS_NOTHING;
-    }
-}
-
 const TICKET = 'tk-9f2c1a-very-secret-ticket';
 const PASSWORD = 'hunter2-correct-horse-battery';
 
-const SESSION_NEEDS = needs('credentials');
-
-/** Holds the page's ticket, the way a real auth Extension does, through the declared seam. */
-class Ticketed implements Extension<typeof SESSION_NEEDS> {
-    readonly needs = SESSION_NEEDS;
-    activate(cx: Context<typeof SESSION_NEEDS>): void {
-        cx.credentials.attach(() => ({ authorization: `Bearer ${TICKET}` }));
-    }
+interface CatalogCx {
+    readonly mesh: MeshClient<typeof siteApi>;
+    readonly models: Models<typeof siteApi>;
 }
 
-/** A kernel whose mesh traffic goes to `reply`, with the credential seam wired the way start() wires it. */
+/**
+ * A page whose mesh traffic goes to `reply`, with the credential seam wired the way `start()` wires
+ * it, and an App whose `Catalog` service calls the API — optionally beside a service holding a
+ * ticket, the way a real session service does, through the declared seam.
+ */
 const bootCatalog = async (reply: (request: NetRequest) => NetResponse, withTicket = false) => {
     const services = createServices();
     const sent: NetRequest[] = [];
@@ -94,163 +80,53 @@ const bootCatalog = async (reply: (request: NetRequest) => NetResponse, withTick
         ),
     });
 
-    const kernel = new Kernel({ services });
-    const app = new Catalog();
-    kernel.boot([
-        ...(withTicket ? [{ id: 'auth', contribution: new Ticketed() }] : []),
-        { id: 'catalog', contribution: app },
-    ]);
-    const pid = await kernel.start('catalog');
+    let grabbed: CatalogCx | undefined;
+    const CatalogBase = Service({ needs: needs('mesh', 'models'), api: siteApi });
+    class Catalog extends CatalogBase {
+        constructor(...args: ConstructorParameters<typeof CatalogBase>) {
+            super(...args);
+            grabbed = { mesh: this.cx.mesh, models: this.cx.models };
+        }
+    }
+    const TicketBase = Service({ needs: needs('credentials') });
+    class Ticketed extends TicketBase {
+        constructor(...args: ConstructorParameters<typeof TicketBase>) {
+            super(...args);
+            this.cx.credentials.attach(() => ({ authorization: `Bearer ${TICKET}` }));
+        }
+    }
+    class Site extends App({
+        needs: needs('mesh', 'models', 'credentials'),
+        api: siteApi,
+        services: withTicket ? [Ticketed, Catalog] : [Catalog],
+        routes: {},
+    }) {}
 
-    const cx = app.cx;
+    const io = new IoManager();
+    const granted = createContext({ id: 'catalog', declaredBy: 'catalog' }, ['mesh', 'models', 'credentials'], [], (t) => io.get(t), services, io, siteApi).context;
+    createAppRuntime(Site, granted);
+
+    const cx = grabbed;
     if (cx === undefined) throw new Error('catalog did not start');
-    return { kernel, cx, pid, sent };
+    return { page: { services }, cx, sent };
 };
 
-// ---------------------------------------------------------------------------- refusals
-
-describe('a refusal leaves a line naming the part and the reason', () => {
-    const renameDecl: ApiDecl = {
-        commands: [{
-            action: 'rename',
-            description: 'Gives the thing a different name.',
-            input: schema<{ name: string }>(),
-            output: schema<void>(),
-            available: () => AVAILABLE,
-        }],
-    };
-
-    class Liar implements Application<typeof NONE> {
-        readonly needs = NONE;
-        readonly publishes = renameDecl;
-        async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
-    }
-
-    it('for a part that fails checkBindings', async () => {
-        const kernel = new Kernel();
-        kernel.boot([{ id: 'liar', contribution: new Liar() }]);
-        const pid = await kernel.start('liar');
-
-        const lines = kernelLines(kernel.services.logs).filter((l) => l.part === 'liar');
-        expect(lines).toHaveLength(1);
-        expect(lines[0]).toMatchObject({ level: 'error', source: 'kernel', part: 'liar' });
-        expect(lines[0]?.message).toContain(`liar (${pid}) was refused at start`);
-        expect(lines[0]?.message).toContain('command "rename" is declared and not bound');
-    });
-
-    it('for an Extension whose consumes nothing provides', () => {
-        const MISSING = provider<{ readonly x: number }>('test/missing');
-        const CONSUMES = consumes(MISSING);
-
-        class Needy implements Extension<typeof NONE, typeof CONSUMES> {
-            readonly needs = NONE;
-            readonly consumes = CONSUMES;
-            activate(): void {}
-        }
-
-        const kernel = new Kernel();
-        kernel.boot([{ id: 'needy', contribution: new Needy() }]);
-
-        expect(kernelLines(kernel.services.logs)).toEqual([{
-            level: 'error',
-            source: 'kernel',
-            part: 'needy',
-            message: 'needy was not activated: no contribution provides "test/missing"',
-        }]);
-    });
-
-    it('for a provider token nothing fills — once, however often it is asked for', async () => {
-        // An Application's `consumes` is not in the provider graph, so this is refused at `use`.
-        // Asked three times, as a render or a retry would: the promise is one line per refusal.
-        const MISSING = provider<{ readonly x: number }>('test/unfilled');
-        const CONSUMES = consumes(MISSING);
-
-        class Hopeful implements Application<typeof NONE, typeof CONSUMES> {
-            readonly needs = NONE;
-            readonly consumes = CONSUMES;
-            async start(cx: Context<typeof NONE, typeof CONSUMES>): Promise<typeof KEEPS_NOTHING> {
-                for (let i = 0; i < 3; i++) {
-                    try { cx.use(MISSING); } catch { /* the part copes */ }
-                }
-                return KEEPS_NOTHING;
-            }
-        }
-
-        const kernel = new Kernel();
-        kernel.boot([{ id: 'hopeful', contribution: new Hopeful() }]);
-        await kernel.start('hopeful');
-
-        const refusals = kernelLines(kernel.services.logs)
-            .filter((l) => l.message.includes('was refused provider "test/unfilled"'));
-        expect(refusals).toHaveLength(1);
-        expect(refusals[0]).toMatchObject({ level: 'warn', part: 'hopeful' });
-    });
-
-    it('for needs("mesh") with no api — and the process is failed, not left starting', async () => {
-        const MESH = needs('mesh');
-        class NoApi implements Application<typeof MESH> {
-            readonly needs = MESH;
-            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
-        }
-
-        const kernel = new Kernel();
-        kernel.boot([{ id: 'noapi', contribution: new NoApi() }]);
-
-        await expect(kernel.start('noapi')).rejects.toThrow(/without declaring an api/);
-        expect(kernel.processes.find((p) => p.applicationId === 'noapi')?.state).toBe('failed');
-
-        const line = kernelLines(kernel.services.logs).find((l) => l.part === 'noapi');
-        expect(line?.level).toBe('error');
-        expect(line?.message).toContain('without declaring an api');
-    });
-});
-
-// ---------------------------------------------------------------------------- lifecycle
-
-describe('the lifecycle of every contribution', () => {
-    it('records activation, start, a failed activation with its reason, and stop', async () => {
-        class Fine implements Extension<typeof NONE> {
-            readonly needs = NONE;
-            activate(): void {}
-        }
-        class Broken implements Extension<typeof NONE> {
-            readonly needs = NONE;
-            activate(): void { throw new Error('theme file missing'); }
-        }
-        class Clock implements Application<typeof NONE> {
-            readonly needs = NONE;
-            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
-        }
-
-        const kernel = new Kernel();
-        kernel.boot([
-            { id: 'fine', contribution: new Fine() },
-            { id: 'broken', contribution: new Broken() },
-            { id: 'clock', contribution: new Clock() },
-        ]);
-        const pid = await kernel.start('clock');
-        await kernel.stop(pid);
-
-        expect(kernelLines(kernel.services.logs).map((l) => [l.level, l.part, l.message])).toEqual([
-            ['info', 'fine', 'fine activated'],
-            ['error', 'broken', 'broken failed to activate: theme file missing'],
-            ['info', 'clock', `clock started as ${pid}`],
-            ['info', 'clock', `clock (${pid}) stopped`],
-        ]);
-    });
-});
+// The refusal and lifecycle lines of the part model (checkBindings, unfilled provider tokens,
+// Extension activation, process start/stop) went with it. Their App-model counterparts: a missing
+// api for `mesh`/`models` is refused by the broker (test/net.test.ts, test/models.test.ts), and the
+// boot's own lines — including an App that fails — are below.
 
 // ---------------------------------------------------------------------------- failed calls
 
 describe('a failed call the kernel mediates', () => {
     it('leaves a line with the status and the contract key, for a collection fetch', async () => {
-        const { kernel, cx } = await bootCatalog(() => json(401, { error: 'unauthorized' }));
+        const { page, cx } = await bootCatalog(() => json(401, { error: 'unauthorized' }));
 
         const parts = cx.models('part');
         await parts.refetch();
         expect(parts.status()).toBe('error');
 
-        const failures = kernelLines(kernel.services.logs).filter((l) => l.message.includes('part.find'));
+        const failures = kernelLines(page.services.logs).filter((l) => l.message.includes('part.find'));
         expect(failures).toHaveLength(1);
         expect(failures[0]).toMatchObject({
             level: 'warn',
@@ -262,12 +138,12 @@ describe('a failed call the kernel mediates', () => {
 
     it('is one line per failure, not one per retry — and news again after a success', async () => {
         let status = 503;
-        const { kernel, cx } = await bootCatalog(() =>
+        const { page, cx } = await bootCatalog(() =>
             (status === 200 ? json(200, []) : json(status, { message: 'upstream down' })));
 
         const parts = cx.models('part');
         const failures = (): readonly LogRecord[] =>
-            kernelLines(kernel.services.logs).filter((l) => l.message.includes('part.find failed'));
+            kernelLines(page.services.logs).filter((l) => l.message.includes('part.find failed'));
 
         await parts.refetch();
         await parts.refetch();
@@ -297,7 +173,7 @@ describe('a failed call the kernel mediates', () => {
             json(409, { message: echo }),
         ];
         let next = 0;
-        const { kernel, cx, sent } = await bootCatalog(() => replies[next++] ?? json(500, echo), true);
+        const { page, cx, sent } = await bootCatalog(() => replies[next++] ?? json(500, echo), true);
 
         for (let i = 0; i < replies.length; i++) {
             await expect(
@@ -312,16 +188,16 @@ describe('a failed call the kernel mediates', () => {
         expect(sent.some((r) => r.body?.includes(PASSWORD) ?? false)).toBe(true);
 
         // And the failures really were recorded — an empty buffer would pass the check below.
-        const failures = kernelLines(kernel.services.logs).filter((l) => l.message.includes('failed'));
+        const failures = kernelLines(page.services.logs).filter((l) => l.message.includes('failed'));
         expect(failures.map((l) => l.message)).toEqual([
-            'catalog (p1): session.signIn failed — 401 unauthorized',
-            'catalog (p1): session.signIn failed — 500 server error',
-            'catalog (p1): session.signIn failed — invalid request',
-            'catalog (p1): session.signIn failed — 409 conflict',
-            'catalog (p1): part.find failed — 500 server error',
+            'catalog: session.signIn failed — 401 unauthorized',
+            'catalog: session.signIn failed — 500 server error',
+            'catalog: session.signIn failed — invalid request',
+            'catalog: session.signIn failed — 409 conflict',
+            'catalog: part.find failed — 500 server error',
         ]);
 
-        const all = everything(kernel.services.logs);
+        const all = everything(page.services.logs);
         expect(all).not.toContain(PASSWORD);
         expect(all).not.toContain(TICKET);
         expect(all).not.toContain('Bearer');
@@ -334,24 +210,29 @@ describe('a failed call the kernel mediates', () => {
             status: 401, headers: { 'content-type': 'application/json' },
         })));
 
-        const HTTP = needs('http');
-        class Weather implements Application<typeof HTTP> {
-            readonly needs = HTTP;
-            async start(cx: Context<typeof HTTP>): Promise<typeof KEEPS_NOTHING> {
-                await cx.http.get(`https://weather.example/v1/today?access_token=${TICKET}#${TICKET}`, {
+        let weather: Weather | undefined;
+        const WeatherBase = Service({ needs: needs('http') });
+        class Weather extends WeatherBase {
+            constructor(...args: ConstructorParameters<typeof WeatherBase>) {
+                super(...args);
+                weather = this;
+            }
+            async today(): Promise<void> {
+                await this.cx.http.get(`https://weather.example/v1/today?access_token=${TICKET}#${TICKET}`, {
                     headers: { authorization: `Bearer ${TICKET}` },
                 });
-                return KEEPS_NOTHING;
             }
         }
+        class Site extends App({ needs: needs('http'), services: [Weather], routes: {} }) {}
 
-        const kernel = new Kernel();
-        kernel.boot([{ id: 'weather', contribution: new Weather() }]);
-        await kernel.start('weather');
+        const page = { services: createServices() };
+        const io = new IoManager();
+        createAppRuntime(Site, createContext({ id: 'weather', declaredBy: 'weather' }, ['http'], [], (t) => io.get(t), page.services, io).context);
+        await weather?.today();
 
-        const line = kernel.services.logs.find((l) => l.message.includes('weather.example'));
+        const line = page.services.logs.find((l) => l.message.includes('weather.example'));
         expect(line?.message).toBe('GET https://weather.example/v1/today → 401');
-        expect(everything(kernel.services.logs)).not.toContain(TICKET);
+        expect(everything(page.services.logs)).not.toContain(TICKET);
     });
 });
 

@@ -22,52 +22,52 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { userEvent } from '@vitest/browser/context';
 
 import {
-    Kernel, WindowManager, createRegistry, element, flushSync, mountShell, needs, text,
-    windowSink, PRIMITIVES,
-    type Application, type Context, type FrameChrome, type Shell, type ViewContext, KEEPS_NOTHING,
+    App, PRIMITIVES, RENDERER, View, WindowManager, createRegistry, element, flushSync, mountDesktop, mountShell, text,
+    type FrameChrome, type MountedDesktop, type Node, type ProviderToken, type Shell,
 } from '../../src/index.js';
+import { IoManager } from '../../src/kernel/io.js';
+import type { HistoryLike } from '../../src/router/router.js';
 
 // ---------------------------------------------------------------------------- a minimal site
 
-const APP_NEEDS = needs('windows', 'state');
+class Alpha extends View({ title: 'Alpha', window: { defaultSize: { width: 300, height: 200 } } }) {
+    render(): Node { return element('Text', { children: [text('alpha')] }); }
+}
 
-class TwoWindowApp implements Application<typeof APP_NEEDS> {
-    readonly needs = APP_NEEDS;
+// Declared unclosable. A6.3c-i made this mean something; here it is asserted through chrome, which is
+// where it can actually be got wrong.
+class Beta extends View({ title: 'Beta', window: { closable: false } }) {
+    render(): Node { return element('Text', { children: [text('beta')] }); }
+}
 
-    readonly views = [
-        {
-            id: 'alpha',
-            title: 'Alpha',
-            instances: 'one' as const,
-            window: {
-                defaultSize: { width: 300, height: 200 },
-            },
-            render: () => element('Text', { children: [text('alpha')] }),
-        },
-        {
-            id: 'beta',
-            title: 'Beta',
-            instances: 'one' as const,
-            // Declared unclosable. A6.3c-i made this mean something; here it is asserted through
-            // chrome, which is where it can actually be got wrong.
-            window: {
-                closable: false,
-            },
-            render: () => element('Text', { children: [text('beta')] }),
-        },
-    ];
+class TwoWindowApp extends App({ routes: { '/alpha': Alpha, '/beta': Beta } }) {}
 
-    async start(cx: Context<typeof APP_NEEDS>): Promise<typeof KEEPS_NOTHING> {
-        cx.windows.open({ view: 'alpha' });
-        cx.windows.open({ view: 'beta' });
-        return KEEPS_NOTHING;
-    }
+/**
+ * A `resolve` that answers the renderer token and nothing else — a real `IoManager`, so it is typed
+ * without a cast. (It was `(() => renderer) as any`, which answered every token with the renderer.)
+ */
+function rendererOnly(): <T>(token: ProviderToken<T>) => T | undefined {
+    const io = new IoManager();
+    io.register(RENDERER, createDomRenderer(createRegistry(PRIMITIVES)));
+    return (token) => io.get(token);
+}
+
+/** A history that lives in memory, so the test runner's own URL is never touched. */
+function memoryHistory(): HistoryLike {
+    let path = '/';
+    return {
+        pathname: () => path,
+        search: () => '',
+        push: (next) => { path = next; },
+        back: () => undefined,
+        onChange: () => () => undefined,
+    };
 }
 
 interface Site {
     readonly manager: WindowManager;
     readonly shell: Shell;
-    readonly kernel: Kernel;
+    readonly desk: MountedDesktop;
     dispose(): void;
 }
 
@@ -102,29 +102,22 @@ async function boot(frame?: FrameChrome): Promise<Site> {
     `;
     document.head.appendChild(style);
 
-    const manager = new WindowManager({ width: 900, height: 600 });
-    const kernel = new Kernel();
-    kernel.services.windows = windowSink(manager, (owner, view) => kernel.viewOf(owner, view));
-    kernel.boot([{ id: 'app', contribution: new TwoWindowApp() as never }]);
-
-    const shell = mountShell(root, {
-        manager,
-        viewOf: (owner, view) => kernel.viewOf(owner, view),
-        apiOf: (owner) => kernel.processes.find((p) => p.pid === owner)?.api,
-        isReady: (owner) => kernel.processes.find((p) => p.pid === owner)?.state === 'running',
-        resolve: (() => createDomRenderer(createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => {} } },
-        onCommand: () => {},
+    // The App as a desktop, opening both routes as windows. (It was a legacy Application booted by
+    // a kernel, mounted through `mountShell` with an `as any` renderer lookup; none of that is left.)
+    const desk = mountDesktop(TwoWindowApp, {
+        root,
+        history: memoryHistory(),
         ...(frame === undefined ? {} : { frame }),
     });
-
-    await kernel.start('app');
+    desk.navigate('/alpha');
+    desk.navigate('/beta');
 
     const created: Site = {
-        kernel,
-        manager,
-        shell,
+        desk,
+        manager: desk.manager,
+        shell: desk.shell,
         dispose() {
-            shell.dispose();
+            desk.dispose();
             root.remove();
             style.remove();
         },
@@ -346,7 +339,7 @@ describe('the shell positions windows without help from a stylesheet', () => {
             manager: new WindowManager({ width: 400, height: 300 }),
             viewOf: () => undefined,
             apiOf: () => undefined,
-            resolve: (() => createDomRenderer(createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => {} } },
+            resolve: rendererOnly(), renderOptions: { dispatch: { dispatch: () => {} } },
             onCommand: () => {},
         });
 
@@ -367,7 +360,7 @@ describe('the shell positions windows without help from a stylesheet', () => {
             manager: new WindowManager({ width: 400, height: 300 }),
             viewOf: () => undefined,
             apiOf: () => undefined,
-            resolve: (() => createDomRenderer(createRegistry(PRIMITIVES))) as any, renderOptions: { dispatch: { dispatch: () => {} } },
+            resolve: rendererOnly(), renderOptions: { dispatch: { dispatch: () => {} } },
             onCommand: () => {},
         });
 
@@ -460,15 +453,14 @@ describe("instances: 'one' means one window for the view", () => {
         const s = await boot();
         flushSync();
 
-        const first = s.manager.windows().find((w) => w.view === 'alpha')!;
+        const first = s.manager.windows().find((w) => w.view === '/alpha')!;
         const before = s.manager.windows().length;
 
-        const pid = first.owner;
-        const again = s.kernel.services.windows.open(pid, 'alpha', {});
+        // Navigating to a route already on screen, with the same params, is that window.
+        s.desk.navigate('/alpha');
         flushSync();
 
         expect(s.manager.windows()).toHaveLength(before);
-        expect(again).toBe(first.id);
         expect(s.manager.focused()).toBe(first.id);
     });
 });

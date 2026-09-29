@@ -58,6 +58,20 @@ export interface ViewSpec extends UnitSpec {
     /** Parsed from the URL — path params and query — before the view is constructed. */
     readonly params?: SchemaLike<object>;
     readonly title?: string;
+    /**
+     * Hints for the desktop, ignored by a single-page site. Every field is a suggestion: a view does
+     * not know which presentation it is in, and must not need to.
+     */
+    readonly window?: WindowHints;
+}
+
+export interface WindowHints {
+    /** Which named tile of the layout, in tiled mode. */
+    readonly tile?: string;
+    readonly defaultSize?: { readonly width?: number; readonly height?: number };
+    readonly minSize?: { readonly width?: number; readonly height?: number };
+    /** `false` and the frame draws no close button — and the manager refuses a close anyway. */
+    readonly closable?: boolean;
 }
 
 export interface ComponentSpec extends UnitSpec {

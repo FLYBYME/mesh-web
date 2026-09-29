@@ -186,7 +186,16 @@ export interface ViewClass {
      * type", and a spec sharing none of them (`{ title }` alone, if `title` were missing here) is
      * refused as having nothing in common with it.
      */
-    readonly spec: UnitSpec & { readonly params?: SchemaLike<object>; readonly title?: string };
+    readonly spec: UnitSpec & {
+        readonly params?: SchemaLike<object>;
+        readonly title?: string;
+        readonly window?: {
+            readonly tile?: string;
+            readonly defaultSize?: { readonly width?: number; readonly height?: number };
+            readonly minSize?: { readonly width?: number; readonly height?: number };
+            readonly closable?: boolean;
+        };
+    };
     create(init: ErasedInit): MountableInstance;
 }
 

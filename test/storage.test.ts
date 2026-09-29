@@ -3,16 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import {
-    Kernel,
     createServices,
     createContext,
-    KEEPS_NOTHING,
     localProvider,
     memoryProvider,
-    needs,
     store,
-    type Application,
-    type Context,
     type EntryStat,
     type KeyValueStore,
 } from '../src/index.js';
@@ -32,8 +27,6 @@ const Drafts = store({
     hive: 'device',
     schema: DraftSchema,
 });
-
-const STORE_NEEDS = needs('storage');
 
 function createMemoryKeyValueStore(): KeyValueStore {
     const map = new Map<string, string>();
@@ -58,8 +51,11 @@ function storageContext(
         services,
         new IoManager(),
     );
-    const cx = handle.context as unknown as Context<['storage']>;
-    return { handle, storage: cx.storage, services };
+    // The context types every capability as possibly absent; this one was declared, so it is there.
+    // Checked rather than cast (this was `as unknown as Context<['storage']>`).
+    const storage = handle.context.storage;
+    if (storage === undefined) throw new Error('storage was declared, so the broker must provide it');
+    return { handle, storage, services };
 }
 
 describe('storage capability: isolation and security boundaries', () => {
@@ -269,61 +265,31 @@ describe('storage capability: reload and remount survival', () => {
     it('persisted values survive remount across reloads via localStorage', async () => {
         // Shared backing store simulating browser localStorage across reload
         const fakeLocalStorage = createMemoryKeyValueStore();
-        const deviceProvider = () => localProvider(fakeLocalStorage);
 
-        class PersistentNoteApp implements Application<typeof STORE_NEEDS> {
-            readonly needs = STORE_NEEDS;
-            readonly stores = [Drafts];
-            public drafts?: ReturnType<Context<typeof STORE_NEEDS>['storage']['open']>;
-
-            async start(cx: Context<typeof STORE_NEEDS>): Promise<typeof KEEPS_NOTHING> {
-                this.drafts = cx.storage.open(Drafts);
-                return KEEPS_NOTHING;
-            }
-        }
+        /** A fresh page — new services, new hives — over the same `localStorage`. */
+        const page = () => storageContext({ id: 'note-app', declaredBy: 'note-app' }, createServices(undefined, {
+            hives: {
+                system: { provider: memoryProvider('system'), writable: false },
+                user: { provider: memoryProvider('user'), writable: true },
+                device: { provider: localProvider(fakeLocalStorage), writable: true },
+                session: { provider: memoryProvider('session'), writable: true },
+            },
+        }));
 
         // --- Run 1: initial page mount and write ---
-        const kernel1 = new Kernel({
-            services: createServices(undefined, {
-                hives: {
-                    system: { provider: memoryProvider('system'), writable: false },
-                    user: { provider: memoryProvider('user'), writable: true },
-                    device: { provider: deviceProvider(), writable: true },
-                    session: { provider: memoryProvider('session'), writable: true },
-                },
-            }),
-        });
-
-        const app1 = new PersistentNoteApp();
-        kernel1.boot([{ id: 'note-app', contribution: app1 }]);
-        const pid1 = await kernel1.start('note-app');
-
-        await app1.drafts!.set('note-1', {
+        const first = page();
+        await first.storage.open(Drafts).set('note-1', {
             title: 'Remember Me',
             body: 'This must survive a reload',
             savedAt: 123456789,
         });
-
-        await kernel1.stop(pid1);
+        first.handle.dispose();
 
         // --- Run 2: page reload / remount ---
-        const kernel2 = new Kernel({
-            services: createServices(undefined, {
-                hives: {
-                    system: { provider: memoryProvider('system'), writable: false },
-                    user: { provider: memoryProvider('user'), writable: true },
-                    device: { provider: deviceProvider(), writable: true },
-                    session: { provider: memoryProvider('session'), writable: true },
-                },
-            }),
-        });
-
-        const app2 = new PersistentNoteApp();
-        kernel2.boot([{ id: 'note-app', contribution: app2 }]);
-        const pid2 = await kernel2.start('note-app');
-
-        const readSignal = app2.drafts!.get('note-1');
-        await app2.drafts!.ready('note-1');
+        const second = page();
+        const drafts = second.storage.open(Drafts);
+        const readSignal = drafts.get('note-1');
+        await drafts.ready('note-1');
 
         expect(readSignal()).toEqual({
             title: 'Remember Me',
@@ -331,7 +297,7 @@ describe('storage capability: reload and remount survival', () => {
             savedAt: 123456789,
         });
 
-        await kernel2.stop(pid2);
+        second.handle.dispose();
     });
 });
 
@@ -412,32 +378,4 @@ describe('storage capability: reactivity, list, and removal', () => {
         handle.dispose();
     });
 
-    it('stores appear in manifest and duplicate store names in one contribution conflict', () => {
-        class AppWithStores implements Application<typeof STORE_NEEDS> {
-            readonly needs = STORE_NEEDS;
-            readonly stores = [Drafts];
-            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
-        }
-
-        const kernel = new Kernel();
-        kernel.boot([{ id: 'app-with-stores', contribution: new AppWithStores() }]);
-
-        expect(kernel.manifest.stores.has('app-with-stores/drafts')).toBe(true);
-        const stored = kernel.manifest.stores.get('app-with-stores/drafts');
-        expect(stored?.by).toBe('app-with-stores');
-        expect(stored?.decl.name).toBe('drafts');
-        expect(stored?.decl.hive).toBe('device');
-        expect(kernel.manifest.conflicts).toHaveLength(0);
-
-        // App declaring same store twice conflicts:
-        class AppWithConflict implements Application<typeof STORE_NEEDS> {
-            readonly needs = STORE_NEEDS;
-            readonly stores = [Drafts, Drafts];
-            async start(): Promise<typeof KEEPS_NOTHING> { return KEEPS_NOTHING; }
-        }
-
-        const kernelConflict = new Kernel();
-        kernelConflict.boot([{ id: 'conflict-app', contribution: new AppWithConflict() }]);
-        expect(kernelConflict.manifest.conflicts.some((c) => c.kind === 'store')).toBe(true);
-    });
 });

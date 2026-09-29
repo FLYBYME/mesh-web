@@ -11,47 +11,38 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { Kernel, createServices, needs, provider, KEEPS_NOTHING } from '../src/index.js';
-import type { Application, Context, ProviderToken } from '../src/index.js';
+import { App, Service, createAppRuntime, createContext, createServices, needs } from '../src/index.js';
+import { IoManager } from '../src/kernel/io.js';
 import { domConfirm } from '../src/kernel/confirm.js';
 
-const NEEDS = needs('confirmation');
-
-interface Asker {
-    ask(message: string): Promise<boolean>;
-    askDestructive(): Promise<boolean>;
-}
-
-const ASKER: ProviderToken<Asker> = provider<Asker>('asker');
-
-class AskingApp implements Application<typeof NEEDS, readonly [], typeof ASKER> {
-    readonly needs = NEEDS;
-    readonly provides = ASKER;
-
-    async start(cx: Context<typeof NEEDS, readonly []>): Promise<{ api: Asker } & typeof KEEPS_NOTHING> {
-        return {
-            ...KEEPS_NOTHING,
-            api: {
-                ask: (message) => cx.confirmation.ask(message),
-                askDestructive: () => cx.confirmation.ask({
-                    message: 'Delete every release?',
-                    destructive: true,
-                }),
-            },
-        };
+/** The service asking. It holds `cx.confirmation` and nothing that could answer for the page. */
+let asking: Asker | undefined;
+const Base = Service({ needs: needs('confirmation') });
+class Asker extends Base {
+    constructor(...args: ConstructorParameters<typeof Base>) {
+        super(...args);
+        asking = this;
+    }
+    ask(message: string): Promise<boolean> {
+        return this.cx.confirmation.ask(message);
+    }
+    askDestructive(): Promise<boolean> {
+        return this.cx.confirmation.ask({ message: 'Delete every release?', destructive: true });
     }
 }
+class AskingApp extends App({ needs: needs('confirmation'), services: [Asker], routes: {} }) {}
 
-const kernelWith = async (confirm: Parameters<typeof createServices>[1] extends undefined
-    ? never
-    : NonNullable<Parameters<typeof createServices>[1]>['confirm']): Promise<Asker> => {
-    const services = createServices(undefined, { confirm });
-    const kernel = new Kernel({ services });
-    kernel.boot([{ id: 'asker', contribution: new AskingApp() as never }]);
-    await kernel.start('asker');
-    const asker = kernel.provided(ASKER);
-    if (asker === undefined) throw new Error('expected asker to be provided');
-    return asker;
+type Prompter = NonNullable<NonNullable<Parameters<typeof createServices>[1]>['confirm']>;
+
+/** Boot the asker on a page whose prompter is `confirm` (or none), as `startApp` would, under the id 'asker'. */
+const kernelWith = async (confirm?: Prompter): Promise<Asker> => {
+    const services = createServices(undefined, confirm === undefined ? {} : { confirm });
+    const io = new IoManager();
+    const granted = createContext({ id: 'asker', declaredBy: 'asker' }, ['confirmation'], [], (t) => io.get(t), services, io).context;
+    asking = undefined;
+    createAppRuntime(AskingApp, granted);
+    if (asking === undefined) throw new Error('expected the asker to be constructed');
+    return asking;
 };
 
 describe('asking a person', () => {
@@ -85,13 +76,7 @@ describe('asking a person', () => {
      * would make an unattended run behave as though somebody had agreed.
      */
     it('refuses by default, because a question nobody was asked was not agreed to', async () => {
-        const services = createServices(undefined, {});
-        const kernel = new Kernel({ services });
-        kernel.boot([{ id: 'asker', contribution: new AskingApp() as never }]);
-        await kernel.start('asker');
-
-        const asker = kernel.provided(ASKER);
-        if (asker === undefined) throw new Error('expected asker to be provided');
+        const asker = await kernelWith();
         expect(await asker.ask('proceed?')).toBe(false);
     });
 

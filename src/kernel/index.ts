@@ -5,14 +5,7 @@ export { createContext, createServices, defaultHives, recordingWindows } from '.
 export type { LogBuffer, LogViewer } from './logs.js';
 export { DEFAULT_LOG_CAPACITY, KERNEL_SOURCE, createLogBuffer, mountLogViewer } from './logs.js';
 
-export type { GraphNode, Ordered } from './graph.js';
-export { resolveOrder } from './graph.js';
-
-export type { Conflict, Contributed, Manifest } from './manifest.js';
-export { mergeManifests } from './manifest.js';
-
-export type { ExtensionEntry, KernelOptions, Loaded, ProcessEntry, ProcessState } from './kernel.js';
-export { Kernel } from './kernel.js';
-
+// The part machinery — `Kernel`, the manifest, the dependency graph — went with the part model
+// (docs/app-model.md, phase 5c). What boots now is an App, through `start`.
 export type { Composition, PartRef, Started } from './start.js';
-export { start } from './start.js';
+export { isAppClass, start } from './start.js';

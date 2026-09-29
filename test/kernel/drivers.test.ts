@@ -1,87 +1,83 @@
 import { describe, expect, it } from 'vitest';
-import { Kernel } from '../../src/kernel/kernel.js';
+import { IoManager } from '../../src/kernel/io.js';
+import { createContext, createServices } from '../../src/kernel/broker.js';
 import { HOST_WINDOW_DRIVER, ONLINE_DRIVER, type HostWindowDriver, type OnlineDriver } from '../../src/kernel/drivers.js';
-import type { Extension } from '../../src/contribution/contract.js';
+import { needs, type CapabilityName } from '../../src/contribution/capabilities.js';
+import { App, createAppRuntime, Service } from '../../src/app/index.js';
+
+/** The context an App with these needs is granted on a page whose drivers are `io` — as `startApp` builds it. */
+function grant(io: IoManager, declared: readonly CapabilityName[]) {
+    return createContext({ id: 'test', declaredBy: 'test' }, declared, [], (token) => io.get(token), createServices(), io).context;
+}
 
 describe('drivers seam', () => {
-    it('allows a part to declare needs("online") and use the driver', () => {
+    it('lets a service declare needs("online") and use the driver', () => {
         let watched = false;
         const fakeOnline: OnlineDriver = {
             isOnline: true,
-            watch: (cb) => { watched = true; return () => {}; }
+            watch: () => { watched = true; return () => {}; },
         };
+        const io = new IoManager();
+        io.register(ONLINE_DRIVER, fakeOnline);
 
-        const kernel = new Kernel();
-        kernel.io.register(ONLINE_DRIVER, fakeOnline);
-
-        let activated = false;
-
+        let seen: boolean | undefined;
         /**
-         * Typed as the `Extension` it is, rather than cast.
-         *
-         * The cast this replaces was not cosmetic: `needs: ['online'] as any` compiles whether or not
-         * `online` is a `CapabilityName`, so the test passed without ever showing that a real part
-         * could ask for the driver. Declaring the type is what makes `cx.online` resolve — and makes
-         * the test fail to compile the day the capability is renamed or dropped, which is the thing
-         * worth knowing.
+         * Typed through its spec rather than cast: `this.cx.online` resolves because `needs('online')`
+         * says so, and the test stops compiling the day the capability is renamed or dropped — which
+         * is the thing worth knowing.
          */
-        const part: Extension<['online']> = {
-            needs: ['online'],
-            activate: (cx) => {
-                expect(cx.online.isOnline).toBe(true);
-                cx.online.watch(() => {});
-                activated = true;
-                return [];
-            },
-        };
+        const Base = Service({ needs: needs('online') });
+        class Watcher extends Base {
+            constructor(...args: ConstructorParameters<typeof Base>) {
+                super(...args);
+                seen = this.cx.online.isOnline;
+                this.cx.online.watch(() => {});
+            }
+        }
+        class Host extends App({ needs: needs('online'), services: [Watcher], routes: {} }) {}
 
-        kernel.boot([{ id: 'test-ext', contribution: part }]);
-        
-        expect(activated).toBe(true);
+        createAppRuntime(Host, grant(io, ['online'])).dispose();
+        expect(seen).toBe(true);
         expect(watched).toBe(true);
     });
 
     it('replaces a driver if replace is true', () => {
-        const kernel = new Kernel();
-        const first = { isOnline: false, watch: () => () => {} };
-        const second = { isOnline: true, watch: () => () => {} };
-        kernel.io.register(ONLINE_DRIVER, first);
-        kernel.io.register(ONLINE_DRIVER, second, { replace: true });
-        expect(kernel.io.get(ONLINE_DRIVER)).toBe(second);
+        const io = new IoManager();
+        const first: OnlineDriver = { isOnline: true, watch: () => () => {} };
+        const second: OnlineDriver = { isOnline: false, watch: () => () => {} };
+        io.register(ONLINE_DRIVER, first);
+        io.register(ONLINE_DRIVER, second, { replace: true });
+        expect(io.get(ONLINE_DRIVER)).toBe(second);
     });
 
-    it('refuses to register a second driver without replace', () => {
-        const kernel = new Kernel();
-        const first = { isOnline: false, watch: () => () => {} };
-        const second = { isOnline: true, watch: () => () => {} };
-        kernel.io.register(ONLINE_DRIVER, first);
-        expect(() => kernel.io.register(ONLINE_DRIVER, second)).toThrow(/already registered/);
+    it('throws if registering a driver without replace', () => {
+        const io = new IoManager();
+        const first: OnlineDriver = { isOnline: true, watch: () => () => {} };
+        const second: OnlineDriver = { isOnline: false, watch: () => () => {} };
+        io.register(ONLINE_DRIVER, first);
+        expect(() => io.register(ONLINE_DRIVER, second)).toThrow(/already registered/);
     });
 
-    it('allows a part to declare needs("hostWindow") and use the driver', () => {
+    it('lets a service declare needs("hostWindow") and use the driver', () => {
         let opened = false;
         const fakeWindow: HostWindowDriver = {
             open: () => { opened = true; return null; },
             addEventListener: () => {},
-            removeEventListener: () => {}
+            removeEventListener: () => {},
         };
-        const kernel = new Kernel();
-        kernel.io.register(HOST_WINDOW_DRIVER, fakeWindow);
-        
-        let activated = false;
+        const io = new IoManager();
+        io.register(HOST_WINDOW_DRIVER, fakeWindow);
 
-        const part: Extension<['hostWindow']> = {
-            needs: ['hostWindow'],
-            activate: (cx) => {
-                cx.hostWindow.open('http://example.com');
-                activated = true;
-                return [];
-            },
-        };
+        const Base = Service({ needs: needs('hostWindow') });
+        class Opener extends Base {
+            constructor(...args: ConstructorParameters<typeof Base>) {
+                super(...args);
+                this.cx.hostWindow.open('http://example.com');
+            }
+        }
+        class Host extends App({ needs: needs('hostWindow'), services: [Opener], routes: {} }) {}
 
-        kernel.boot([{ id: 'test-ext-win', contribution: part }]);
-
-        expect(activated).toBe(true);
+        createAppRuntime(Host, grant(io, ['hostWindow'])).dispose();
         expect(opened).toBe(true);
     });
 });
