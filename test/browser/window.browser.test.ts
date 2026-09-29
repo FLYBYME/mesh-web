@@ -115,7 +115,7 @@ interface Site {
 
 /** A history that lives in memory, so the test runner's own URL is never touched. */
 function memoryHistory(): HistoryLike {
-    return { pathname: () => '/', search: () => '', push: () => undefined, back: () => undefined, onChange: () => () => undefined };
+    return { pathname: () => '/', search: () => '', push: () => undefined, replace: () => undefined, back: () => undefined, onChange: () => () => undefined };
 }
 
 async function bootSite(): Promise<Site> {

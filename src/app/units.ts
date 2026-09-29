@@ -15,7 +15,7 @@
 import type { Action, IntentValue, Node } from '../description/types.js';
 import type {
     ApiOfSpec, Capabilities, CheckNeeds, CheckRoutes, ComponentClass, Injectables, Injected, InjectOf,
-    MountArgs, NeedsOf, ParamsOf, PropsDecl, PropsOf, SchemaLike, SearchOf, ServiceClass, UnitHost,
+    LayoutClass, MountArgs, NeedsOf, ParamsOf, PropsDecl, PropsOf, SchemaLike, SearchOf, ServiceClass, UnitHost,
     UnitSpec, ViewClass,
 } from './types.js';
 import type { MountFailure } from './runtime.js';
@@ -70,6 +70,13 @@ export interface ViewSpec extends UnitSpec {
      */
     readonly query?: SchemaLike<object>;
     readonly title?: string;
+    /**
+     * The component this view is drawn inside. Consecutive pages with the same layout share one
+     * instance of it: its state (an open menu, a sidebar's scroll) survives navigation, and only the
+     * outlet changes. A layout is where a guard goes — a `when` with a `Redirect` — so every page in
+     * it is guarded at once. The desktop draws each window without it: the shell is its layout.
+     */
+    readonly layout?: LayoutClass;
     /**
      * Hints for the desktop, ignored by a single-page site. Every field is a suggestion: a view does
      * not know which presentation it is in, and must not need to.

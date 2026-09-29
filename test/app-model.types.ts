@@ -13,7 +13,7 @@
 import { z } from 'zod';
 import { element, text, type Node } from '../src/index.js';
 import { needs } from '../src/contribution/capabilities.js';
-import { App, Component, command, props, Router, Service, View } from '../src/app/index.js';
+import { App, Component, command, props, Router, Service, View, type LayoutProps } from '../src/app/index.js';
 
 const nothing = (): Node => element('Stack', { children: [] });
 
@@ -198,6 +198,34 @@ export class ExtraParam extends App({
     routes: {
         // @ts-expect-error `page` is not in the path, so it could never be filled — it belongs in `query`
         '/domains/:zone': PagedByParams,
+    },
+}) {}
+
+// ---------------------------------------------------------------------------- layouts
+
+class Shell extends Component({ props: props<LayoutProps>() }) {
+    render(): Node { return this.props.outlet; }
+}
+
+class StorageShell extends Component({ needs: needs('storage'), props: props<LayoutProps>() }) {
+    render(): Node { return this.props.outlet; }
+}
+
+class NotALayout extends Component({ props: props<{ readonly label: string }>() }) {
+    render(): Node { return nothing(); }
+}
+
+class InShell extends View({ layout: Shell }) { render(): Node { return nothing(); } }
+class InStorageShell extends View({ layout: StorageShell }) { render(): Node { return nothing(); } }
+
+// @ts-expect-error a layout must take `outlet`, or the page inside it would be dropped
+export class BadLayout extends View({ layout: NotALayout }) { render(): Node { return nothing(); } }
+
+export class LayoutNeeds extends App({
+    routes: {
+        '/in': InShell,
+        // @ts-expect-error the view needs nothing, but its layout needs 'storage', which this app lacks
+        '/in-storage': InStorageShell,
     },
 }) {}
 

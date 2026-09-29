@@ -11,6 +11,8 @@ export interface HistoryLike {
     pathname(): string;
     search(): string;
     push(path: string): void;
+    /** Replace the current entry: a redirect, so back does not return to the page that redirected. */
+    replace(path: string): void;
     back(): void;
     /** Fires on a browser back/forward navigation. Returns the unsubscribe. */
     onChange(fn: () => void): () => void;
@@ -21,6 +23,7 @@ export function browserHistory(win: Window): HistoryLike {
         pathname: () => win.location.pathname,
         search: () => win.location.search,
         push: (path) => { win.history.pushState({}, '', path); },
+        replace: (path) => { win.history.replaceState({}, '', path); },
         back: () => { win.history.back(); },
         onChange: (fn) => {
             win.addEventListener('popstate', fn);

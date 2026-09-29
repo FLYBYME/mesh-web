@@ -20,6 +20,7 @@ import { render } from '../render/dom.js';
 import type { Dispatcher } from '../render/renderer.js';
 import { browserHistory, type HistoryLike } from '../router/router.js';
 import type { CommandRegistryOptions } from './registry.js';
+import type { LayoutClass } from './types.js';
 import { compileRoutes, type RouteMatch } from './routes.js';
 import type { RouterBackend } from './router.js';
 import { createAppRuntime, type AppClass, type AppRuntime, type GrantedContext, type HandlerRegistry } from './runtime.js';
@@ -66,6 +67,11 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
             history.push(href);
             route.set(read());
         },
+        replace(href) {
+            if (href === `${history.pathname()}${history.search()}`) return;
+            history.replace(href);
+            route.set(read());
+        },
         back() {
             history.back();
         },
@@ -96,12 +102,33 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
         children: [text(`Nothing here: ${path}`)],
     }));
 
+    // Two levels, each an `each` over zero or one item. The outer is keyed by layout, so while
+    // consecutive pages share a layout it stays mounted; the inner is keyed by route and path params,
+    // so the view inside is replaced. A view with no layout is its own outer item.
+    const layoutKeys = new Map<LayoutClass, string>();
+    const layoutKey = (match: RouteMatch): string => {
+        const layout = match.view.spec.layout;
+        if (layout === undefined) return 'none';
+        let key = layoutKeys.get(layout);
+        if (key === undefined) layoutKeys.set(layout, key = `layout${layoutKeys.size}`);
+        return key;
+    };
+
+    const outlet = (layout: LayoutClass | undefined): Node => each(
+        () => { const current = route(); return current === undefined || current.view.spec.layout !== layout ? [] : [current]; },
+        (match) => match.key,
+        // Same key, new query: `match` is re-read, so the live view's `query()` follows it.
+        (match) => runtime.view(match().view, match().raw, registry, undefined, () => match().query),
+    );
+
     const page: Node = [
         each(
             () => { const current = route(); return current === undefined ? [] : [current]; },
-            (match) => match.key,
-            // Same key, new query: `match` is re-read, so the live view's `query()` follows it.
-            (match) => runtime.view(match().view, match().raw, registry, undefined, () => match().query),
+            layoutKey,
+            (match) => {
+                const layout = match().view.spec.layout;
+                return layout === undefined ? outlet(undefined) : runtime.component(layout, { outlet: outlet(layout) }, registry);
+            },
         ),
         when(() => route() === undefined, () => notFound(history.pathname())),
     ];

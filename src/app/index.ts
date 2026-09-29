@@ -11,5 +11,6 @@ export * from './registry.js';
 export * from './routes.js';
 export * from './router.js';
 export * from './link.js';
+export * from './redirect.js';
 export * from './site.js';
 export * from './desktop.js';

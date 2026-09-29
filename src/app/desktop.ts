@@ -106,17 +106,29 @@ export function mountDesktop(App: AppClass, options: DesktopOptions): MountedDes
 
     const read = (): RouteMatch | undefined => table.match(history.pathname(), history.search());
 
+    const matchHref = (href: string): RouteMatch | undefined => {
+        const url = new URL(href, 'http://desktop.invalid');
+        const match = table.match(url.pathname, url.search);
+        if (match === undefined) console.warn(`${owner}: nothing is routed at ${href}, so no window opens.`);
+        return match;
+    };
+
     const backend: RouterBackend = {
         current: route,
         navigate(href) {
-            const url = new URL(href, 'http://desktop.invalid');
-            const match = table.match(url.pathname, url.search);
-            if (match === undefined) {
-                console.warn(`${owner}: nothing is routed at ${href}, so no window opens.`);
-                return;
-            }
+            const match = matchHref(href);
+            if (match === undefined) return;
             if (href !== `${history.pathname()}${history.search()}`) history.push(href);
             show(match);
+        },
+        replace(href) {
+            // A redirect: the window in front is replaced by the target, not joined by it.
+            const match = matchHref(href);
+            if (match === undefined) return;
+            const from = manager.focused();
+            if (href !== `${history.pathname()}${history.search()}`) history.replace(href);
+            show(match);
+            if (from !== undefined && from !== manager.focused()) manager.close(from);
         },
         back() {
             history.back();

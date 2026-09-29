@@ -142,6 +142,19 @@ export interface ComponentClass {
     create(init: ErasedInit): MountableInstance;
 }
 
+/** What a layout is handed: the page inside it, which changes while the layout stays. */
+export interface LayoutProps {
+    readonly outlet: Node;
+}
+
+/**
+ * A layout is an ordinary component whose props are `LayoutProps` — `props<LayoutProps>()`. Required
+ * rather than optional, so a component that takes no outlet (and so would drop the page) is refused.
+ */
+export interface LayoutClass extends ComponentClass {
+    readonly spec: UnitSpec & { readonly props: PropsDecl<LayoutProps> };
+}
+
 /** What the runtime needs from a constructed view or component. */
 export interface MountableInstance {
     render(): Node;
@@ -193,6 +206,7 @@ export interface ViewClass {
         readonly params?: SchemaLike<object>;
         readonly query?: SchemaLike<object>;
         readonly title?: string;
+        readonly layout?: LayoutClass;
         readonly window?: {
             readonly tile?: string;
             readonly defaultSize?: { readonly width?: number; readonly height?: number };
@@ -203,12 +217,19 @@ export interface ViewClass {
     create(init: ErasedInit): MountableInstance;
 }
 
+type LayoutSpecOf<S> = S extends { readonly layout: infer L extends LayoutClass } ? L['spec'] : unknown;
+
 type RouteCheck<P extends string, V, AppNeeds extends readonly CapabilityName[]> =
     V extends ViewClass
         ? [Exclude<PathParams<P>, keyof ParamsOf<V['spec']>>] extends [never]
             ? [Exclude<keyof ParamsOf<V['spec']>, PathParams<P>>] extends [never]
                 ? [MissingNeeds<NeedsOf<V['spec']>, AppNeeds>] extends [never]
-                    ? V
+                    ? [MissingNeeds<NeedsOf<LayoutSpecOf<V['spec']>>, AppNeeds>] extends [never]
+                        ? V
+                        : {
+                            readonly __error: 'this view\'s layout needs capabilities the app was not granted';
+                            readonly missing: MissingNeeds<NeedsOf<LayoutSpecOf<V['spec']>>, AppNeeds>;
+                        }
                     : {
                         readonly __error: 'this view needs capabilities the app was not granted';
                         readonly missing: MissingNeeds<NeedsOf<V['spec']>, AppNeeds>;

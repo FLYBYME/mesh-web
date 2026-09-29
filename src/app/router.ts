@@ -18,6 +18,7 @@ import { Service } from './units.js';
 export interface RouterBackend {
     readonly current: ReadonlySignal<RouteMatch | undefined>;
     navigate(href: string): void;
+    replace(href: string): void;
     back(): void;
     href(view: ViewClass, params: unknown): string;
 }
@@ -51,6 +52,11 @@ export class Router extends Service({}) {
 
     navigate(href: string): void {
         this.#backend().navigate(href);
+    }
+
+    /** Go somewhere in place of here — a redirect: back skips the page that sent the visitor on. */
+    replace(href: string): void {
+        this.#backend().replace(href);
     }
 
     back(): void {

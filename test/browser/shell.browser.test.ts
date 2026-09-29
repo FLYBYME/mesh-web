@@ -59,6 +59,7 @@ function memoryHistory(): HistoryLike {
         pathname: () => path,
         search: () => '',
         push: (next) => { path = next; },
+        replace: (next) => { path = next; },
         back: () => undefined,
         onChange: () => () => undefined,
     };

@@ -7,8 +7,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { userEvent } from '@vitest/browser/context';
 import { z } from 'zod';
-import { element, signal, text, type Node } from '../../src/index.js';
-import { App, command, Link, mountSite, Router, View, type MountedApp } from '../../src/app/index.js';
+import { element, signal, text, when, type Node } from '../../src/index.js';
+import {
+    App, command, Component, Link, mountSite, props, Redirect, Router, Service, View,
+    type LayoutProps, type MountedApp,
+} from '../../src/app/index.js';
 
 // ---------------------------------------------------------------------------- the site
 
@@ -58,6 +61,71 @@ class ZoneView extends View({
 }
 
 class Site extends App({ routes: { '/': HomeView, '/zones/:zone': ZoneView } }) {}
+
+// ---------------------------------------------------------------------------- a layout with a guard
+
+class Session extends Service({}) {
+    readonly signedIn = signal(false);
+}
+
+let layoutsBuilt = 0;
+
+class ConsoleLayout extends Component({ inject: { session: Session, router: Router }, props: props<LayoutProps>() }) {
+    readonly clicks = signal(0);
+    constructed = ++layoutsBuilt;
+
+    render(): Node {
+        return when(
+            () => this.inject.session.signedIn(),
+            () => element('Stack', {
+                children: [
+                    element('Text', { props: { 'data-layout': '' }, children: [text(() => `layout clicks=${this.clicks()}`)] }),
+                    element('Button', {
+                        props: { 'aria-label': 'layout click' },
+                        intents: { activate: { action: this.on(() => this.clicks.set(this.clicks() + 1)) } },
+                        children: [text('+')],
+                    }),
+                    this.props.outlet,
+                ],
+            }),
+            () => this.mount(Redirect, { to: this.inject.router.href(SignInView) }),
+        );
+    }
+}
+
+class PublicView extends View({}) {
+    render(): Node { return element('Stack', { props: { 'data-view': 'public' }, children: [] }); }
+}
+
+class SignInView extends View({ inject: { session: Session } }) {
+    render(): Node {
+        return element('Stack', {
+            props: { 'data-view': 'sign-in' },
+            children: [element('Button', {
+                props: { 'aria-label': 'sign in' },
+                intents: { activate: { action: this.on(() => this.inject.session.signedIn.set(true)) } },
+                children: [text('Sign in')],
+            })],
+        });
+    }
+}
+
+class PageA extends View({ layout: ConsoleLayout, inject: { router: Router } }) {
+    render(): Node {
+        return element('Stack', {
+            props: { 'data-view': 'a' },
+            children: [this.mount(Link, { href: this.inject.router.href(PageB), children: [text('to b')] })],
+        });
+    }
+}
+
+class PageB extends View({ layout: ConsoleLayout }) {
+    render(): Node { return element('Stack', { props: { 'data-view': 'b' }, children: [] }); }
+}
+
+class Guarded extends App({
+    routes: { '/': PublicView, '/sign-in': SignInView, '/console/a': PageA, '/console/b': PageB },
+}) {}
 
 // ---------------------------------------------------------------------------- harness
 
@@ -215,6 +283,47 @@ describe('an App as a single-page site', () => {
         site.navigate('/nowhere/at/all');
         await frame();
         expect(document.title).toBe(pageTitle);
+    });
+
+    it('keeps a layout mounted across the pages that share it, and guards them all with one Redirect', async () => {
+        history.pushState(null, '', '/');
+        site = mountSite(Guarded, { root });
+        await frame();
+        expect(view()).toBe('public');
+        expect(root.querySelector('[data-layout]')).toBeNull();
+
+        // Signed out: the guarded page redirects, replacing the history entry.
+        site.navigate('/console/a');
+        await frame();
+        await frame();
+        expect(location.pathname).toBe('/sign-in');
+        expect(view()).toBe('sign-in');
+
+        await userEvent.click(root.querySelector('[aria-label="sign in"]')!);
+        const built = layoutsBuilt; // one was built, and redirected, while signed out
+        site.navigate('/console/a');
+        await frame();
+        expect(view()).toBe('a');
+        expect(layoutsBuilt).toBe(built + 1);
+        await userEvent.click(root.querySelector('[aria-label="layout click"]')!);
+        await frame();
+        expect(root.querySelector('[data-layout]')?.textContent).toBe('layout clicks=1');
+
+        // Page b, same layout: the layout keeps its state; only the outlet changed.
+        await userEvent.click(link('to b'));
+        await frame();
+        expect(view()).toBe('b');
+        expect(root.querySelector('[data-layout]')?.textContent).toBe('layout clicks=1');
+        expect(layoutsBuilt).toBe(built + 1);
+
+        // Out of the layout and back in: a new instance.
+        site.navigate('/');
+        await frame();
+        expect(root.querySelector('[data-layout]')).toBeNull();
+        site.navigate('/console/a');
+        await frame();
+        expect(root.querySelector('[data-layout]')?.textContent).toBe('layout clicks=0');
+        expect(layoutsBuilt).toBe(built + 2);
     });
 
     it('leaves a modified click to the browser: the page does not navigate or cancel it', async () => {

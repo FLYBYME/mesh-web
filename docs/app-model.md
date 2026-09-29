@@ -636,5 +636,18 @@ example, before the example relies on it:
    App, because nothing could run without it. A service injected lazily by one view only costs that
    view. Errors thrown later, in a handler, a command or an effect, are not caught here; that is a
    separate gap.
-3. Still open: layouts (a persistent shell across pages), guards/redirects, forms from schemas, a
-   design system of real components, lazy routes.
+3. **No layouts: every page rebuilt its own chrome.** **Fixed, with no new unit kind:** a view names
+   `layout`, a component taking `props<LayoutProps>()` (`{ outlet: Node }`). The site's outlet is
+   two keyed levels: the outer is keyed by layout, the inner by route and path. So a layout stays
+   mounted, with its state, while consecutive pages share it, and only the outlet swaps. The types
+   refuse a layout that takes no `outlet`, and a layout needing what the App lacks. The desktop
+   ignores `layout`, because the shell is its layout. **Open:** nested layouts, and guards on the
+   desktop (see 4).
+4. **No guards.** **Fixed, as composition rather than a concept:** a guard is a layout's
+   `when(signedIn, outlet, () => mount(Redirect, { to }))`. `Redirect` defers `router.replace` to a
+   microtask, never mid-render, and does nothing if it was unmounted first. `router.replace` is new
+   (and `HistoryLike.replace`), so back skips the page that redirected. On the desktop, `replace`
+   closes the window in front in favour of the target. The cost: a guard that lives in a layout does
+   not run on the desktop. If the console ever runs as a desktop, the guard moves to a spec field
+   the router checks before mounting.
+5. Still open: forms from schemas, a design system of real components, lazy routes.
