@@ -1,5 +1,13 @@
 # Capabilities Reference
 
+> **Partly stale (v0.21, 2026-09-29).** Capabilities are now declared with `needs(...)` in a unit's
+> spec (`App`, `Service`, `View`, `Component`), and each unit's `this.cx` has exactly those keys.
+> The App's `needs` is the page's grant; a unit may only need what its host has. The data
+> capabilities below (`mesh`, `models`, `storage`, `credentials`, `notifications`, `log`,
+> `display`, …) are current. **`commands`, `windows`, `chrome` and `router` are part-model
+> capabilities:** in the app model, commands are objects on their owner, routing is the injected
+> `Router` service, and chrome is a layout. Nothing in the app model uses those four.
+
 Capabilities define what a contribution may reach. A contribution requests capabilities via the [`needs(...)`](file:///home/ubuntu/code/mesh-web/src/contribution/capabilities.ts#L442) declaration. The capability broker creates an isolated context ([`createContext`](file:///home/ubuntu/code/mesh-web/src/kernel/broker.ts#L358)) containing strictly the requested capabilities.
 
 ```ts

@@ -1,5 +1,10 @@
 # Web Workers & Server-Side Rendering (SSR)
 
+> **Stale (v0.21, 2026-09-29).** This describes running part-model `Application` processes in a
+> worker and rendering `ViewDecl.render(vx)` on a server. Neither exists any more. The current
+> SSR plan — a fresh runtime per request, `flatten()` over the App's route, a string renderer,
+> prerendering public routes first — is **app-model.md §23**. Workers have no current plan.
+
 > Running headless application processes off the main thread and pre-rendering pure description trees on the server.
 
 In traditional web frameworks, application state, business logic, component lifecycles, and DOM APIs are tightly coupled. Running off the main thread or on a server requires complex shims (like JSDOM), synthetic event pools, or heavy virtual DOM diffing engines.

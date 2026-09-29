@@ -1,144 +1,99 @@
 # @flybyme/mesh-web Documentation
 
-> The browser half of the mesh framework: an abstract operating system in a browser.
+> The browser half of the mesh framework.
 
-`@flybyme/mesh-web` provides the client runtime for the Mesh architecture. Rather than treating a web application as a monolithic bundle of React/Vue components, `@flybyme/mesh-web` models the browser runtime as an **abstract operating system**: a sandboxed kernel that boots compositions of modular parts, enforces capability narrowing, orchestrates fine-grained reactive DOM rendering without virtual DOM diffing, manages multi-window tiling and desktop shells, and bridges typed RPC calls to the backend cluster without allowing the browser to join the mesh network directly.
+A site is an **`App`**: a table of routes, the **`Service`**s that hold shared state and talk to
+the API, the **`View`**s the routes show, and the **`Component`**s views are built from. The
+kernel constructs every one of them. It renders the App as a single-page website, or as windows
+on a desktop, from the same routes. Rendering is fine-grained and reactive: signals bind straight
+to DOM text and attributes, with no virtual DOM.
 
----
-
-## Foundational Invariants
-
-The entire framework is governed by strict architectural invariants:
-
-1. **Strict Browser Sandbox — Zero Node Builtins**:
-   Nothing in `@flybyme/mesh-web` may import a Node.js builtin module. The package's [`tsconfig.json`](file:///home/ubuntu/code/mesh-web/tsconfig.json) sets `"types": []`, and any import of `fs`, `path`, `crypto`, or `process` is a compilation failure.
-2. **The Browser Never Joins the Mesh**:
-   The browser communicates exclusively via HTTP/SSE with a cluster node's API gateway (`mesh-api` / `mesh-serve`). Running an active mesh node or peer-to-peer WebSocket transport in a browser tab would make every browser an unvetted peer on the internal cluster network.
-3. **Framework Singleton Integrity**:
-   A running page must resolve the framework to exactly one copy. If a bundler or import map serves `@flybyme/mesh-web` under multiple distinct URLs, multiple reactive scopes and capability brokers run concurrently. The framework tracks evaluation URLs on `globalThis` using `Symbol.for('@flybyme/mesh-web/instances')` and verifies singleton execution via [`assertSingleFramework()`](file:///home/ubuntu/code/mesh-web/src/instance.ts#L40).
-4. **Side-Effect-Free Module Evaluation**:
-   Importing a bundle produces zero side effects. Parts export classes or factories, which the kernel inspects statically before instantiating or activating.
-5. **No Virtual DOM, No VDOM Diffing**:
-   The view layer compiles pure declarative description trees directly to fine-grained reactive DOM bindings using [`render()`](file:///home/ubuntu/code/mesh-web/src/render/dom.ts#L96). Updates bind directly from signals to specific DOM attributes and text nodes.
+**Start with [app-model.md](app-model.md)** (the design and every decision since), then copy
+from **[`examples/console`](../examples/console)** — the reference app: services, layouts, a guard,
+forms from commands, URL-held list state, and browser tests that click through it
+(`npm run example:console`, http://localhost:5191).
 
 ---
 
-## High-Level System Architecture
+## The model in one picture
 
 ```mermaid
 flowchart TD
-    subgraph Host ["Browser Environment"]
-        DOM["HTML Document / Root Element"]
-        LS["localStorage (device hive)"]
-        Fetch["Fetch API / SSE Stream"]
-    end
-
-    subgraph KernelSpace ["Kernel & Runtime Infrastructure (src/kernel/)"]
-        Start["start(composition)"]
-        Kernel["Kernel (Process Manager)"]
-        Broker["Capability Broker (createContext)"]
-        LogBuf["LogBuffer & Fullscreen Viewer (ctrl+alt+q)"]
-        Manifest["Manifest Merger & Conflict Detector"]
-    end
-
-    subgraph Capabilities ["Capability Broker Seams (src/contribution/capabilities.ts)"]
-        StateCap["cx.state (Reactive Scope)"]
-        MeshCap["cx.mesh (Typed Client)"]
-        ModelsCap["cx.models (Reactive Collections)"]
-        WinCap["cx.windows (Open / Focus)"]
-        ChromeCap["cx.chrome (Shell Geometry / Host)"]
-        CredCap["cx.credentials (Auth Seam)"]
-        OtherCap["log / commands / http / storage / dom / confirmation"]
-    end
-
-    subgraph Parts ["Contributed Parts (src/contribution/contract.ts)"]
-        Exts["Extensions (Singletons, activate)"]
-        Apps["Applications (Processes with pids, start/stop)"]
-        Views["Views (vx -> Description Node Tree)"]
-    end
-
-    subgraph ViewAndWindow ["View & Window Systems (src/render/ & src/window/)"]
-        Desc["Description Nodes (Stack, Row, Button, Input...)"]
-        Renderer["Fine-Grained Reactive DOM Renderer (No VDOM)"]
-        WM["WindowManager (windowed / tiled / single)"]
-        Shell["Window Shell / Frames / Resize Handles"]
-        HostMarker["[data-mesh-window-host]"]
-    end
-
-    Start --> Kernel
-    Start --> LogBuf
-    Start --> WM
-    Start --> Broker
-
-    Kernel --> Manifest
-    Kernel --> Exts
-    Kernel --> Apps
-
-    Broker --> Capabilities
-    Capabilities --> Apps
-    Capabilities --> Exts
-
-    Apps --> Views
-    Views --> Desc
-    Desc --> Renderer
-    Renderer --> HostMarker
-
-    WM --> Shell
-    Shell --> HostMarker
-    HostMarker --> DOM
+    Start["start(composition) — the boot script's entry"] --> App
+    App["App — routes, boot services, the page's capability grant"]
+    App --> Services["Service — one per page, injected by class"]
+    App --> Routes["routes: path → View, optionally within(Layout)"]
+    Routes --> Layout["Layout — a Component around views; kept across pages; the guard"]
+    Layout --> View["View — per URL: params (path, fixed) + query (reactive)"]
+    View --> Component["Component — reusable, keeps state, per mount"]
+    View --> Fn["functions → Node — reusable, no state"]
+    Component --> Nodes["element / when / each / dialog / text"]
+    Fn --> Nodes
+    Nodes --> Renderer["Renderer → primitives → DOM"]
+    Services -. "this.inject" .-> View
+    Services -. "this.inject" .-> Component
 ```
 
+- **Capabilities narrow going down.** The App's `needs(...)` is the page's grant; each unit's `needs`
+  must fit inside its host's, and `this.cx` has exactly those keys, at compile time and at run time.
+- **Commands are objects** on the unit that owns them — title, key, zod input, `run` — live while
+  their owner is.
+- **Every mount is an error boundary**: a unit that throws is replaced by the App's `fallback`.
+
+## Invariants that have not changed
+
+1. **No Node builtins.** `tsconfig.json` sets `"types": []`; importing `fs`, `path`, `crypto` or
+   `process` does not compile.
+2. **The browser never joins the mesh.** It speaks HTTP/SSE to an API gateway, through the
+   generated, typed client (`cx.mesh`).
+3. **One copy of the framework per page** (`assertSingleFramework`, `src/instance.ts`).
+4. **Importing a module has no side effects**; the boot script hands the part's default export
+   (the App class) to `start()`.
+5. **No virtual DOM.**
+
 ---
 
-## Subsystem Navigation Index
+## Guides
 
-| Guide | Description | Key Symbols & Modules |
+Status as of v0.21 (2026-09-29). **Current** means checked against the app model. **Partly stale**
+means the subsystem is current but the guide still shows it being used from the deleted part model
+(`Application`, `Extension`, `vx`, `cx.commands.implement`); each such guide says so at its top.
+
+| Guide | What | Status |
 |---|---|---|
-| [**Architecture Overview**](file:///home/ubuntu/code/mesh-web/docs/architecture.md) | Operating system abstractions, kernel lifecycle, process table, and security invariants. | [`Kernel`](file:///home/ubuntu/code/mesh-web/src/kernel/kernel.ts#L64), [`ProcessEntry`](file:///home/ubuntu/code/mesh-web/src/kernel/kernel.ts#L36), [`mergeManifests`](file:///home/ubuntu/code/mesh-web/src/kernel/manifest.ts#L62) |
-| [**Kernel & Boot Lifecycle**](file:///home/ubuntu/code/mesh-web/docs/kernel-and-lifecycle.md) | The `start()` boot sequence, configuration policies, crash isolation, log buffer, and user confirmations. | [`start`](file:///home/ubuntu/code/mesh-web/src/kernel/start.ts#L159), [`Composition`](file:///home/ubuntu/code/mesh-web/src/kernel/start.ts#L99), [`mountLogViewer`](file:///home/ubuntu/code/mesh-web/src/kernel/logs.ts#L177) |
-| [**Contribution Model**](file:///home/ubuntu/code/mesh-web/docs/contribution-model.md) | Anatomy of Applications vs. Extensions, manifest declarations, public/internal state splitting, and published APIs. | [`Application`](file:///home/ubuntu/code/mesh-web/src/contribution/contract.ts#L416), [`Extension`](file:///home/ubuntu/code/mesh-web/src/contribution/contract.ts#L395), [`checkBindings`](file:///home/ubuntu/code/mesh-web/src/contribution/api.ts#L254) |
-| [**Capabilities Reference**](file:///home/ubuntu/code/mesh-web/docs/capabilities-reference.md) | Exhaustive reference of every capability provided by the kernel broker (`cx.*`). | [`CapabilityMap`](file:///home/ubuntu/code/mesh-web/src/contribution/capabilities.ts#L412), [`needs`](file:///home/ubuntu/code/mesh-web/src/contribution/capabilities.ts#L442), [`createContext`](file:///home/ubuntu/code/mesh-web/src/kernel/broker.ts#L358) |
-| [**Reactivity System**](file:///home/ubuntu/code/mesh-web/docs/reactivity.md) | Fine-grained dependency tracking engine with signals, computeds, effects, batches, scopes, and async resources. | [`signal`](file:///home/ubuntu/code/mesh-web/src/reactivity/signal.ts), [`computed`](file:///home/ubuntu/code/mesh-web/src/reactivity/computed.ts), [`effect`](file:///home/ubuntu/code/mesh-web/src/reactivity/effect.ts), [`resource`](file:///home/ubuntu/code/mesh-web/src/reactivity/resource.ts) |
-| [**View & Description Layer**](file:///home/ubuntu/code/mesh-web/docs/view-layer.md) | Pure description nodes, 19 primitive UI components, custom component registries, intent handling, and direct DOM reconciliation. | [`Node`](file:///home/ubuntu/code/mesh-web/src/description/types.ts#L268), [`PRIMITIVES`](file:///home/ubuntu/code/mesh-web/src/render/component.ts#L431), [`render`](file:///home/ubuntu/code/mesh-web/src/render/dom.ts#L96) |
-| [**Driver Architecture**](file:///home/ubuntu/code/mesh-web/docs/driver-architecture.md) | Bridging headless application logic and platform DOM subsystems (CodeEditor, Terminal, Canvas, WebGL). | [`ComponentDefinition`](file:///home/ubuntu/code/mesh-web/src/render/component.ts#L16), [`bindIntents`](file:///home/ubuntu/code/mesh-web/src/render/dom.ts#L654), [`Registrar`](file:///home/ubuntu/code/mesh-web/src/description/types.ts#L70) |
-| [**Web Workers & SSR**](file:///home/ubuntu/code/mesh-web/docs/workers-and-ssr.md) | Running headless application processes off the main thread and pre-rendering description trees on the server. | [`renderToString`](file:///home/ubuntu/code/mesh-web/docs/workers-and-ssr.md#1-the-string-renderer-rendertostring), [`DescriptionNode`](file:///home/ubuntu/code/mesh-web/src/description/types.ts#L268) |
-| [**Window & Shell Management**](file:///home/ubuntu/code/mesh-web/docs/window-management.md) | Multi-window orchestration, tiling trees, window geometry persistence across reloads, and page chrome. | [`WindowManager`](file:///home/ubuntu/code/mesh-web/src/window/manager.ts#L103), [`mountPage`](file:///home/ubuntu/code/mesh-web/src/window/page.ts#L104), [`windowPersistence`](file:///home/ubuntu/code/mesh-web/src/window/persistence.ts#L105) |
-| [**Networking & Models**](file:///home/ubuntu/code/mesh-web/docs/networking-and-models.md) | Typed mesh client, path parameter interpolation, staleness verification, credentialed SSE streaming, and reactive CRUD models. | [`createClient`](file:///home/ubuntu/code/mesh-web/src/net/client.ts#L116), [`createModels`](file:///home/ubuntu/code/mesh-web/src/models/models.ts#L52), [`createFetchEventSource`](file:///home/ubuntu/code/mesh-web/src/net/eventsource.ts#L54) |
-| [**Settings & Storage**](file:///home/ubuntu/code/mesh-web/docs/settings-and-storage.md) | Four-hive configuration hierarchy (`system`, `user`, `device`, `session`), build policies, and namespaced contributor storage. | [`createRegistry`](file:///home/ubuntu/code/mesh-web/src/registry/registry.ts#L131), [`createStorage`](file:///home/ubuntu/code/mesh-web/src/storage/storage.ts#L43) |
-| [**Input & Keyboard**](file:///home/ubuntu/code/mesh-web/docs/input-and-keyboard.md) | Hotkey normalization, gamepad button binding, host shortcut reservation, focus containment traps, and default window bindings. | [`bindingTable`](file:///home/ubuntu/code/mesh-web/src/input/keys.ts#L225), [`normalizeBinding`](file:///home/ubuntu/code/mesh-web/src/input/keys.ts#L141), [`createFocusTrap`](file:///home/ubuntu/code/mesh-web/src/input/trap.ts#L23) |
-| [**App model (design)**](app-model.md) | App → Service / View → Component → Primitive: kernel-constructed classes, injected services, commands as schema-bearing objects, single-page routing first. The `components` branch builds toward it. Not implemented. | [`defineComposite`](../src/contribution/api.ts#L337), [`parsePath`](../src/router/match.ts#L29), [`provider`](../src/contribution/provider.ts) |
-| [**Testing Framework**](file:///home/ubuntu/code/mesh-web/docs/testing.md) | In-browser integration testing with `mountPart`, Vitest browser configuration, and headless kernel test harnesses. | [`mountPart`](file:///home/ubuntu/code/mesh-web/src/testing/mount.ts#L82), [`definePartBrowserConfig`](file:///home/ubuntu/code/mesh-web/src/testing/config.ts#L13) |
+| [App model](app-model.md) | The design, and §12–§24: every phase and finding since. | **Current** |
+| [Reactivity](reactivity.md) | Signals, computeds, effects, batches, scopes, `resource`. | Current |
+| [Networking & models](networking-and-models.md) | The typed client, staleness check, SSE, reactive CRUD collections. | Current |
+| [Input & keyboard](input-and-keyboard.md) | Bindings, reserved chords, focus traps. | Current |
+| [View & description layer](view-layer.md) | Description nodes, primitives, intents, `this.on`, functions vs components. | Current |
+| [Testing](testing.md) | Browser tests: `mountSite`, `replace`, stand-in capabilities, waiting. | Current |
+| [Kernel & boot](kernel-and-lifecycle.md) | `start()`, policies, the log viewer. | Partly stale |
+| [Capabilities reference](capabilities-reference.md) | Every `cx.*` capability. | Partly stale |
+| [Window & shell](window-management.md) | The desktop presentation: manager, tiling, frames. | Partly stale |
+| [Settings & storage](settings-and-storage.md) | Hives, policies, namespaced storage. | Partly stale |
+| [Driver architecture](driver-architecture.md) | Bridging to DOM-heavy subsystems (editors, terminals, canvas). | Stale — a design for the part model |
+| [Workers & SSR](workers-and-ssr.md) | Headless processes and pre-rendering. | Stale — SSR's current plan is app-model.md §23 |
+
+The part model's own guides (`contribution-model.md`, and `architecture.md`, its OS-style
+overview of process tables and manifests) were deleted with the part model; they are in git
+history.
 
 ---
 
-## Package Exports
-
-The package defines modular subpath exports in [`package.json`](file:///home/ubuntu/code/mesh-web/package.json#L8-L30):
+## Package exports
 
 ```json
 {
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
-    "./testing": {
-      "types": "./dist/testing/index.d.ts",
-      "default": "./dist/testing/index.js"
-    },
-    "./testing/config": {
-      "types": "./dist/testing/config.d.ts",
-      "default": "./dist/testing/config.js"
-    },
-    "./config": {
-      "types": "./dist/testing/config.d.ts",
-      "default": "./dist/testing/config.js"
-    },
-    "./net": {
-      "types": "./dist/net/index.d.ts",
-      "default": "./dist/net/index.js"
-    },
-    "./kernel.css": "./dist/kernel.css"
+    ".":                 "the whole public API — App, View, Service, Component, mountSite, start, …",
+    "./net":             "the typed-client builders a generated client imports",
+    "./testing":         "browser-test helpers",
+    "./testing/config":  "definePartBrowserConfig() for vitest browser mode",
+    "./kernel.css":      "structure only: the desktop, windows, notifications, the log panel",
+    "./themes/dark.css": "an opt-in dark look for those widgets"
   }
 }
 ```
+
+The app model is exported from the root and nowhere else: a part's build keeps exactly one
+specifier (`@flybyme/mesh-web`) external, so a subpath would bundle a second copy of the runtime.

@@ -1,5 +1,12 @@
 # Driver Architecture & Subsystem Bridging
 
+> **Stale (v0.21, 2026-09-29): a design written for the part model.** Its split — headless
+> "Application logic" with zero DOM, talking to a DOM-owning driver through `vx.on` handlers and
+> custom payload events — is still how a heavy DOM subsystem (editor, terminal, canvas) should be
+> bridged, and the renderer's payload-event path it describes still exists. But the code shapes are
+> part-model: read `Application.start(cx)` as a `Service`, and `vx.on` as a component's `this.on`.
+> Not re-verified; treat it as a design note, not a reference.
+
 > Bridging headless application logic and platform DOM subsystems (CodeEditor, Terminal, Canvas, WebGL, Charts).
 
 In `@flybyme/mesh-web`, the kernel enforces strict layer boundaries:

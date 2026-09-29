@@ -1,5 +1,9 @@
 # Settings & Storage
 
+> **Partly stale (v0.21, 2026-09-29).** The hives, policies and namespaced storage are current.
+> Read "Application" below as "a unit that declares `needs('storage')`" — a `Service`, `View` or
+> `Component` — and "when the Application process stops" as "when that unit is disposed".
+
 `@flybyme/mesh-web` provides a layered configuration and persistence system divided into:
 1. **The Settings Registry** ([`src/registry/`](file:///home/ubuntu/code/mesh-web/src/registry/)): A hierarchical four-hive configuration system supporting frozen deployment policies and runtime preferences.
 2. **Contributor Storage** ([`src/storage/`](file:///home/ubuntu/code/mesh-web/src/storage/)): Scoped, namespaced key-value storage for Application state.

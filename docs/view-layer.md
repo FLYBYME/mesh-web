@@ -65,7 +65,7 @@ Constructs a node from the component vocabulary:
 ```ts
 element('Button', {
     props: { disabled: false },
-    intents: { activate: { action: vx.on(() => save()) } },
+    intents: { activate: { action: this.on(() => save()) } },
     children: [text('Save Changes')]
 });
 ```
@@ -125,25 +125,33 @@ In `@flybyme/mesh-web`, views do not handle raw DOM `MouseEvent` or `KeyboardEve
 | `context` | Right-click, Menu key, long press | Coordinates or item payload |
 | `drop` | Drag-and-drop release | Dropped data payload |
 
-### Actions: Commands vs. Handlers
+### Actions: `this.on`
 
-An intent maps to an [`Action`](file:///home/ubuntu/code/mesh-web/src/description/types.ts#L45):
-- **Command Action** (`{ kind: 'command', id: string }`): References a globally declared command present in the palette, keymap, and menu system.
-- **Handler Action** (`{ kind: 'handler', id: string }`): Represents an incidental callback closure.
-
-### The `Registrar` Pattern (`vx.on`)
-To register an incidental closure while keeping the description serializable, views use `vx.on()` ([`Registrar`](file:///home/ubuntu/code/mesh-web/src/description/types.ts#L70)):
+An intent maps to an [`Action`](../src/description/types.ts). In the app model it is a **handler
+action** (`{ kind: 'handler', id }`), made by a view's or component's `this.on(fn)`:
 
 ```ts
 element('Input', {
     props: { value: () => search() },
     intents: {
-        change: { action: vx.on((value) => search.set(String(value))) }
+        change: { action: this.on((value) => search.set(String(value))) }
     }
 });
 ```
 
-The closure remains on the Application side inside a scoped [`HandlerTable`](file:///home/ubuntu/code/mesh-web/src/description/build.ts#L122); only an opaque ID (`"p1:0"`) travels into the description. When the view is closed, all registered handlers are automatically freed.
+The closure stays in a handler table; only an opaque id travels in the description, which keeps
+the description serializable. The handler belongs to the instance that registered it and is
+removed when that instance is disposed, so a view that comes and goes does not leak handlers
+(`mountSite(...).handlerCount()` is the diagnostic).
+
+A button that runs a **command** calls it from a handler — `this.on(() => void this.save.run())`.
+Commands are objects on their owner (`command({ title, key, input, run })`, app-model.md §7). The
+part model's `{ kind: 'command', id }` action still exists in the types as `commandAction`, but an
+app-model site has nothing to dispatch it to and logs an error if one is pressed.
+
+**Boolean props are HTML boolean attributes**: `true` makes the attribute present (as `""`),
+`false` removes it. Select them with `[data-x]`, not `[data-x="true"]`; pass `String(flag)` if a
+stylesheet needs the two values spelled out.
 
 ### Intent Actors (`IntentActor`)
 To safeguard against automated UI abuse, raised intents carry an actor flag:
@@ -154,9 +162,9 @@ Destructive operations with `requiresUser: true` refuse automated agents automat
 
 ---
 
-## The 19 Primitive Components ([`src/render/component.ts`](file:///home/ubuntu/code/mesh-web/src/render/component.ts))
+## The Primitive Components ([`src/render/component.ts`](../src/render/component.ts))
 
-The framework provides 19 built-in primitives:
+The built-in primitives (`PRIMITIVES`):
 
 | Component | HTML Tag | Key Behaviors & Accessibility |
 |---|---|---|
@@ -171,7 +179,11 @@ The framework provides 19 built-in primitives:
 | `Grid` | `<div>` | CSS Grid container supporting `columns`, `rows`, `gap`, `areas`. |
 | `Divider` | `<hr>` | Horizontal or vertical divider with `data-orientation` and ARIA orientation. |
 | `Span` | `<span>` | Formatted text supporting `bold`, `italic`, `code`, `color`, `size`. |
-| `Form` | `<form>` | Container for form inputs. |
+| `Form` | `<form>` | Container for form inputs; `commit` fires on submit. |
+| `Label` | `<label>` | `for` names the control it labels. |
+| `Select` / `Option` | `<select>` / `<option>` | `value` is re-applied once the options exist; `change` carries the chosen value. |
+| `Table`, `TableHead`, `TableBody`, `TableRow`, `TableHeaderCell`, `TableCell` | `<table>` … `<td>` | For tabular data; the semantics are what a screen reader reads. |
+| `Link` | `<a>` | A real link. With `navigate`, a plain left click is the page's; modified clicks stay the browser's. Use the `Link` component, not the primitive. |
 | `List` | `<ul>` | Unordered list. |
 | `ListItem` | `<li>` | List item. |
 | `Card` | `<section>` | Card container. |
@@ -182,46 +194,41 @@ The framework provides 19 built-in primitives:
 
 ---
 
-## Custom Components & Composites
+## Building above the primitives
 
-Contributions can extend the vocabulary beyond the 19 primitives:
+`defineComponent` and `defineComposite` went with the part model. Above the primitives there are
+now two things (app-model.md; the reference is `examples/console/src/ui`):
 
-### Pure Component ([`defineComponent`](file:///home/ubuntu/code/mesh-web/src/contribution/api.ts#L323))
-Stateless UI mapping props directly to a description node:
+**A function returning nodes**, for anything with no state of its own:
 
 ```ts
-import { defineComponent, element, text } from '@flybyme/mesh-web';
-
-export const UserAvatar = defineComponent<{ name: string; url?: string }>(
-    'ui.UserAvatar',
-    'Renders a user profile avatar or initials fallback',
-    (props) => element('Row', {
-        children: [text(props.name)]
-    })
-);
+export function emptyState(title: string, detail?: string): Node {
+    return element('Stack', { props: { class: 'ui-empty' }, children: [
+        element('Heading', { props: { level: 3 }, children: [text(title)] }),
+        ...(detail === undefined ? [] : [element('Text', { children: [text(detail)] })]),
+    ] });
+}
 ```
 
-### Stateful Composite ([`defineComposite`](file:///home/ubuntu/code/mesh-web/src/contribution/api.ts#L337))
-A component that owns internal state for as long as it is mounted:
+**A `Component`**, for anything that remembers something, handles its own intents or needs a
+service. Constructed per mount, disposed when its node leaves:
 
 ```ts
-import { defineComposite, element, text } from '@flybyme/mesh-web';
+export class CounterButton extends Component({ props: props<{ readonly step: number }>() }) {
+    readonly count = signal(0);
 
-export const CounterButton = defineComposite<{ step: number }, { count: Signal<number> }>(
-    'ui.CounterButton',
-    'A self-contained increment button with internal count state',
-    (props) => {
-        const count = signal(0);
-        return {
-            count,
-            view: () => element('Button', {
-                intents: { activate: { action: vx.on(() => count.update(n => n + props.step)) } },
-                children: [text(() => `Count: ${count()}`)]
-            })
-        };
+    render(): Node {
+        return element('Button', {
+            intents: { activate: { action: this.on(() => this.count.set(this.count() + this.props.step)) } },
+            children: [text(() => `Count: ${this.count()}`)],
+        });
     }
-);
+}
+
+// in a view or another component:
+this.mount(CounterButton, { step: 2 })
 ```
 
-### Component Prefix Rule
-All contributed components must be prefixed with the contributing part's identifier (`<partId>.<ComponentName>`). Unprefixed names collide with core primitives and are rejected during manifest merging.
+A component generic over a type (a table of any row) is a factory declared once per type at module
+level — `const DomainTable = dataTable<Domain>()` — because a class cannot pass its own type
+parameter to the `Component({...})` it extends.

@@ -1,5 +1,13 @@
 # Window & Shell Management
 
+> **Partly stale (v0.21, 2026-09-29).** The window manager, tiling and frames are current: they are
+> the **desktop presentation** of an App (`mountDesktop`), where each route opens as a window and a
+> view's `window` hints (size, tile, closable) apply. What changed: windows are opened by
+> navigating (`router.navigate(href)`), not by an Application calling `cx.windows.open`; the
+> window's title follows the view's `title`; and chrome is no longer an `Extension` providing
+> `PAGE_CHROME` — the example below is part-model code. Layouts (`within`) are not drawn inside
+> windows: on the desktop, the shell is every window's layout.
+
 The window subsystem ([`src/window/`](file:///home/ubuntu/code/mesh-web/src/window/)) manages window geometry, multi-window tiling, viewport constraints, title bars, and geometry persistence.
 
 ---

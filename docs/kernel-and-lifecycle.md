@@ -1,5 +1,14 @@
 # Kernel & Boot Lifecycle
 
+> **Partly stale (v0.21, 2026-09-29).** `start()` now boots **only an `App`**: it builds the
+> capabilities the App declared (the broker's `createContext`), then mounts it with `mountSite`, or
+> with `mountDesktop` when the site's policy `window-manager/mode` is `windowed` or `tiled`. A
+> failed App shows a visible notice and the log viewer rather than a blank page. There is no longer
+> a process table, extension activation, manifest merging, `open` handling, or the Application
+> lifecycle states described below — those phases went with the part model. The log buffer and
+> viewer (ctrl+alt+q), policies and hives are current. Source of truth: `src/kernel/start.ts`, and
+> app-model.md §19–§21.
+
 The kernel runtime is booted via the [`start(composition)`](file:///home/ubuntu/code/mesh-web/src/kernel/start.ts#L159) function. This replaces hand-written glue code with an automated, crash-resilient bootloader that wires together the window manager, settings hives, network client, component registries, page chrome, and hotkeys.
 
 ---
