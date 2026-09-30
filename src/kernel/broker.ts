@@ -534,6 +534,7 @@ export function createContext(
                     {
                         eventSource: services.eventSource,
                         origin: services.credentials.origin,
+                        log: (message) => log.warn(message, { part: declaredBy }),
                     },
                 );
                 break;

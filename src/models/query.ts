@@ -45,18 +45,33 @@ const NOT_FILTERS = new Set(['limit', 'offset', 'skip', 'page', 'sort', 'order',
  */
 function filterOf(input: Record<string, unknown>): Record<string, unknown> {
     const nested = input.query;
-    if (nested !== null && typeof nested === 'object' && !Array.isArray(nested)) {
+    if (isRecord(nested) && !Array.isArray(nested)) {
         const search = input.search;
-        return { ...(nested as Record<string, unknown>), ...(typeof search === 'string' ? { search } : {}) };
+        return { ...nested, ...(typeof search === 'string' ? { search } : {}) };
     }
     return input;
 }
 
+/** Event payloads and rows arrive from the network as `unknown`; this is the one narrowing. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object';
+}
+
+/** A row's id: `id`, or Mongo's `_id` where a row still carries it. */
+function idOf(value: unknown): unknown {
+    return isRecord(value) ? (value.id ?? value._id) : undefined;
+}
+
+/** The row an event carries: `{ item }` (created, updated), or the payload itself. */
+function itemOf(payload: unknown): unknown {
+    return isRecord(payload) && payload.item !== undefined ? payload.item : payload;
+}
+
 export function matchesQuery(item: unknown, query: unknown): boolean {
-    if (!query || typeof query !== 'object') return true;
-    if (!item || typeof item !== 'object') return true;
-    const itemRec = item as Record<string, unknown>;
-    const queryRec = filterOf(query as Record<string, unknown>);
+    if (!isRecord(query)) return true;
+    if (!isRecord(item)) return true;
+    const itemRec = item;
+    const queryRec = filterOf(query);
 
     for (const [key, value] of Object.entries(queryRec)) {
         if (value === undefined || value === null) continue;
@@ -85,8 +100,8 @@ export function matchesQuery(item: unknown, query: unknown): boolean {
 
 /** The page a find asked for: `limit` rows, after skipping `offset` (CRUD) or `skip`. */
 function windowOf(query: unknown): { limit: number | undefined; offset: number } {
-    if (!query || typeof query !== 'object') return { limit: undefined, offset: 0 };
-    const { limit, offset, skip } = query as Record<string, unknown>;
+    if (!isRecord(query)) return { limit: undefined, offset: 0 };
+    const { limit, offset, skip } = query;
     const start = typeof offset === 'number' ? offset : typeof skip === 'number' ? skip : 0;
     return { limit: typeof limit === 'number' && limit >= 0 ? limit : undefined, offset: start };
 }
@@ -98,13 +113,13 @@ function windowOf(query: unknown): { limit: number | undefined; offset: number }
  * of those; anything else leaves the order alone.
  */
 export function sortedByQuery<T>(rows: readonly T[], query: unknown): readonly T[] {
-    if (!query || typeof query !== 'object') return rows;
-    const sort = (query as Record<string, unknown>).sort;
+    if (!isRecord(query)) return rows;
+    const sort = query.sort;
     const keys = (typeof sort === 'string' ? sort.split(/[\s,]+/) : Array.isArray(sort) ? sort : [])
         .filter((k): k is string => typeof k === 'string' && k !== '')
         .map((k) => (k.startsWith('-') ? { field: k.slice(1), dir: -1 } : { field: k, dir: 1 }));
     if (keys.length === 0) return rows;
-    const value = (row: T, field: string): unknown => (row !== null && typeof row === 'object' ? (row as Record<string, unknown>)[field] : undefined);
+    const value = (row: T, field: string): unknown => (isRecord(row) ? row[field] : undefined);
     return [...rows].sort((a, b) => {
         for (const { field, dir } of keys) {
             const x = value(a, field);
@@ -283,20 +298,16 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     }
 
     applyCreated(payload: unknown): void {
-        const item = (payload && typeof payload === 'object' && 'item' in payload && (payload as Record<string, unknown>).item !== undefined)
-            ? (payload as Record<string, unknown>).item
-            : payload;
+        const item = itemOf(payload);
         const currentQuery = this.queryFn ? this.queryFn() : undefined;
         if (!matchesQuery(item, currentQuery)) {
             return;
         }
 
-        const id = (item as Record<string, unknown>)?.id ?? (item as Record<string, unknown>)?._id ?? (payload as Record<string, unknown>)?.id;
+        const id = idOf(item) ?? idOf(payload);
         const currentRows = this._rows() ?? [];
         if (id !== undefined) {
-            const existingIndex = currentRows.findIndex(
-                (r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id,
-            );
+            const existingIndex = currentRows.findIndex((r) => idOf(r) === id);
             if (existingIndex >= 0) {
                 // Deduplicate by ID to prevent double-applying local writes: replace in place
                 const next = [...currentRows];
@@ -338,16 +349,12 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     }
 
     applyUpdated(payload: unknown): void {
-        const item = (payload && typeof payload === 'object' && 'item' in payload && (payload as Record<string, unknown>).item !== undefined)
-            ? (payload as Record<string, unknown>).item
-            : payload;
-        const id = (payload as Record<string, unknown>)?.id ?? (item as Record<string, unknown>)?.id ?? (item as Record<string, unknown>)?._id;
+        const item = itemOf(payload);
+        const id = (isRecord(payload) ? payload.id : undefined) ?? idOf(item);
         const currentQuery = this.queryFn ? this.queryFn() : undefined;
         const matches = matchesQuery(item, currentQuery);
         const currentRows = this._rows() ?? [];
-        const existingIndex = id !== undefined
-            ? currentRows.findIndex((r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id)
-            : -1;
+        const existingIndex = id !== undefined ? currentRows.findIndex((r) => idOf(r) === id) : -1;
 
         if (existingIndex >= 0) {
             if (matches) {
@@ -365,15 +372,11 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     }
 
     applyDeleted(payload: unknown): void {
-        const id = typeof payload === 'string'
-            ? payload
-            : ((payload && typeof payload === 'object') ? ((payload as Record<string, unknown>).id ?? (payload as Record<string, unknown>)._id) : undefined);
+        const id = typeof payload === 'string' ? payload : idOf(payload);
         if (id === undefined) return;
 
         const currentRows = this._rows() ?? [];
-        const existingIndex = currentRows.findIndex(
-            (r: unknown) => (r as Record<string, unknown>)?.id === id || (r as Record<string, unknown>)?._id === id,
-        );
+        const existingIndex = currentRows.findIndex((r) => idOf(r) === id);
         if (existingIndex >= 0) {
             this.commit(currentRows.filter((_, idx) => idx !== existingIndex), this.queryFn ? this.queryFn() : undefined, currentRows.length);
         }

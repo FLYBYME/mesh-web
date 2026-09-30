@@ -22,6 +22,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { IoManager } from '../src/kernel/io.js';
+import { createEventStreamClient } from '../src/models/models.js';
 import {
     call,
     computed,
@@ -1652,5 +1653,36 @@ describe("a collection's default query is nobody else's to own", () => {
 
         expect(parts.rows()).toEqual([]);
         expect(parts.status()).toBe('idle');
+    });
+});
+
+describe('the stream edge: a frame that cannot be read is dropped and reported', () => {
+    it('reports bad JSON and a frame with no event name, and still delivers good frames', () => {
+        const sources: { onmessage?: ((event: { type?: string; data?: unknown }) => void) | null }[] = [];
+        const reports: string[] = [];
+        const client = createEventStreamClient(
+            '/api/events',
+            () => {
+                const source = { onmessage: null, close: () => {} };
+                sources.push(source);
+                return source;
+            },
+            undefined,
+            (message) => reports.push(message),
+        );
+        const got: unknown[] = [];
+        client.subscribe('part.created', (payload) => got.push(payload));
+        const send = sources[0]?.onmessage;
+        expect(send).toBeTypeOf('function');
+
+        send?.({ type: 'message', data: '{not json' });
+        send?.({ type: 'message', data: JSON.stringify({ nameless: true }) });
+        send?.({ type: 'message', data: JSON.stringify({ event: 'part.created', data: { id: 'p1' } }) });
+
+        expect(got).toEqual([{ id: 'p1' }]);
+        expect(reports).toHaveLength(2);
+        expect(reports[0]).toContain('not JSON');
+        expect(reports[1]).toContain('no event name');
+        client.close();
     });
 });

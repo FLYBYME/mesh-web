@@ -8,6 +8,7 @@
  * - Zero type parameters at the call site
  */
 
+import { z } from 'zod';
 import { isCollectionStreamed, type AnyApiCall, type Api, type Gate } from '../net/api.js';
 import type { CallError } from '../net/result.js';
 import { effect } from '../reactivity/index.js';
@@ -34,12 +35,25 @@ import type {
     UpdateOutputOf,
 } from './types.js';
 
+/** What the stream hands a listener: a named event, and its data (a JSON string on the wire). */
+export interface StreamMessage {
+    readonly type?: string;
+    readonly data?: unknown;
+}
+
+/**
+ * A handler property checked like a method (bivariantly), so the DOM's own `EventSource` — whose
+ * handlers take an `Event` / `MessageEvent` — fits `EventSourceLike` without a cast.
+ */
+type Handler<E> = { bivarianceHack(event: E): void }['bivarianceHack'];
+
+/** The part of `EventSource` this client uses. */
 export interface EventSourceLike {
-    addEventListener?(event: string, listener: (event: any) => void): void;
-    removeEventListener?(event: string, listener: (event: any) => void): void;
-    onopen?: ((event: any) => void) | null;
-    onmessage?: ((event: any) => void) | null;
-    onerror?: ((event: any) => void) | null;
+    addEventListener?(event: string, listener: (event: StreamMessage) => void): void;
+    removeEventListener?(event: string, listener: (event: StreamMessage) => void): void;
+    onopen?: Handler<unknown> | null;
+    onmessage?: Handler<StreamMessage> | null;
+    onerror?: Handler<unknown> | null;
     close(): void;
 }
 
@@ -48,7 +62,12 @@ export type EventSourceFactory = (url: string) => EventSourceLike;
 export interface ModelsOptions {
     readonly eventSource?: EventSourceFactory;
     readonly origin?: string;
+    /** Where a dropped stream frame (bad JSON, unknown shape) is reported. Silent without it. */
+    readonly log?: (message: string) => void;
 }
+
+/** An unnamed stream message carries its event name inside: `{ event, data }`. */
+const StreamFrame = z.object({ event: z.string(), data: z.unknown().optional() }).passthrough();
 
 export interface EventStreamClient {
     subscribe(event: string, handler: (payload: unknown) => void): () => void;
@@ -66,6 +85,7 @@ export function createEventStreamClient(
     url: string,
     factory?: EventSourceFactory,
     sessionSource?: SessionSource,
+    log?: (message: string) => void,
 ): EventStreamClient {
     if (!factory) {
         return {
@@ -156,6 +176,7 @@ export function createEventStreamClient(
                 try {
                     data = JSON.parse(rawData);
                 } catch {
+                    log?.(`models: dropped a '${eventName}' event that is not JSON`);
                     return;
                 }
             }
@@ -169,26 +190,32 @@ export function createEventStreamClient(
 
         for (const [eventName] of eventListeners) {
             if (typeof source.addEventListener === 'function') {
-                source.addEventListener(eventName, (event: any) => {
-                    handleIncoming(eventName, event?.data);
+                source.addEventListener(eventName, (event) => {
+                    handleIncoming(eventName, event.data);
                 });
             }
         }
 
-        source.onmessage = (event: any) => {
-            const evType = event?.type || 'message';
+        source.onmessage = (event) => {
+            const evType = event.type || 'message';
             if (evType !== 'message') {
-                handleIncoming(evType, event?.data);
+                handleIncoming(evType, event.data);
+                return;
+            }
+            let parsed = event.data;
+            if (typeof event.data === 'string') {
+                try {
+                    parsed = JSON.parse(event.data);
+                } catch {
+                    log?.(`models: dropped a stream message that is not JSON: ${event.data.slice(0, 200)}`);
+                    return;
+                }
+            }
+            const frame = StreamFrame.safeParse(parsed);
+            if (frame.success) {
+                handleIncoming(frame.data.event, frame.data.data ?? frame.data);
             } else {
-                let parsed = event?.data;
-                if (typeof event?.data === 'string') {
-                    try {
-                        parsed = JSON.parse(event.data);
-                    } catch {}
-                }
-                if (parsed && typeof parsed === 'object' && 'event' in parsed) {
-                    handleIncoming((parsed as any).event, (parsed as any).data ?? parsed);
-                }
+                log?.('models: dropped a stream message with no event name');
             }
         };
 
@@ -256,12 +283,13 @@ export function createEventStreamClient(
             if (isFirst) {
                 const source = ensureConnected();
                 if (source && typeof source.addEventListener === 'function') {
-                    source.addEventListener(eventName, (event: any) => {
-                        let data = event?.data;
-                        if (typeof event?.data === 'string') {
+                    source.addEventListener(eventName, (event) => {
+                        let data = event.data;
+                        if (typeof event.data === 'string') {
                             try {
                                 data = JSON.parse(event.data);
                             } catch {
+                                log?.(`models: dropped a '${eventName}' event that is not JSON`);
                                 return;
                             }
                         }
@@ -567,17 +595,15 @@ export function createModels<A>(
 
     const apiObj = (api ?? mesh.descriptor) as Api<Record<string, AnyApiCall & { readonly gate?: Gate }>> | undefined;
     const base = apiObj?.base ?? '/api';
-    const origin = options?.origin ?? mesh.origin ?? (apiObj as any)?.origin ?? '';
+    const origin = options?.origin ?? mesh.origin ?? '';
     const eventsUrl = origin ? `${origin}${base}/events` : `${base}/events`;
 
     const factory: EventSourceFactory | undefined =
         options?.eventSource ??
         mesh.eventSource ??
-        (typeof globalThis !== 'undefined' && typeof (globalThis as any).EventSource !== 'undefined'
-            ? (u: string) => new (globalThis as any).EventSource(u)
-            : undefined);
+        (typeof EventSource !== 'undefined' ? (u: string) => new EventSource(u) : undefined);
 
-    const streamClient = createEventStreamClient(eventsUrl, factory, session);
+    const streamClient = createEventStreamClient(eventsUrl, factory, session, options?.log);
     if (onDispose !== undefined) {
         onDispose(() => {
             streamClient.close();
