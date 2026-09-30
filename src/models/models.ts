@@ -8,7 +8,6 @@
  * - Zero type parameters at the call site
  */
 
-import { z } from 'zod';
 import { isCollectionStreamed, type AnyApiCall, type Api, type Gate } from '../net/api.js';
 import type { CallError } from '../net/result.js';
 import { effect } from '../reactivity/index.js';
@@ -66,8 +65,14 @@ export interface ModelsOptions {
     readonly log?: (message: string) => void;
 }
 
-/** An unnamed stream message carries its event name inside: `{ event, data }`. */
-const StreamFrame = z.object({ event: z.string(), data: z.unknown().optional() }).passthrough();
+/**
+ * An unnamed stream message carries its event name inside: `{ event, data }`. A guard, not a zod
+ * schema: mesh-web's `src/` does not depend on zod (the kernel is bundled without it -- see
+ * app/types.ts). v0.21.5 imported it here and the kernel build failed.
+ */
+function isStreamFrame(value: unknown): value is { event: string; data?: unknown } {
+    return typeof value === 'object' && value !== null && 'event' in value && typeof value.event === 'string';
+}
 
 export interface EventStreamClient {
     subscribe(event: string, handler: (payload: unknown) => void): () => void;
@@ -211,9 +216,8 @@ export function createEventStreamClient(
                     return;
                 }
             }
-            const frame = StreamFrame.safeParse(parsed);
-            if (frame.success) {
-                handleIncoming(frame.data.event, frame.data.data ?? frame.data);
+            if (isStreamFrame(parsed)) {
+                handleIncoming(parsed.event, parsed.data ?? parsed);
             } else {
                 log?.('models: dropped a stream message with no event name');
             }
