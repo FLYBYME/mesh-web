@@ -53,6 +53,11 @@ export interface ModelsOptions {
 export interface EventStreamClient {
     subscribe(event: string, handler: (payload: unknown) => void): () => void;
     onReconnect(handler: () => void): () => void;
+    /**
+     * The stream's first open on this connection. A list fetched before it may have missed what
+     * was written between its fetch and this moment — no event for it was being received.
+     */
+    onFirstOpen(handler: () => void): () => void;
     close(): void;
     readonly isAvailable: boolean;
 }
@@ -66,6 +71,7 @@ export function createEventStreamClient(
         return {
             subscribe: () => () => {},
             onReconnect: () => () => {},
+            onFirstOpen: () => () => {},
             close: () => {},
             isAvailable: false,
         };
@@ -76,6 +82,7 @@ export function createEventStreamClient(
     let isDisposed = false;
     const eventListeners = new Map<string, Set<(payload: unknown) => void>>();
     const reconnectListeners = new Set<() => void>();
+    const firstOpenListeners = new Set<() => void>();
 
     function getSessionSignal(): ReadonlySignal<Session | null> | undefined {
         if (!sessionSource) return undefined;
@@ -120,6 +127,9 @@ export function createEventStreamClient(
                 }
             } else {
                 openedOnce = true;
+                for (const r of Array.from(firstOpenListeners)) {
+                    r();
+                }
             }
         };
 
@@ -282,6 +292,12 @@ export function createEventStreamClient(
                 reconnectListeners.delete(handler);
             };
         },
+        onFirstOpen(handler: () => void) {
+            firstOpenListeners.add(handler);
+            return () => {
+                firstOpenListeners.delete(handler);
+            };
+        },
         close() {
             isDisposed = true;
             if (sessionEffectDispose !== null) {
@@ -291,6 +307,7 @@ export function createEventStreamClient(
             disconnect();
             eventListeners.clear();
             reconnectListeners.clear();
+            firstOpenListeners.clear();
         },
     };
 }
@@ -399,6 +416,14 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
             streamClient.onReconnect(() => {
                 for (const q of activeQueries) {
                     void q.refetch();
+                }
+            }),
+            // A list that fetched before the stream first opened heard nothing in between — on
+            // api.surfdns.net that was ~16 s, while the gateway checked each event's gate. Only
+            // those refetch; a list whose first fetch comes after the open misses nothing.
+            streamClient.onFirstOpen(() => {
+                for (const q of activeQueries) {
+                    if (q.hasFetched) void q.refetch();
                 }
             }),
         );

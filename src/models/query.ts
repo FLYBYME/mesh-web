@@ -271,6 +271,13 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         return this._live;
     }
 
+    private started = false;
+
+    /** Whether this query has sent a fetch yet (a gated one waits for a session). */
+    get hasFetched(): boolean {
+        return this.started;
+    }
+
     setLive(live: boolean): void {
         this._live.set(live);
     }
@@ -440,6 +447,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
 
         let fetchPromise: Promise<readonly TItem[]>;
         try {
+            this.started = true;
             fetchPromise = this.fetcher(queryParam);
         } catch (syncErr) {
             if (requestId === this.currentRequestId && !this.isDisposed) {

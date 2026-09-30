@@ -1441,6 +1441,35 @@ describe('session-aware collections', () => {
             list.dispose();
         });
 
+        it('refetches, when the stream first opens, the lists that fetched before it — only those', async () => {
+            MockEventSource.instances = [];
+            const fetched: string[] = [];
+            const fake = createFakeTransport((req) => {
+                fetched.push(new URL(req.url, 'http://x').searchParams.get('query') ?? 'all');
+                return jsonResponse(200, []);
+            });
+            const client = createClient(crudApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof crudApi>(client, undefined, undefined, crudApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+            const early = models('rec').find({ query: { zone: 'early' } });
+            await new Promise((r) => setTimeout(r, 20));
+            expect(fetched).toHaveLength(1);
+
+            // The stream opens late (the gateway was slow): anything written meanwhile was missed.
+            MockEventSource.instances[0]!.emit('open', '');
+            await new Promise((r) => setTimeout(r, 20));
+            expect(fetched).toHaveLength(2);
+
+            // A list opened after the stream is up misses nothing: one fetch.
+            const late = models('rec').find({ query: { zone: 'late' } });
+            await new Promise((r) => setTimeout(r, 20));
+            expect(fetched).toHaveLength(3);
+            early.dispose();
+            late.dispose();
+        });
+
         it('leaves a write made around a live handle to the event stream', async () => {
             MockEventSource.instances = [];
             let finds = 0;
@@ -1481,15 +1510,17 @@ describe('session-aware collections', () => {
             expect(parts.rows()[0]?.name).toBe('Fetch 1');
 
             const es = MockEventSource.instances[0]!;
-            // Initial connection open
+            // Initial connection open, after the list's fetch: what was written in between was
+            // never heard, so it refetches (see "refetches, when the stream first opens" above).
             es.open();
-            expect(fetchCount).toBe(1);
+            await new Promise((r) => setTimeout(r, 20));
+            expect(fetchCount).toBe(2);
 
             // Reconnection: open fires again
             es.open();
             await new Promise((r) => setTimeout(r, 20));
-            expect(fetchCount).toBe(2);
-            expect(parts.rows()[0]?.name).toBe('Fetch 2');
+            expect(fetchCount).toBe(3);
+            expect(parts.rows()[0]?.name).toBe('Fetch 3');
         });
 
         it('does not open event stream before login, connects on session arrival, and closes on sign-out', async () => {
