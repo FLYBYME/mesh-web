@@ -114,4 +114,12 @@ export interface Models<A> {
     ): CollectionQuery<ItemOf<CallsOf<A>, K>, QueryOf<CallsOf<A>, K>>;
 
     collection<K extends CollectionNameOf<A>>(name: K): CollectionHandle<CallsOf<A>, K>;
+
+    /**
+     * One event off the api's `/events` stream that is not a collection's change -- a live
+     * figure, a notice. The payload is off the wire and unchecked: the page narrows it. Returns
+     * the unsubscribe. Only events the api streams (its `events` rows) and the caller may see ever
+     * arrive; the stream's `subscription.omitted` says which were refused.
+     */
+    on(event: string, handler: (payload: unknown) => void): () => void;
 }

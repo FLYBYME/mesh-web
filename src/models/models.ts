@@ -651,6 +651,12 @@ export function createModels<A>(
         return getCollection(name);
     };
 
+    // The same one stream the collections share: a page listening for a live figure opens no
+    // second connection.
+    modelsFn.on = function (event: string, handler: (payload: unknown) => void): () => void {
+        return streamClient.subscribe(event, handler);
+    };
+
     if (onDispose !== undefined) {
         onDispose(() => {
             for (const col of collections.values()) {

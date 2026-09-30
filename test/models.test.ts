@@ -1157,6 +1157,34 @@ describe('session-aware collections', () => {
             expect(stats.rows()).toEqual([{ total: 42 }]);
         });
 
+        it('delivers an event that is no collection\'s to models.on, over the one stream, until unsubscribed', async () => {
+            MockEventSource.instances = [];
+            const fake = createFakeTransport((req) => {
+                if (req.url.startsWith('/api/parts')) return jsonResponse(200, []);
+                return jsonResponse(404, {});
+            });
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, undefined, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const parts = models('part');
+            const got: unknown[] = [];
+            const off = models.on('telemetry.live_updated', (payload) => got.push(payload));
+            await new Promise((r) => setTimeout(r, 20));
+
+            expect(MockEventSource.instances).toHaveLength(1);
+            const es = MockEventSource.instances[0]!;
+            es.emit('telemetry.live_updated', { at: 1, graphs: [] });
+            expect(got).toEqual([{ at: 1, graphs: [] }]);
+            expect(parts.live()).toBe(true);
+
+            off();
+            es.emit('telemetry.live_updated', { at: 2, graphs: [] });
+            expect(got).toHaveLength(1);
+        });
+
         it('applies created, updated, and deleted events live to collection rows', async () => {
             MockEventSource.instances = [];
             const fake = createFakeTransport((req) => {
