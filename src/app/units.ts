@@ -92,6 +92,12 @@ export interface ComponentSpec extends UnitSpec {
 
 export interface AppSpec extends UnitSpec {
     readonly routes: { readonly [path: string]: Route };
+    /**
+     * The page for a URL no route matches -- a view with no params, drawn in its layout like any
+     * other page (`notFound: site(NotFoundView)`), so a visitor who follows a stale link still has
+     * the site's navigation. Absent: the mount's own `notFound`, or a bare "Nothing here".
+     */
+    readonly notFound?: Route;
     /** Constructed at boot. Any other service is constructed on first injection. */
     readonly services?: readonly ServiceClass[];
     /**

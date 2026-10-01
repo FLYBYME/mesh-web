@@ -36,6 +36,7 @@ export interface AppClass {
     /** `routes` is named so a spec holding only routes still matches — TypeScript's weak-type rule. */
     readonly spec: UnitSpec & {
         readonly routes: { readonly [path: string]: Route };
+        readonly notFound?: Route;
         readonly services?: readonly ServiceClass[];
         readonly fallback?: (failure: MountFailure) => Node;
     };

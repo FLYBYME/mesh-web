@@ -58,7 +58,16 @@ export interface MountedApp {
 export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
     const history = options.history ?? browserHistory(window);
     const table = compileRoutes(App.spec.routes);
-    const read = (): RouteMatch | undefined => table.match(history.pathname(), history.search());
+    // The App's own not-found page: compiled as a route of its own, matched when nothing else is.
+    // Keyed by the path, so going from one missing URL to another remounts it with the new path.
+    const NOT_FOUND = '/__not-found__';
+    const notFoundTable = App.spec.notFound !== undefined ? compileRoutes({ [NOT_FOUND]: App.spec.notFound }) : undefined;
+    const read = (): RouteMatch | undefined => {
+        const match = table.match(history.pathname(), history.search());
+        if (match !== undefined || notFoundTable === undefined) return match;
+        const missing = notFoundTable.match(NOT_FOUND, history.search());
+        return missing === undefined ? undefined : { ...missing, key: `${missing.key} ${history.pathname()}` };
+    };
 
     const route = signal<RouteMatch | undefined>(read());
     const stopHistory = history.onChange(() => route.set(read()));

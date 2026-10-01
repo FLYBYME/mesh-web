@@ -421,3 +421,50 @@ describe('an App as a single-page site', () => {
         expect(anchor.getAttribute('href')).toBe('/zones/example.com');
     });
 });
+
+// ---------------------------------------------------------------------------- the App's own not-found page
+
+let chromeBuilt = 0;
+class Chrome extends Component({ inject: { router: Router }, props: props<LayoutProps>() }) {
+    constructed = ++chromeBuilt;
+    render(): Node {
+        return element('Stack', {
+            children: [
+                element('Text', { props: { 'data-chrome': '' }, children: [text('site nav')] }),
+                this.props.outlet,
+            ],
+        });
+    }
+}
+const inChrome = within(Chrome);
+class LostView extends View({ inject: { router: Router }, title: 'Page not found' }) {
+    readonly at = this.inject.router.here();
+    render(): Node {
+        return element('Stack', { props: { 'data-lost': this.at }, children: [text(`No page at ${this.at}`)] });
+    }
+}
+class WithLost extends App({ routes: { '/': inChrome(PublicView) }, notFound: inChrome(LostView) }) {}
+
+describe('an App\'s notFound page', () => {
+    it('is drawn in its layout -- the site\'s navigation stays -- once per missing URL, and leaves when a route matches', async () => {
+        chromeBuilt = 0;
+        history.pushState(null, '', '/old-link');
+        site = mountSite(WithLost, { root });
+        await frame();
+        expect(root.querySelector('[data-lost]')?.textContent).toBe('No page at /old-link');
+        expect(root.querySelector('[data-chrome]')).not.toBeNull();
+        expect(root.querySelector('[data-not-found]')).toBeNull();
+        expect(document.title).toBe('Page not found');
+
+        site.navigate('/another-missing');
+        await frame();
+        expect(root.querySelector('[data-lost]')?.textContent).toBe('No page at /another-missing');
+
+        site.navigate('/');
+        await frame();
+        expect(root.querySelector('[data-lost]')).toBeNull();
+        expect(view()).toBe('public');
+        // One layout for all of it: the not-found page shares the real pages' layout.
+        expect(chromeBuilt).toBe(1);
+    });
+});
