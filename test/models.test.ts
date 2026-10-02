@@ -356,7 +356,7 @@ describe('status tracking and query behavior', () => {
         await parts.refetch();
         expect(parts.status()).toBe('error');
         expect(parts.loading()).toBe(false);
-        expect(parts.error()).toEqual({ kind: 'forbidden' });
+        expect(parts.error()).toEqual({ kind: 'forbidden', detail: 'Forbidden' });
         // Empty array preserved from previous successful response
         expect(parts.data()).toEqual([]);
     });

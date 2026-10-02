@@ -65,12 +65,16 @@ export interface ExposureDifference {
 
 export type TransportError =
     | { readonly kind: 'unauthorized' }
-    | { readonly kind: 'forbidden' }
+    // `detail`: the api's own reason, when it gave one ("This account has not proven it controls
+    // example.com").
+    | { readonly kind: 'forbidden'; readonly detail?: string }
     | { readonly kind: 'not_found' }
     | { readonly kind: 'invalid'; readonly detail: string }
     | { readonly kind: 'conflict'; readonly detail: string }
     | { readonly kind: 'rate_limited'; readonly retryAfterMs?: number }
-    | { readonly kind: 'server'; readonly status: number; readonly detail: string }
+    // `message`: the api's own words, when its body carried one -- `detail` may be a raw body (a
+    // proxy's HTML page), never to be shown as a sentence.
+    | { readonly kind: 'server'; readonly status: number; readonly detail: string; readonly message?: string }
     | { readonly kind: 'offline'; readonly detail: string }
     | {
         readonly kind: 'stale';
@@ -98,12 +102,14 @@ export type CallError<TDeclared extends string> = TransportError | DeclaredError
 export function describe(error: CallError<string>): string {
     switch (error.kind) {
         case 'unauthorized': return 'You need to sign in.';
-        case 'forbidden': return 'You do not have access to that.';
+        case 'forbidden': return error.detail !== undefined && error.detail !== '' ? error.detail : 'You do not have access to that.';
         case 'not_found': return 'That does not exist.';
         case 'invalid': return `That request was not valid: ${error.detail}`;
         case 'conflict': return `That conflicts with something else: ${error.detail}`;
         case 'rate_limited': return 'Too many requests. Try again shortly.';
-        case 'server': return `The server failed (${error.status}).`;
+        // A 4xx the api explained (402: a plan limit; 422: a rule of the call) is a refusal, not a
+        // failure: say it in the api's words. Only a 5xx, or a 4xx with nothing said, is "failed".
+        case 'server': return error.status < 500 && error.message !== undefined && error.message !== '' ? error.message : `The server failed (${error.status}).`;
         case 'offline': return 'Could not reach the server.';
         case 'stale': {
             if (error.differences !== undefined && error.differences.length > 0) {

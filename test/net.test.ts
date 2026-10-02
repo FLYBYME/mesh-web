@@ -332,12 +332,23 @@ describe('failures are named, not numbered', () => {
      * Neither side was wrong alone, and neither side's tests could see it: this file's fake server
      * only ever produced one of the two shapes. It took one real browser calling one real API.
      */
+    it('keeps the api\'s own words for a refusal it explained, and only those -- never a raw body', async () => {
+        // A plan limit (surfdns-billing answers 402 PLAN_LIMIT): a refusal, said in its words.
+        expect(await failsWith(json(402, { error: 'PLAN_LIMIT', message: 'Your Website plan includes 5 mailboxes.' })))
+            .toEqual({ kind: 'server', status: 402, detail: 'Your Website plan includes 5 mailboxes.', message: 'Your Website plan includes 5 mailboxes.' });
+        // A proxy's page in front of the api: no message, so nothing to show as a sentence.
+        const proxied = await failsWith(json(413, '<html>Request Entity Too Large</html>'));
+        expect(proxied).toMatchObject({ kind: 'server', status: 413 });
+        expect('message' in proxied).toBe(false);
+    });
+
     it('does not mistake a gate refusal for a declared failure', async () => {
         expect(await failsWith(json(401, { error: 'UNAUTHENTICATED', message: 'Sign in.' })))
             .toEqual({ kind: 'unauthorized' });
 
+        // Still `forbidden`, never `declared` -- now carrying the api's own reason to show.
         expect(await failsWith(json(403, { error: 'FORBIDDEN', message: 'No post.write.' })))
-            .toEqual({ kind: 'forbidden' });
+            .toEqual({ kind: 'forbidden', detail: 'No post.write.' });
 
         // A declared failure is marked, so a site may answer one with whatever status suits it.
         expect(await failsWith(json(404, { error: 'not_found', message: 'No such post.', declared: true })))

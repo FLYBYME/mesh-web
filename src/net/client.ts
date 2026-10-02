@@ -305,14 +305,17 @@ function interpret(response: NetResponse): Result<unknown, CallError<string>> {
         ? body['message']
         : typeof body === 'string' ? body : parsed.raw;
 
+    // The api's own sentence, only when it sent one as `message` -- never a raw body.
+    const said = isRecord(body) && typeof body['message'] === 'string' ? { message: body['message'] } : {};
+
     switch (response.status) {
         case 400: return err({ kind: 'invalid', detail });
         case 401: return err({ kind: 'unauthorized' });
-        case 403: return err({ kind: 'forbidden' });
+        case 403: return err({ kind: 'forbidden', ...(said.message !== undefined ? { detail: said.message } : {}) });
         case 404: return err({ kind: 'not_found' });
         case 409: return err({ kind: 'conflict', detail });
         case 429: return err({ kind: 'rate_limited' });
-        default: return err({ kind: 'server', status: response.status, detail });
+        default: return err({ kind: 'server', status: response.status, detail, ...said });
     }
 }
 

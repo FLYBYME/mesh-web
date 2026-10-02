@@ -116,6 +116,19 @@ describe('describe() — TransportError kinds', () => {
         expect(describeError({ kind: 'rate_limited', retryAfterMs: 5000 })).toContain('Too many requests');
     });
 
+    it("'forbidden' with the api's reason says that reason", () => {
+        expect(describeError({ kind: 'forbidden', detail: 'This account has not proven it controls example.com.' })).toBe('This account has not proven it controls example.com.');
+    });
+
+    it("'server' with a 4xx the api explained says it in the api's words: a refusal, not a failure", () => {
+        expect(describeError({ kind: 'server', status: 402, detail: '{"message":"x"}', message: 'Your Website plan includes 5 mailboxes.' })).toBe('Your Website plan includes 5 mailboxes.');
+    });
+
+    it("'server' with a 4xx and no message, or any 5xx, is still 'failed'", () => {
+        expect(describeError({ kind: 'server', status: 413, detail: '<html>Too Large</html>' })).toBe('The server failed (413).');
+        expect(describeError({ kind: 'server', status: 500, detail: 'boom', message: 'Internal error' })).toBe('The server failed (500).');
+    });
+
     it("'server' with status 500 includes '500'", () => {
         expect(describeError({ kind: 'server', status: 500, detail: 'internal error' })).toContain('500');
     });
