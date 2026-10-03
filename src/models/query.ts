@@ -214,7 +214,9 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
 
             const hadSession = prevSession !== null;
             const hasSession = currentSession !== null;
-            const userChanged = prevSession !== null && currentSession !== null && prevSession.userId !== currentSession.userId;
+            // Another user, or the same one in another organization: the rows belong to the old scope.
+            const userChanged = prevSession !== null && currentSession !== null
+                && (prevSession.userId !== currentSession.userId || prevSession.organizationId !== currentSession.organizationId);
             prevSession = currentSession;
 
             if (!hadSession && hasSession) {

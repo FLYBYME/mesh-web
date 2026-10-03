@@ -28,4 +28,11 @@ export interface Session {
     readonly roles: readonly string[];
     /** When the credential stops being accepted. Whatever holds it signs out at that point. */
     readonly expiresAt: number;
+    /**
+     * The organization this session acts in, when the site lets a person choose among several (the
+     * site sends it to its api itself, e.g. as a header). A change is treated like a change of
+     * user: the event stream reopens and every live collection refetches, so nothing shown belongs
+     * to the organization left behind.
+     */
+    readonly organizationId?: string;
 }

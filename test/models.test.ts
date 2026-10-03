@@ -806,6 +806,46 @@ describe('session-aware collections', () => {
         expect(parts.rows()).toEqual([{ id: 'p-bob', name: 'Bob Doc', tag: 'private' }]);
     });
 
+    it('switches organization (same user) without leaking rows across organizations', async () => {
+        const alice = { userId: 'alice', displayName: 'Alice', roles: ['user'], expiresAt: Date.now() + 10000 };
+        const sessionSignal = signal<Session | null>({ ...alice, organizationId: 'org-a' });
+
+        // The site names the organization itself (here a header); the server answers per organization.
+        const fake = createFakeTransport((req) => {
+            if (req.headers['x-organization'] === 'org-a') return jsonResponse(200, [{ id: 'p-a', name: 'Org A Doc', tag: 'private' }]);
+            if (req.headers['x-organization'] === 'org-b') return jsonResponse(200, [{ id: 'p-b', name: 'Org B Doc', tag: 'private' }]);
+
+            return jsonResponse(400, { error: 'name an organization' });
+        });
+
+        const client = createClient(siteApi, {
+            transport: {
+                send: (req) => {
+                    // peek: read without subscribing, as a real credentials hook does -- the switch
+                    // must come from the session rule, not from this read.
+                    const organization = sessionSignal.peek()?.organizationId;
+
+                    return fake.transport.send({ ...req, headers: { ...req.headers, ...(organization !== undefined ? { 'x-organization': organization } : {}) } });
+                },
+            },
+        });
+
+        const { createModels } = await import('../src/models/index.js');
+        const models = createModels<typeof siteApi>(client, undefined, sessionSignal);
+
+        const parts = models('part');
+        expect(parts.loading()).toBe(true);
+        await new Promise((r) => setTimeout(r, 20));
+        expect(parts.rows()).toEqual([{ id: 'p-a', name: 'Org A Doc', tag: 'private' }]);
+
+        sessionSignal.set({ ...alice, organizationId: 'org-b' });
+        flushSync();
+        await new Promise((r) => setTimeout(r, 15));
+
+        expect(parts.status()).toBe('ready');
+        expect(parts.rows()).toEqual([{ id: 'p-b', name: 'Org B Doc', tag: 'private' }]);
+    });
+
     it('boots cleanly and loads public collections on a site without AuthExtension', async () => {
         let fetches = 0;
         const fake = createFakeTransport(() => {
