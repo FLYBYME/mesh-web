@@ -21,6 +21,8 @@
  * Deliberately *not* a general-purpose Result library. No `map`, no `andThen`, no chaining.
  */
 
+import type { InputIssue } from './api.js';
+
 export interface Ok<T> {
     readonly ok: true;
     readonly value: T;
@@ -69,7 +71,9 @@ export type TransportError =
     // example.com").
     | { readonly kind: 'forbidden'; readonly detail?: string }
     | { readonly kind: 'not_found' }
-    | { readonly kind: 'invalid'; readonly detail: string }
+    // `issues`: refused in the page by the call's own input schema, before anything was sent --
+    // each with the path of the field it belongs beside.
+    | { readonly kind: 'invalid'; readonly detail: string; readonly issues?: readonly InputIssue[] }
     | { readonly kind: 'conflict'; readonly detail: string }
     | { readonly kind: 'rate_limited'; readonly retryAfterMs?: number }
     // `message`: the api's own words, when its body carried one -- `detail` may be a raw body (a

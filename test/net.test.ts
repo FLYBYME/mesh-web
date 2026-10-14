@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import {
     App, Service, call, createAppRuntime, createClient, createContext, createServices, defineApi, describe as describeError,
@@ -1068,5 +1069,41 @@ describe('a moved exposure is not a broken client', () => {
             if (e instanceof MeshCallError) expect(e.error.kind).toBe('stale');
             else throw e;
         }
+    });
+});
+
+// ---------------------------------------------------------------------------- input checked before it is sent
+
+describe('a call\'s input schema', () => {
+    const credentialCreate = z.object({ name: z.string().min(1, 'Name it.'), provider: z.enum(['cloudflare', 'route53']) }).strict();
+    const checkedApi = defineApi({
+        id: 'checked',
+        exposure: 'sha256:e',
+        shapeHash: 'sha256:s',
+        calls: {
+            'credential.create': call<z.input<typeof credentialCreate>, Credential>('POST', '/credential', undefined, { inputSchema: credentialCreate }),
+        },
+    });
+
+    it('refuses an input it does not accept, says which field, and sends nothing', async () => {
+        const fake = fakeTransport(() => json(200, {}));
+        const client = createClient(checkedApi, { transport: fake.transport });
+
+        const failed = await client.call('credential.create', { name: '', provider: 'cloudflare' }).then(() => undefined, (e: unknown) => e);
+
+        expect(failed).toBeInstanceOf(MeshCallError);
+        if (!(failed instanceof MeshCallError) || failed.error.kind !== 'invalid') throw new Error('not refused as invalid');
+        expect(failed.error.issues?.map((i) => i.path)).toEqual([['name']]);
+        expect(failed.error.detail).toBe('name: Name it.');
+        expect(fake.sent).toEqual([]);
+    });
+
+    it('sends an input it accepts, as it was given', async () => {
+        const fake = fakeTransport(() => json(200, { id: 'c1', name: 'prod', provider: 'cloudflare', createdAt: 1 }));
+        const client = createClient(checkedApi, { transport: fake.transport });
+
+        await client.call('credential.create', { name: 'prod', provider: 'cloudflare' });
+
+        expect(fake.sent.map((r) => r.body)).toEqual([JSON.stringify({ name: 'prod', provider: 'cloudflare' })]);
     });
 });

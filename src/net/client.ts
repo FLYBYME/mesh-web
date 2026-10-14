@@ -132,6 +132,19 @@ export function createClient<TCalls extends Record<string, AnyApiCall>>(
                 throw new MeshCallError({ kind: 'invalid', detail: `${api.id} does not expose "${action}"` });
             }
 
+            // The contract's own schema, here, before anything is sent: a refused input never
+            // reaches the api, and each issue says which field (owner, 10-14: "the client should
+            // validate the client's input before it's sent").
+            const checked = decl.inputSchema?.safeParse(rest[0]);
+            if (checked !== undefined && !checked.success) {
+                const issues = checked.error.issues;
+                throw new MeshCallError({
+                    kind: 'invalid',
+                    detail: issues.map((i) => (i.path.length > 0 ? `${i.path.join('.')}: ${i.message}` : i.message)).join('; '),
+                    issues,
+                });
+            }
+
             const request = toRequest(api, decl, rest[0]);
 
             let response: NetResponse;

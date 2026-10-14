@@ -65,10 +65,29 @@ export function requiresAuth(gate?: Gate): boolean {
     return gate !== undefined;
 }
 
+/** One reason an input was refused: where in it, and why. */
+export interface InputIssue {
+    readonly path: readonly (string | number)[];
+    readonly message: string;
+}
+
+/**
+ * What checks a call's input before it is sent: the contract's own schema, as the generated client
+ * carries it (`xInputSchema`). Described by what it does, not by zod's class, so a site's zod and
+ * this package's never have to be the same copy.
+ */
+export interface InputCheck {
+    safeParse(value: unknown):
+        | { readonly success: true }
+        | { readonly success: false; readonly error: { readonly issues: readonly InputIssue[] } };
+}
+
 export interface ApiCall<TInput, TOutput, TErrors extends string = never> {
     readonly method: HttpMethod;
     readonly path: string;
     readonly gate?: Gate;
+    /** The contract's input schema: a call whose input it refuses is never sent. */
+    readonly inputSchema?: InputCheck;
     /** Never assigned. Present only so the compiler carries the shapes. */
     readonly types?: {
         readonly input: TInput;
@@ -87,6 +106,7 @@ export interface ApiCall<TInput, TOutput, TErrors extends string = never> {
 export interface AnyApiCall {
     readonly method: HttpMethod;
     readonly path: string;
+    readonly inputSchema?: InputCheck;
 }
 
 export type InputOf<C> = C extends ApiCall<infer I, infer _O, infer _E> ? I : never;
@@ -187,8 +207,13 @@ export function call<TInput, TOutput, TErrors extends string = never>(
     method: HttpMethod,
     path: string,
     gate?: Gate,
+    options?: { readonly inputSchema?: InputCheck },
 ): ApiCall<TInput, TOutput, TErrors> {
-    return gate === undefined ? { method, path } : { method, path, gate };
+    return {
+        method, path,
+        ...(gate !== undefined ? { gate } : {}),
+        ...(options?.inputSchema !== undefined ? { inputSchema: options.inputSchema } : {}),
+    };
 }
 
 /**

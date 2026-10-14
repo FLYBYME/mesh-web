@@ -500,6 +500,14 @@ export function createContext(
     let mesh: MeshClient<unknown> | undefined;
     let models: Models<unknown> | undefined;
 
+    // One client for `mesh` and `models` both: each client keeps its own record of the api's
+    // exposure, and two of them fetched `_describe` twice on every page (one-host.ca, 10-14).
+    let client: MeshClient<unknown> | undefined;
+    const sharedClient = (api: Api<Record<string, AnyApiCall>>): MeshClient<unknown> => {
+        client ??= observeCalls(services.meshClient(api, id), reportCall);
+        return client;
+    };
+
     for (const name of declaredNeeds) {
         switch (name) {
             // `mesh` and `models` are not in CapabilityMap: they are typed per contribution by the
@@ -514,7 +522,7 @@ export function createContext(
                 }
                 // Observed here rather than inside `services.meshClient`, which a site or a test
                 // replaces: what the kernel records must not depend on who built the client.
-                mesh = observeCalls(services.meshClient(declaredApi, id), reportCall);
+                mesh = sharedClient(declaredApi);
                 break;
             case 'models':
                 if (declaredApi === undefined) {
@@ -527,7 +535,7 @@ export function createContext(
                 models = createModels(
                     // Every collection fetch and mutation is a `call` on this client, so a failed
                     // `models` fetch is recorded by the same observer as a failed `mesh` call.
-                    observeCalls(services.meshClient(declaredApi, id), reportCall),
+                    sharedClient(declaredApi),
                     (fn) => cleanups.push(fn),
                     () => services.session,
                     declaredApi,
