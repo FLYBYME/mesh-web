@@ -67,35 +67,90 @@ function itemOf(payload: unknown): unknown {
     return isRecord(payload) && payload.item !== undefined ? payload.item : payload;
 }
 
-export function matchesQuery(item: unknown, query: unknown): boolean {
+/** A field of a row by its path, nested with dots as the database reads it: `target.id`. */
+function valueAt(row: Record<string, unknown>, path: string): unknown {
+    let at: unknown = row;
+    for (const part of path.split('.')) {
+        if (!isRecord(at)) return undefined;
+        at = at[part];
+    }
+
+    return at;
+}
+
+const compare = (a: unknown, b: unknown): number | undefined =>
+    (typeof a === 'number' && typeof b === 'number') || (typeof a === 'string' && typeof b === 'string')
+        ? (a < b ? -1 : a > b ? 1 : 0)
+        : undefined;
+
+/**
+ * One field's condition, judged on the row alone: a value, or `{ $in, $nin, $ne, $eq, $exists, $gt,
+ * $gte, $lt, $lte }`. Undefined: an operator this can't judge here -- the caller asks the api again
+ * rather than guess (10-17: `{ host: { $in } }` was read as a value, never equal, and every updated
+ * row left the list).
+ */
+function judge(value: unknown, condition: unknown): boolean | undefined {
+    if (!isRecord(condition) || Array.isArray(condition)) {
+        return Array.isArray(condition) ? condition.includes(value) : value === condition;
+    }
+
+    for (const [op, arg] of Object.entries(condition)) {
+        let ok: boolean | undefined;
+        switch (op) {
+            case '$eq': ok = value === arg; break;
+            case '$ne': ok = value !== arg; break;
+            case '$in': ok = Array.isArray(arg) ? arg.includes(value) : undefined; break;
+            case '$nin': ok = Array.isArray(arg) ? !arg.includes(value) : undefined; break;
+            case '$exists': ok = (value !== undefined) === Boolean(arg); break;
+            case '$gt': { const c = compare(value, arg); ok = c === undefined ? undefined : c > 0; break; }
+            case '$gte': { const c = compare(value, arg); ok = c === undefined ? undefined : c >= 0; break; }
+            case '$lt': { const c = compare(value, arg); ok = c === undefined ? undefined : c < 0; break; }
+            case '$lte': { const c = compare(value, arg); ok = c === undefined ? undefined : c <= 0; break; }
+            default: ok = undefined;
+        }
+        if (ok !== true) return ok;
+    }
+
+    return true;
+}
+
+/** Whether a row belongs to a find: true, false, or undefined when only the api can say. */
+export function judgeQuery(item: unknown, query: unknown): boolean | undefined {
     if (!isRecord(query)) return true;
     if (!isRecord(item)) return true;
     const itemRec = item;
     const queryRec = filterOf(query);
 
+    let unsure = false;
     for (const [key, value] of Object.entries(queryRec)) {
         if (value === undefined || value === null) continue;
         if (NOT_FILTERS.has(key)) {
             continue;
         }
-        if (key in itemRec) {
-            const itemVal = itemRec[key];
-            if (Array.isArray(value)) {
-                if (!value.includes(itemVal)) return false;
-            } else if (itemVal !== value) {
-                return false;
-            }
-        } else if (key === 'search' && typeof value === 'string') {
+        if (key.startsWith('$')) {
+            // $or, $and...: not judged here.
+            unsure = true;
+            continue;
+        }
+        if (key === 'search' && typeof value === 'string' && !(key in itemRec)) {
             const term = value.toLowerCase();
             const matchesAny = Object.values(itemRec).some(
                 (v) => typeof v === 'string' && v.toLowerCase().includes(term),
             );
             if (!matchesAny) return false;
-        } else {
-            return false;
+            continue;
         }
+
+        const ok = judge(valueAt(itemRec, key), value);
+        if (ok === false) return false;
+        if (ok === undefined) unsure = true;
     }
-    return true;
+
+    return unsure ? undefined : true;
+}
+
+export function matchesQuery(item: unknown, query: unknown): boolean {
+    return judgeQuery(item, query) !== false;
 }
 
 /** The page a find asked for: `limit` rows, after skipping `offset` (CRUD) or `skip`. */
@@ -302,7 +357,12 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     applyCreated(payload: unknown): void {
         const item = itemOf(payload);
         const currentQuery = this.queryFn ? this.queryFn() : undefined;
-        if (!matchesQuery(item, currentQuery)) {
+        const belongs = judgeQuery(item, currentQuery);
+        if (belongs === undefined) {
+            void this.refetch();
+            return;
+        }
+        if (!belongs) {
             return;
         }
 
@@ -354,7 +414,12 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         const item = itemOf(payload);
         const id = (isRecord(payload) ? payload.id : undefined) ?? idOf(item);
         const currentQuery = this.queryFn ? this.queryFn() : undefined;
-        const matches = matchesQuery(item, currentQuery);
+        const belongs = judgeQuery(item, currentQuery);
+        if (belongs === undefined) {
+            void this.refetch();
+            return;
+        }
+        const matches = belongs;
         const currentRows = this._rows() ?? [];
         const existingIndex = id !== undefined ? currentRows.findIndex((r) => idOf(r) === id) : -1;
 
