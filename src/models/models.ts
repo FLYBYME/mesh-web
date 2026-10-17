@@ -466,18 +466,30 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
 
     // Two queries of this collection asking the same thing at once share one request: an app's
     // header and its page each load the app (owner, 10-17: every tab fetched it twice). Only while
-    // in flight -- a later fetch asks again, so nothing is served stale.
-    const inFlight = new Map<string, Promise<readonly TItem[]>>();
+    // in flight, and only under the same session -- a sign-in landing mid-request asks again (that
+    // request would come back 401), and a later fetch asks again, so nothing is served stale.
+    const currentSession = (): Session | null => {
+        if (session === undefined) return null;
+        const sig = 'peek' in session && typeof session.peek === 'function'
+            ? session as ReadonlySignal<Session | null>
+            : (session as () => ReadonlySignal<Session | null> | undefined)();
+
+        return sig?.peek() ?? null;
+    };
+    const inFlight = new Map<string, { readonly session: Session | null; readonly asked: Promise<readonly TItem[]> }>();
     const fetcher: QueryFetcher<TItem, TQuery> = (queryInput) => {
         const key = JSON.stringify(queryInput ?? null);
+        const sessionNow = currentSession();
         const pending = inFlight.get(key);
-        if (pending !== undefined) return pending;
+        if (pending !== undefined && pending.session === sessionNow) return pending.asked;
 
         const asked = (async () => {
             const value = await mesh.call(`${name}.find`, queryInput);
             return isTypedArray<TItem>(value) ? value : [];
-        })().finally(() => inFlight.delete(key));
-        inFlight.set(key, asked);
+        })().finally(() => {
+            if (inFlight.get(key)?.asked === asked) inFlight.delete(key);
+        });
+        inFlight.set(key, { session: sessionNow, asked });
 
         return asked;
     };

@@ -324,18 +324,18 @@ describe('status tracking and query behavior', () => {
         const parts = modelsFor(services)('part');
 
         // An app's header and its page, built in the same moment, each loading the app.
-        const header = parts.find({ query: { id: 'p1' } });
-        const page = parts.find({ query: { id: 'p1' } });
-        const other = parts.find({ query: { id: 'p2' } });
+        const header = parts.find({ tag: 'metal' });
+        const page = parts.find({ tag: 'metal' });
+        const other = parts.find({ tag: 'wood' });
         await Promise.all([header.refetch(), page.refetch(), other.refetch()]);
 
         const asked = fake.sent.filter((r) => r.url.includes('/parts'));
-        expect(asked.filter((r) => r.url.includes('p1'))).toHaveLength(1);
-        expect(asked.filter((r) => r.url.includes('p2'))).toHaveLength(1);
+        expect(asked.filter((r) => r.url.includes('metal'))).toHaveLength(1);
+        expect(asked.filter((r) => r.url.includes('wood'))).toHaveLength(1);
         expect(header.data()).toEqual(page.data());
 
         await page.refetch();
-        expect(fake.sent.filter((r) => r.url.includes('/parts') && r.url.includes('p1'))).toHaveLength(2);
+        expect(fake.sent.filter((r) => r.url.includes('/parts') && r.url.includes('metal'))).toHaveLength(2);
     });
 
     it('transitions through loading, ready, empty, and error states', async () => {
