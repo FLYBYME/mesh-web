@@ -306,6 +306,14 @@ describe('failures are named, not numbered', () => {
         expect(await failsWith(json(503, 'down'))).toEqual({ kind: 'server', status: 503, detail: 'down' });
     });
 
+    it('a refusal mesh-serve sends as { error } is its sentence, said as it is (10-17)', async () => {
+        const said = 'Your organization has no space to run apps in yet (it is made with your plan).';
+        const error = await failsWith(json(409, { error: said }));
+
+        expect(error).toMatchObject({ kind: 'conflict', message: said });
+        expect(describeError(error)).toBe(said);
+    });
+
     it('carries a failure the exposure declared', async () => {
         const error = await failsWith(json(409, {
             error: 'revoked',

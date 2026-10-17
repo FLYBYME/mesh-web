@@ -74,7 +74,9 @@ export type TransportError =
     // `issues`: refused in the page by the call's own input schema, before anything was sent --
     // each with the path of the field it belongs beside.
     | { readonly kind: 'invalid'; readonly detail: string; readonly issues?: readonly InputIssue[] }
-    | { readonly kind: 'conflict'; readonly detail: string }
+    // `message`: the api's own sentence ("Your organization has no space to run apps in yet"),
+    // shown as it is; `detail` may be a raw body, never shown as a sentence.
+    | { readonly kind: 'conflict'; readonly detail: string; readonly message?: string }
     | { readonly kind: 'rate_limited'; readonly retryAfterMs?: number }
     // `message`: the api's own words, when its body carried one -- `detail` may be a raw body (a
     // proxy's HTML page), never to be shown as a sentence.
@@ -109,7 +111,9 @@ export function describe(error: CallError<string>): string {
         case 'forbidden': return error.detail !== undefined && error.detail !== '' ? error.detail : 'You do not have access to that.';
         case 'not_found': return 'That does not exist.';
         case 'invalid': return `That request was not valid: ${error.detail}`;
-        case 'conflict': return `That conflicts with something else: ${error.detail}`;
+        // The api's own sentence, as it is (owner, 10-17: a 409 showed as "That conflicts with
+        // something else: {"error":"Your organization has no space..."}").
+        case 'conflict': return error.message !== undefined && error.message !== '' ? error.message : 'That conflicts with something else.';
         case 'rate_limited': return 'Too many requests. Try again shortly.';
         // A 4xx the api explained (402: a plan limit; 422: a rule of the call) is a refusal, not a
         // failure: say it in the api's words. Only a 5xx, or a 4xx with nothing said, is "failed".

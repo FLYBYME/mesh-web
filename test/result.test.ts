@@ -103,9 +103,10 @@ describe('describe() — TransportError kinds', () => {
         expect(msg).toContain('id: Required');
     });
 
-    it("'conflict' with a detail includes the detail string", () => {
-        const msg = describeError({ kind: 'conflict', detail: 'name already taken' });
-        expect(msg).toContain('name already taken');
+    it("'conflict' says the api's own sentence as it is, and never a raw body", () => {
+        expect(describeError({ kind: 'conflict', detail: '{"error":"Name already taken."}', message: 'Name already taken.' }))
+            .toBe('Name already taken.');
+        expect(describeError({ kind: 'conflict', detail: '<html>busy</html>' })).toBe('That conflicts with something else.');
     });
 
     it("'rate_limited' includes 'Too many requests'", () => {
@@ -268,7 +269,7 @@ describe('MeshCallError', () => {
     });
 
     it('works for conflict', () => {
-        const e = new MeshCallError({ kind: 'conflict', detail: 'duplicate' });
+        const e = new MeshCallError({ kind: 'conflict', detail: '{"error":"duplicate"}', message: 'duplicate' });
         expect(e.error.kind).toBe('conflict');
         expect(e.message).toContain('duplicate');
     });

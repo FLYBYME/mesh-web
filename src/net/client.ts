@@ -318,15 +318,19 @@ function interpret(response: NetResponse): Result<unknown, CallError<string>> {
         ? body['message']
         : typeof body === 'string' ? body : parsed.raw;
 
-    // The api's own sentence, only when it sent one as `message` -- never a raw body.
-    const said = isRecord(body) && typeof body['message'] === 'string' ? { message: body['message'] } : {};
+    // The api's own sentence -- as `message`, or as `error` (mesh-serve's gateway sends a refusal as
+    // `{ error: "<its message>" }`) -- never a raw body.
+    const sentence = isRecord(body)
+        ? (typeof body['message'] === 'string' ? body['message'] : typeof body['error'] === 'string' ? body['error'] : undefined)
+        : undefined;
+    const said = sentence !== undefined ? { message: sentence } : {};
 
     switch (response.status) {
         case 400: return err({ kind: 'invalid', detail });
         case 401: return err({ kind: 'unauthorized' });
         case 403: return err({ kind: 'forbidden', ...(said.message !== undefined ? { detail: said.message } : {}) });
         case 404: return err({ kind: 'not_found' });
-        case 409: return err({ kind: 'conflict', detail });
+        case 409: return err({ kind: 'conflict', detail, ...said });
         case 429: return err({ kind: 'rate_limited' });
         default: return err({ kind: 'server', status: response.status, detail, ...said });
     }

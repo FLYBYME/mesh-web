@@ -134,12 +134,17 @@ function interpretError(response: NetResponse): Result<never, CallError<string>>
         ? body['message']
         : typeof body === 'string' ? body : response.body;
 
+    // The api's own sentence, as `message` or as `error` (mesh-serve's gateway), never a raw body.
+    const sentence = isRecord(body)
+        ? (typeof body['message'] === 'string' ? body['message'] : typeof body['error'] === 'string' ? body['error'] : undefined)
+        : undefined;
+
     switch (response.status) {
         case 400: return err({ kind: 'invalid', detail });
         case 401: return err({ kind: 'unauthorized' });
         case 403: return err({ kind: 'forbidden' });
         case 404: return err({ kind: 'not_found' });
-        case 409: return err({ kind: 'conflict', detail });
+        case 409: return err({ kind: 'conflict', detail, ...(sentence !== undefined ? { message: sentence } : {}) });
         case 429: return err({ kind: 'rate_limited' });
         default: return err({ kind: 'server', status: response.status, detail });
     }
