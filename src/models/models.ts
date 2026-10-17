@@ -464,10 +464,22 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
         );
     }
 
-    const fetcher: QueryFetcher<TItem, TQuery> = async (queryInput) => {
-        const action = `${name}.find`;
-        const value = await mesh.call(action, queryInput);
-        return isTypedArray<TItem>(value) ? value : [];
+    // Two queries of this collection asking the same thing at once share one request: an app's
+    // header and its page each load the app (owner, 10-17: every tab fetched it twice). Only while
+    // in flight -- a later fetch asks again, so nothing is served stale.
+    const inFlight = new Map<string, Promise<readonly TItem[]>>();
+    const fetcher: QueryFetcher<TItem, TQuery> = (queryInput) => {
+        const key = JSON.stringify(queryInput ?? null);
+        const pending = inFlight.get(key);
+        if (pending !== undefined) return pending;
+
+        const asked = (async () => {
+            const value = await mesh.call(`${name}.find`, queryInput);
+            return isTypedArray<TItem>(value) ? value : [];
+        })().finally(() => inFlight.delete(key));
+        inFlight.set(key, asked);
+
+        return asked;
     };
 
     function instantiateQuery(

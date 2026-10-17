@@ -317,6 +317,27 @@ describe('models capability, as an App is granted it', () => {
 describe('status tracking and query behavior', () => {
     const APP_NEEDS = needs('models', 'state');
 
+    it('two queries asking the same at once share one request; a later fetch asks again (10-17)', async () => {
+        const fake = createFakeTransport(() => jsonResponse(200, [{ id: 'p1', name: 'Widget', tag: 'metal' }]));
+        const services = createServices();
+        services.meshClient = (api) => createClient(api, { transport: fake.transport });
+        const parts = modelsFor(services)('part');
+
+        // An app's header and its page, built in the same moment, each loading the app.
+        const header = parts.find({ query: { id: 'p1' } });
+        const page = parts.find({ query: { id: 'p1' } });
+        const other = parts.find({ query: { id: 'p2' } });
+        await Promise.all([header.refetch(), page.refetch(), other.refetch()]);
+
+        const asked = fake.sent.filter((r) => r.url.includes('/parts'));
+        expect(asked.filter((r) => r.url.includes('p1'))).toHaveLength(1);
+        expect(asked.filter((r) => r.url.includes('p2'))).toHaveLength(1);
+        expect(header.data()).toEqual(page.data());
+
+        await page.refetch();
+        expect(fake.sent.filter((r) => r.url.includes('/parts') && r.url.includes('p1'))).toHaveLength(2);
+    });
+
     it('transitions through loading, ready, empty, and error states', async () => {
         let statusCode = 200;
         let responseBody: unknown = [{ id: 'p1', name: 'Widget', tag: 'metal' }];
