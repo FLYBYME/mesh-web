@@ -55,9 +55,15 @@ export class Router extends Service({}) {
         this.#backend().navigate(href);
     }
 
-    /** The URL on screen, path and query — what a sign-in page is told to come back to. */
+    /**
+     * The URL on screen, path and query — what a sign-in page is told to come back to. Read in a
+     * binding, it follows the URL: it reads `current` first, so it changes when the route does (the
+     * URL itself is no signal; a nav's highlight stayed on the first page, 10-16).
+     */
     here(): string {
-        return this.#backend().here();
+        const backend = this.#backend();
+        backend.current();
+        return backend.here();
     }
 
     /** Go somewhere in place of here — a redirect: back skips the page that sent the visitor on. */

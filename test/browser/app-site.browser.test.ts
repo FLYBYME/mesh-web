@@ -80,6 +80,8 @@ class ConsoleLayout extends Component({ inject: { session: Session, router: Rout
             () => element('Stack', {
                 children: [
                     element('Text', { props: { 'data-layout': '' }, children: [text(() => `layout clicks=${this.clicks()}`)] }),
+                    // A nav's highlight reads where it is: it must follow the page, not the first one.
+                    element('Text', { props: { 'data-here': '' }, children: [text(() => this.inject.router.here())] }),
                     element('Button', {
                         props: { 'aria-label': 'layout click' },
                         intents: { activate: { action: this.on(() => this.clicks.set(this.clicks() + 1)) } },
@@ -353,6 +355,8 @@ describe('an App as a single-page site', () => {
         expect(view()).toBe('b');
         expect(root.querySelector('[data-layout]')?.textContent).toBe('layout clicks=1');
         expect(layoutsBuilt).toBe(built + 1);
+        // here() in a binding follows the URL (the sites' nav kept the first page lit, 10-16).
+        expect(root.querySelector('[data-here]')?.textContent).toBe('/console/b');
 
         // Out of the layout and back in: a new instance.
         site.navigate('/');
