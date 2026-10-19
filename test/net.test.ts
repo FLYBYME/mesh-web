@@ -366,7 +366,15 @@ describe('failures are named, not numbered', () => {
 
     it('reports the API’s own message rather than the raw body', async () => {
         expect(await failsWith(json(400, { error: 'INVALID_INPUT', message: 'id: Required' })))
-            .toEqual({ kind: 'invalid', detail: 'id: Required' });
+            .toEqual({ kind: 'invalid', detail: 'id: Required', message: 'id: Required' });
+    });
+
+    it('a 400 mesh-serve sends as { error } is its sentence, said as it is, never the raw body (10-19)', async () => {
+        const said = 'That was sent very fast. Take a moment, then send it again.';
+        const error = await failsWith(json(400, { error: said }));
+
+        expect(error).toMatchObject({ kind: 'invalid', message: said });
+        expect(describeError(error)).toBe(said);
     });
 
     it('reports a transport failure as a thrown MeshCallError', async () => {

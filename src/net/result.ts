@@ -73,7 +73,9 @@ export type TransportError =
     | { readonly kind: 'not_found' }
     // `issues`: refused in the page by the call's own input schema, before anything was sent --
     // each with the path of the field it belongs beside.
-    | { readonly kind: 'invalid'; readonly detail: string; readonly issues?: readonly InputIssue[] }
+    // `message`: the api's own sentence for a refusal it explained (the gateway's "That was sent very
+    // fast..."), shown as it is; `detail` may be a raw body.
+    | { readonly kind: 'invalid'; readonly detail: string; readonly issues?: readonly InputIssue[]; readonly message?: string }
     // `message`: the api's own sentence ("Your organization has no space to run apps in yet"),
     // shown as it is; `detail` may be a raw body, never shown as a sentence.
     | { readonly kind: 'conflict'; readonly detail: string; readonly message?: string }
@@ -110,7 +112,7 @@ export function describe(error: CallError<string>): string {
         case 'unauthorized': return 'You need to sign in.';
         case 'forbidden': return error.detail !== undefined && error.detail !== '' ? error.detail : 'You do not have access to that.';
         case 'not_found': return 'That does not exist.';
-        case 'invalid': return `That request was not valid: ${error.detail}`;
+        case 'invalid': return error.message !== undefined && error.message !== '' ? error.message : `That request was not valid: ${error.detail}`;
         // The api's own sentence, as it is (owner, 10-17: a 409 showed as "That conflicts with
         // something else: {"error":"Your organization has no space..."}").
         case 'conflict': return error.message !== undefined && error.message !== '' ? error.message : 'That conflicts with something else.';
