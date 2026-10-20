@@ -240,6 +240,7 @@ export const KERNEL_WINDOW_BINDINGS: readonly { readonly binding: string; readon
     { binding: 'alt+`', command: 'window.cycle' },
     { binding: 'alt+t', command: 'window.mode' },
     { binding: 'ctrl+alt+q', command: 'kernel.logs' },
+    { binding: 'ctrl+alt+w', command: 'kernel.views' },
 ];
 
 /** Nothing is reserved. For an Electron shell or a kiosk that owns the whole keyboard. */

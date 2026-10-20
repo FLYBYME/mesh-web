@@ -60,6 +60,13 @@ describe('the page it builds', () => {
         expect(document.querySelector('.mesh-notifications')).toBeNull();
     });
 
+    it('mounts a view selector the kernel owns, and takes it away on dispose', () => {
+        const started = start({ application: 'test', parts: [{ id: 'site', contribution: Site }] });
+        expect(document.querySelector('.mesh-view-selector')).not.toBeNull();
+        started.dispose();
+        expect(document.querySelector('.mesh-view-selector')).toBeNull();
+    });
+
     it('reads the api from the document rather than being told twice', () => {
         document.documentElement.dataset['api'] = 'https://api.example';
         const started = start({ application: 'test', parts: [{ id: 'site', contribution: Site }] });

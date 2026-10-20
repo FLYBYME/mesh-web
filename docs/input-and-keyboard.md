@@ -61,6 +61,7 @@ The kernel registers built-in window commands under the `window.*` namespace ([`
 | `alt+\`` | `window.cycle` | Cycles focus to the next open window (back to front). |
 | `alt+t` | `window.mode` | Toggles between `windowed` and `tiled` layout modes. |
 | `ctrl+alt+q` | `kernel.logs` | Toggles the fullscreen system log viewer. |
+| `ctrl+alt+w` | `kernel.views` | Toggles the view selector overlay. |
 
 > [!NOTE]
 > Hotkeys are configured with `alt` modifiers rather than `ctrl` to avoid colliding with native browser tab navigation chords.

@@ -48,6 +48,7 @@ import { mountSite, type MountedApp } from '../app/site.js';
 import { mountDesktop, type MountedDesktop } from '../app/desktop.js';
 import type { AppClass } from '../app/runtime.js';
 import { kernelLog, mountLogViewer, reasonOf, type LogViewer } from './logs.js';
+import { mountViewSelector, type ViewSelector } from './view-selector.js';
 
 /** One part in a composition: an id, the module's default export, and the site's options for it. */
 export interface PartRef {
@@ -95,6 +96,8 @@ export interface Started {
     readonly site: MountedApp | MountedDesktop;
     /** The kernel's log panel (ctrl+alt+q). */
     readonly logViewer: LogViewer;
+    /** The kernel's view selector palette (ctrl+alt+w). */
+    readonly viewSelector: ViewSelector;
     /** Resolved: an App's first view is mounted synchronously. Kept so a boot script can await either way. */
     readonly ready: Promise<void>;
     dispose(): void;
@@ -271,6 +274,7 @@ function startApp(App: AppClass, partId: string, composition: Composition, page:
 
     const notifications = mountNotifications(doc, root, page.services);
     const logViewer = mountLogViewer(doc, root, page.services.logs);
+    const viewSelector = mountViewSelector(doc, root, App, site);
     log.info(`${partId} started`, { part: partId });
 
     return {
@@ -279,9 +283,11 @@ function startApp(App: AppClass, partId: string, composition: Composition, page:
         io: page.io,
         site,
         logViewer,
+        viewSelector,
         ready: Promise.resolve(),
         dispose() {
             stopMeasuring();
+            viewSelector.dispose();
             site.dispose();
             handle.dispose();
             notifications.dispose();
