@@ -1,6 +1,6 @@
 {
     "name": "@flybyme/mesh-web",
-    "version": "0.21.18",
+    "version": "0.21.19",
     "description": "The browser half of the mesh framework: an abstract operating system in a browser.",
     "type": "module",
     "main": "./dist/index.js",
@@ -48,9 +48,8 @@
         "framework"
     ],
     "license": "UNLICENSED",
-    "private": true,
     "devDependencies": {
-        "@flybyme/mesh": "github:FLYBYME/mesh#v2.4.0",
+        "@flybyme/mesh": "^4.14.6",
         "@types/node": "^26.4.1",
         "@vitest/browser": "^2.1.9",
         "jsdom": "^30.0.1",
@@ -58,5 +57,8 @@
         "typescript": "^5.9.3",
         "vitest": "^2.1.9",
         "zod": "^3.25.76"
+    },
+    "publishConfig": {
+        "registry": "https://registry.surfdns.net/"
     }
 }
