@@ -306,6 +306,12 @@ describe('failures are named, not numbered', () => {
         expect(await failsWith(json(503, 'down'))).toEqual({ kind: 'server', status: 503, detail: 'down' });
     });
 
+    it('keeps a 401\'s own sentence, so a sign-in form can say why it was refused', async () => {
+        expect(await failsWith(json(401, { error: 'That address and password don\'t match a mailbox here.' })))
+            .toEqual({ kind: 'unauthorized', message: 'That address and password don\'t match a mailbox here.' });
+        expect(describeError({ kind: 'unauthorized', message: 'anything' })).toBe('You need to sign in.');
+    });
+
     it('a refusal mesh-serve sends as { error } is its sentence, said as it is (10-17)', async () => {
         const said = 'Your organization has no space to run apps in yet (it is made with your plan).';
         const error = await failsWith(json(409, { error: said }));
@@ -353,7 +359,7 @@ describe('failures are named, not numbered', () => {
 
     it('does not mistake a gate refusal for a declared failure', async () => {
         expect(await failsWith(json(401, { error: 'UNAUTHENTICATED', message: 'Sign in.' })))
-            .toEqual({ kind: 'unauthorized' });
+            .toEqual({ kind: 'unauthorized', message: 'Sign in.' });
 
         // Still `forbidden`, never `declared` -- now carrying the api's own reason to show.
         expect(await failsWith(json(403, { error: 'FORBIDDEN', message: 'No post.write.' })))

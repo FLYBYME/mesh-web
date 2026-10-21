@@ -66,7 +66,11 @@ export interface ExposureDifference {
 }
 
 export type TransportError =
-    | { readonly kind: 'unauthorized' }
+    // `message`: the api's own sentence, when it gave one ("That address and password don't match
+    // a mailbox here."). describe() still says "You need to sign in." -- right for an ended
+    // session; a sign-in form shows `message`, or a refused sign-in reads "You need to sign in."
+    // on the sign-in page itself (the webmail, owner 10-21).
+    | { readonly kind: 'unauthorized'; readonly message?: string }
     // `detail`: the api's own reason, when it gave one ("This account has not proven it controls
     // example.com").
     | { readonly kind: 'forbidden'; readonly detail?: string }

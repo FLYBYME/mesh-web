@@ -141,7 +141,7 @@ function interpretError(response: NetResponse): Result<never, CallError<string>>
 
     switch (response.status) {
         case 400: return err({ kind: 'invalid', detail, ...(sentence !== undefined ? { message: sentence } : {}) });
-        case 401: return err({ kind: 'unauthorized' });
+        case 401: return err({ kind: 'unauthorized', ...(sentence !== undefined ? { message: sentence } : {}) });
         case 403: return err({ kind: 'forbidden' });
         case 404: return err({ kind: 'not_found' });
         case 409: return err({ kind: 'conflict', detail, ...(sentence !== undefined ? { message: sentence } : {}) });

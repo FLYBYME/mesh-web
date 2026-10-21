@@ -329,7 +329,7 @@ function interpret(response: NetResponse): Result<unknown, CallError<string>> {
         // mesh-serve's gateway refuses a public form as { error: "<its sentence>" } with a 400 (too
         // fast, its trap filled in): that sentence, never the raw body (10-19).
         case 400: return err({ kind: 'invalid', detail, ...said });
-        case 401: return err({ kind: 'unauthorized' });
+        case 401: return err({ kind: 'unauthorized', ...said });
         case 403: return err({ kind: 'forbidden', ...(said.message !== undefined ? { detail: said.message } : {}) });
         case 404: return err({ kind: 'not_found' });
         case 409: return err({ kind: 'conflict', detail, ...said });
