@@ -608,10 +608,23 @@ function buildEach(
             return; // the initial nodes are returned below and inserted by the caller
         }
 
-        // Place every row in order before the end marker. Nodes already in the right place are
-        // moved onto themselves, which the DOM treats as a no-op. `liveSpan`, not `row.nodes`,
-        // because a row whose content swapped since it was built must move as it is now.
-        for (const row of ordered) insertBefore(liveSpan(row.nodes), end);
+        // Put the rows in order, moving only a row that is not already right after the one before
+        // it. Moving a node onto its own place is *not* a no-op: the DOM takes it out and puts it
+        // back, and a focused input inside loses focus (10-25: every live update and every
+        // `router.replace` re-ran this for the page's own rows, so a search box that wrote the
+        // address took one key and lost the rest). `liveSpan`, not `row.nodes`, because a row
+        // whose content swapped since it was built must move as it is now.
+        let after: ChildNode = start;
+        for (const row of ordered) {
+            const span = liveSpan(row.nodes);
+            const head = span[0];
+            const tail = span[span.length - 1];
+            if (head === undefined || tail === undefined) continue;
+
+            const inPlace = head.parentNode === end.parentNode && head.previousSibling === after;
+            if (!inPlace) insertBefore(span, after.nextSibling ?? end);
+            after = tail;
+        }
     });
 
     const initial = [...rows.values()].flatMap((row) => row.nodes);

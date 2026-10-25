@@ -396,6 +396,40 @@ describe('each is keyed, so a reorder moves nodes instead of rebuilding them', (
         expect(html()).toBe('<ul>Second!First!</ul>');
     });
 
+    /**
+     * Moving a node onto its own place is not a no-op: the DOM takes it out and puts it back, and a
+     * focused input inside loses focus. Every update moved every row, so a live update to a list
+     * (or a `router.replace`, through the page's own rows) took the focus from a field in it: a
+     * search box that wrote the address took one key and lost the rest (10-25).
+     */
+    it('keeps a focused input focused when the list updates, gains a row before it, or loses one', () => {
+        const { host, components, dispatch } = setup();
+        const posts = signal([post('a', 'First'), post('b', 'Second')]);
+
+        render(element('Stack', {
+            children: [each(() => posts(), (p) => p.slug, (p) => element('Input', { props: { value: () => p().title, 'data-slug': p().slug } }))],
+        }), host, { components, dispatch });
+
+        const input = host.querySelector('[data-slug="b"]');
+        if (!(input instanceof HTMLInputElement)) throw new Error('no input');
+        input.focus();
+        expect(document.activeElement).toBe(input);
+
+        posts.set([post('a', 'First'), post('b', 'Second, edited')]);
+        tick();
+        expect(document.activeElement).toBe(input);
+
+        posts.set([post('z', 'New first'), post('a', 'First'), post('b', 'Second, edited')]);
+        tick();
+        expect(document.activeElement).toBe(input);
+        expect([...host.querySelectorAll('input')].map((i) => i.getAttribute('data-slug'))).toEqual(['z', 'a', 'b']);
+
+        posts.set([post('z', 'New first'), post('b', 'Second, edited')]);
+        tick();
+        expect(document.activeElement).toBe(input);
+        expect([...host.querySelectorAll('input')].map((i) => i.getAttribute('data-slug'))).toEqual(['z', 'b']);
+    });
+
     it('keeps the same element across a reorder', () => {
         const { host, components, dispatch } = setup();
         const posts = signal([post('a', 'First'), post('b', 'Second')]);
