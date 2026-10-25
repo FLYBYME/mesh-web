@@ -210,6 +210,12 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
 
     private currentRequestId = 0;
     private currentInFlightPromise: Promise<readonly TItem[] | undefined> | null = null;
+    /**
+     * Events that arrived while a fetch was out, applied again once its answer lands: the answer
+     * replaces every row, and the api may have read them before the event's change (10-25: an
+     * alert created during a reconnect's re-read vanished when the re-read answered).
+     */
+    private eventsDuringFetch: Array<() => void> = [];
     private isDisposed = false;
     private effectDispose: (() => void) | null = null;
     private sessionEffectDispose: (() => void) | null = null;
@@ -354,7 +360,13 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         this._live.set(live);
     }
 
+    /** Keeps an event for replay if a fetch is out (see {@link eventsDuringFetch}). */
+    private heldForFetch(apply: () => void): void {
+        if (this.currentInFlightPromise !== null) this.eventsDuringFetch.push(apply);
+    }
+
     applyCreated(payload: unknown): void {
+        this.heldForFetch(() => this.applyCreated(payload));
         const item = itemOf(payload);
         const currentQuery = this.queryFn ? this.queryFn() : undefined;
         const belongs = judgeQuery(item, currentQuery);
@@ -411,6 +423,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     }
 
     applyUpdated(payload: unknown): void {
+        this.heldForFetch(() => this.applyUpdated(payload));
         const item = itemOf(payload);
         const id = (isRecord(payload) ? payload.id : undefined) ?? idOf(item);
         const currentQuery = this.queryFn ? this.queryFn() : undefined;
@@ -439,6 +452,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
     }
 
     applyDeleted(payload: unknown): void {
+        this.heldForFetch(() => this.applyDeleted(payload));
         const id = typeof payload === 'string' ? payload : idOf(payload);
         if (id === undefined) return;
 
@@ -551,7 +565,11 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
                     this._empty.set(false);
                     this._status.set('ready');
                 }
-                return rows;
+
+                // In arrival order; each is idempotent (a created row is matched by id).
+                for (const apply of this.eventsDuringFetch.splice(0)) apply();
+
+                return this._rows() ?? rows;
             },
             (rejection: unknown) => {
                 if (this.isDisposed || requestId !== this.currentRequestId) {
@@ -559,6 +577,8 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
                 }
                 this.currentInFlightPromise = null;
                 this._loading.set(false);
+                // The rows already standing have those events; there is no answer to replay them on.
+                this.eventsDuringFetch = [];
 
                 // A thrown MeshCallError carries the same named failure a Result's .error used to --
                 // everything below matches what the old onFulfilled(!result.ok) branch did, just
@@ -616,6 +636,7 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
         this.isDisposed = true;
         this.currentRequestId++;
         this.currentInFlightPromise = null;
+        this.eventsDuringFetch = [];
 
         if (this.sessionEffectDispose !== null) {
             this.sessionEffectDispose();

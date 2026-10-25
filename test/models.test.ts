@@ -1268,6 +1268,44 @@ describe('session-aware collections', () => {
             expect(got).toHaveLength(1);
         });
 
+        it('keeps an event that arrives while a fetch is out: the older answer does not drop it (10-25)', async () => {
+            MockEventSource.instances = [];
+            const answers: ((res: NetResponse) => void)[] = [];
+            const fake = createFakeTransport((req) => {
+                if (req.url.startsWith('/api/parts')) return new Promise<NetResponse>((resolve) => answers.push(resolve));
+                return jsonResponse(404, {});
+            });
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, undefined, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const parts = models('part');
+            expect(parts.loading()).toBe(true);
+            await new Promise((r) => setTimeout(r, 20));
+            expect(answers).toHaveLength(1);
+
+            // The api read its rows, then p2 was made and p1 renamed, and those events beat the answer.
+            const es = MockEventSource.instances[0];
+            es?.emit('part.created', { id: 'p2', name: 'Made meanwhile', tag: 't1' });
+            es?.emit('part.updated', { id: 'p1', item: { id: 'p1', name: 'Renamed meanwhile', tag: 't1' } });
+            answers[0]?.(jsonResponse(200, [{ id: 'p1', name: 'As read', tag: 't1' }]));
+            await new Promise((r) => setTimeout(r, 20));
+
+            expect(parts.rows()).toEqual([
+                { id: 'p1', name: 'Renamed meanwhile', tag: 't1' },
+                { id: 'p2', name: 'Made meanwhile', tag: 't1' },
+            ]);
+
+            // Replayed once: a later answer is the api's alone.
+            void parts.refetch();
+            await new Promise((r) => setTimeout(r, 20));
+            answers[1]?.(jsonResponse(200, [{ id: 'p1', name: 'Later', tag: 't1' }]));
+            await new Promise((r) => setTimeout(r, 20));
+            expect(parts.rows()).toEqual([{ id: 'p1', name: 'Later', tag: 't1' }]);
+        });
+
         it('applies created, updated, and deleted events live to collection rows', async () => {
             MockEventSource.instances = [];
             const fake = createFakeTransport((req) => {
