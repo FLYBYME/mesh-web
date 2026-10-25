@@ -21,6 +21,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { IoManager } from '../src/kernel/io.js';
 import { createEventStreamClient } from '../src/models/models.js';
 import {
@@ -156,7 +157,8 @@ const siteApi = defineApi({
     id: 'site-models',
     exposure: 'sha256:models1234',
     calls: {
-        'part.find': call<PartQuery, readonly Part[]>('GET', '/parts'),
+        // An object, as every generated find's input is: the client refuses anything else unsent.
+        'part.find': call<PartQuery, readonly Part[]>('GET', '/parts', undefined, { inputSchema: z.object({}).passthrough() }),
         'part.get': call<{ id: string }, Part, 'not_found'>('GET', '/parts/get'),
         'part.create': call<CreatePartInput, Part, 'invalid_name'>('POST', '/parts'),
         'part.update': call<UpdatePartInput, Part, 'not_found'>('PUT', '/parts'),
@@ -336,6 +338,26 @@ describe('status tracking and query behavior', () => {
 
         await page.refetch();
         expect(fake.sent.filter((r) => r.url.includes('/parts') && r.url.includes('metal'))).toHaveLength(2);
+    });
+
+    it('a find with no query, and a collection\'s own rows, ask with {} -- never nothing (10-24)', async () => {
+        const fake = createFakeTransport(() => jsonResponse(200, [{ id: 'p1', name: 'Widget', tag: 'metal' }]));
+        const services = createServices();
+        services.meshClient = (api) => createClient(api, { transport: fake.transport });
+        const parts = modelsFor(services)('part');
+
+        // The serve and infer sites' first pages: `find()` and `.rows()` were each "invalid request",
+        // refused by the find's input schema before anything was sent.
+        const bare = parts.find();
+        await bare.refetch();
+        expect(bare.error()).toBeNull();
+        expect(bare.data()).toEqual([{ id: 'p1', name: 'Widget', tag: 'metal' }]);
+
+        parts.rows();
+        await vi.waitFor(() => {
+            expect(parts.rows()).toEqual([{ id: 'p1', name: 'Widget', tag: 'metal' }]);
+        });
+        expect(fake.sent.filter((r) => r.url.includes('/parts')).length).toBeGreaterThan(0);
     });
 
     it('transitions through loading, ready, empty, and error states', async () => {

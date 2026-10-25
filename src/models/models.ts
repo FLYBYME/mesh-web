@@ -484,7 +484,11 @@ function createCollection<TCalls extends Record<string, AnyApiCall>, C extends s
         if (pending !== undefined && pending.session === sessionNow) return pending.asked;
 
         const asked = (async () => {
-            const value = await mesh.call(`${name}.find`, queryInput);
+            // A find with no query asks for everything: `{}`, never nothing. Every generated find's
+            // input is an object, and the client refuses `undefined` before sending ("invalid
+            // request" for each bare `find()` and default `.rows()` on the serve and infer sites,
+            // 10-24).
+            const value = await mesh.call(`${name}.find`, queryInput ?? {});
             return isTypedArray<TItem>(value) ? value : [];
         })().finally(() => {
             if (inFlight.get(key)?.asked === asked) inFlight.delete(key);
