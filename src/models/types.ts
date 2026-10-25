@@ -9,6 +9,14 @@ import type { AnyApiCall, Api, InputOf, OutputOf, ErrorsOf } from '../net/api.js
 import type { CallError } from '../net/result.js';
 import type { ReadonlySignal } from '../reactivity/types.js';
 
+/**
+ * The one event stream's state. `idle`: nothing listens (or no session), so none is open.
+ * `connecting`: opened, no answer yet. `open`: changes arrive. `reconnecting`: it dropped and the
+ * browser is trying again -- what is on the page may be out of date until it is `open` again (a
+ * reconnect re-reads every live list). `closed`: the browser gave up; a reload starts again.
+ */
+export type StreamStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
+
 export type CollectionStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 
 /**
@@ -122,4 +130,7 @@ export interface Models<A> {
      * arrive; the stream's `subscription.omitted` says which were refused.
      */
     on(event: string, handler: (payload: unknown) => void): () => void;
+
+    /** The one event stream's state: a page says "not live" when it is not `open` (StreamStatus). */
+    readonly stream: ReadonlySignal<StreamStatus>;
 }

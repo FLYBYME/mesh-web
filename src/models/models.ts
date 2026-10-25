@@ -10,7 +10,7 @@
 
 import { isCollectionStreamed, type AnyApiCall, type Api, type Gate } from '../net/api.js';
 import type { CallError } from '../net/result.js';
-import { effect } from '../reactivity/index.js';
+import { effect, signal } from '../reactivity/index.js';
 import { runDetached } from '../reactivity/scope.js';
 import type { ReadonlySignal } from '../reactivity/types.js';
 import type { Session } from '../contribution/session.js';
@@ -21,6 +21,7 @@ import type {
     CollectionNameOf,
     CollectionQuery,
     CollectionStatus,
+    StreamStatus,
     CreateInputOf,
     CreateOutputOf,
     DeleteInputOf,
@@ -84,7 +85,12 @@ export interface EventStreamClient {
     onFirstOpen(handler: () => void): () => void;
     close(): void;
     readonly isAvailable: boolean;
+    /** Whether the page is hearing changes: a page says so when the stream drops (StreamStatus). */
+    readonly status: ReadonlySignal<StreamStatus>;
 }
+
+/** EventSource.CLOSED: the browser will not retry. */
+const EVENT_SOURCE_CLOSED = 2;
 
 export function createEventStreamClient(
     url: string,
@@ -92,6 +98,8 @@ export function createEventStreamClient(
     sessionSource?: SessionSource,
     log?: (message: string) => void,
 ): EventStreamClient {
+    const status = signal<StreamStatus>('idle');
+
     if (!factory) {
         return {
             subscribe: () => () => {},
@@ -99,6 +107,7 @@ export function createEventStreamClient(
             onFirstOpen: () => () => {},
             close: () => {},
             isAvailable: false,
+            status,
         };
     }
 
@@ -134,6 +143,7 @@ export function createEventStreamClient(
             es = null;
         }
         openedOnce = false;
+        status.set('idle');
     }
 
     function ensureConnected(): EventSourceLike | null {
@@ -143,8 +153,18 @@ export function createEventStreamClient(
 
         const source = factory!(url);
         es = source;
+        status.set('connecting');
+
+        // A dropped stream fires `error`; the browser retries on its own unless readyState says
+        // it gave up. Either way the page should say it is not hearing changes.
+        const onError = () => {
+            if (es !== source) return;
+            const readyState: unknown = Reflect.get(source, 'readyState');
+            status.set(readyState === EVENT_SOURCE_CLOSED ? 'closed' : 'reconnecting');
+        };
 
         const onOpen = () => {
+            status.set('open');
             if (openedOnce) {
                 // Reconnect!
                 for (const r of Array.from(reconnectListeners)) {
@@ -169,10 +189,13 @@ export function createEventStreamClient(
                 if (es === source) {
                     es = null;
                     openedOnce = false;
+                    status.set('idle');
                 }
             });
+            source.addEventListener('error', onError);
         } else {
             source.onopen = onOpen;
+            source.onerror = onError;
         }
 
         const handleIncoming = (eventName: string, rawData: unknown) => {
@@ -278,6 +301,7 @@ export function createEventStreamClient(
 
     return {
         isAvailable: true,
+        status,
         subscribe(eventName: string, handler: (payload: unknown) => void) {
             let listeners = eventListeners.get(eventName);
             const isFirst = !listeners;
@@ -687,6 +711,8 @@ export function createModels<A>(
     modelsFn.on = function (event: string, handler: (payload: unknown) => void): () => void {
         return streamClient.subscribe(event, handler);
     };
+
+    modelsFn.stream = streamClient.status;
 
     if (onDispose !== undefined) {
         onDispose(() => {

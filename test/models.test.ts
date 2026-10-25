@@ -1796,4 +1796,32 @@ describe('the stream edge: a frame that cannot be read is dropped and reported',
         expect(reports[1]).toContain('no event name');
         client.close();
     });
+
+    it('says whether changes are arriving: connecting, open, reconnecting after a drop, closed when the browser gives up', () => {
+        const sources: { onopen?: ((event: unknown) => void) | null; onerror?: ((event: unknown) => void) | null; onmessage: null; readyState: number; close(): void }[] = [];
+        const client = createEventStreamClient('/api/events', () => {
+            const source = { onopen: null, onerror: null, onmessage: null, readyState: 0, close: () => {} };
+            sources.push(source);
+            return source;
+        });
+        expect(client.status()).toBe('idle');
+
+        client.subscribe('part.created', () => {});
+        const source = sources[0];
+        expect(client.status()).toBe('connecting');
+
+        source?.onopen?.({});
+        expect(client.status()).toBe('open');
+
+        source?.onerror?.({});
+        expect(client.status()).toBe('reconnecting');
+
+        source?.onopen?.({});
+        expect(client.status()).toBe('open');
+
+        if (source !== undefined) source.readyState = 2;
+        source?.onerror?.({});
+        expect(client.status()).toBe('closed');
+        client.close();
+    });
 });
