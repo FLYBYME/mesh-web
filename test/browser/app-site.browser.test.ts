@@ -156,6 +156,24 @@ class CounterView extends View({ params: z.object({ n: z.string() }), title: 'Co
     }
 }
 
+/** A chat's composer: a text area with `submitOnEnter`, in a form whose commit counts sends. */
+class ComposerView extends View({ title: 'Composer' }) {
+    readonly sent = signal(0);
+
+    render(): Node {
+        return element('Form', {
+            props: { 'data-view': 'composer' },
+            intents: { commit: { action: this.on(() => this.sent.set(this.sent() + 1)), preventDefault: true } },
+            children: [
+                element('TextArea', { props: { 'aria-label': 'message', submitOnEnter: true } }),
+                element('Text', { props: { 'data-sent': '' }, children: [text(() => `sent ${this.sent()}`)] }),
+            ],
+        });
+    }
+}
+
+class Composer extends App({ routes: { '/composer': ComposerView } }) {}
+
 class Titled extends App({ routes: { '/': PublicView, '/count/:n': CounterView } }) {}
 
 class Guarded extends App({
@@ -211,6 +229,28 @@ async function goForward(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------- tests
+
+describe('a text area with submitOnEnter (a chat composer, 10-24)', () => {
+    it('Enter sends the form, Shift+Enter is a new line, and nothing else sends', async () => {
+        history.pushState(null, '', '/composer');
+        site = mountSite(Composer, { root });
+        await frame();
+
+        const area = root.querySelector('textarea');
+        const sent = (): string | null => root.querySelector('[data-sent]')?.textContent ?? null;
+        if (area === null) throw new Error('no text area');
+
+        await userEvent.click(area);
+        await userEvent.keyboard('one{Shift>}{Enter}{/Shift}two');
+        expect(area.value).toBe('one\ntwo');
+        expect(sent()).toBe('sent 0');
+
+        await userEvent.keyboard('{Enter}');
+        await frame();
+        expect(sent()).toBe('sent 1');
+        expect(area.value).toBe('one\ntwo');
+    });
+});
 
 describe('an App as a single-page site', () => {
     it('loads a deep link straight into the right view, params typed and parsed', async () => {

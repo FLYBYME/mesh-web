@@ -599,7 +599,30 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
     }),
     tag('TextArea', 'textarea', {
         spaceIsTextInput: true,
+        // `submitOnEnter: true` (a chat's composer): Enter submits the form the text area is in,
+        // Shift+Enter is a new line, and Enter while an input method is composing is left alone.
+        // Here, in the primitive, so no site registers its own text area with raw DOM (10-24).
+        create() {
+            const el = document.createElement('textarea');
+            el.addEventListener('keydown', (e) => {
+                if (el.dataset['submitOnEnter'] !== 'true' || e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+                e.preventDefault();
+                el.form?.requestSubmit();
+            });
+
+            return el;
+        },
         apply(el, name, value) {
+            if (name === 'submitOnEnter') {
+                if (!(el instanceof HTMLTextAreaElement)) return false;
+                if (value === true) {
+                    el.dataset['submitOnEnter'] = 'true';
+                } else {
+                    delete el.dataset['submitOnEnter'];
+                }
+                return true;
+            }
+
             if (name === 'value') {
                 if (!hasValue(el)) return false;
                 const next = value === null ? '' : String(value);
