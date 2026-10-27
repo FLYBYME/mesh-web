@@ -1240,6 +1240,29 @@ describe('session-aware collections', () => {
             expect(stats.rows()).toEqual([{ total: 42 }]);
         });
 
+        it('the stream\'s first subscriber hears each event once, and so does one that comes back (review 10-26)', async () => {
+            MockEventSource.instances = [];
+            const fake = createFakeTransport(() => jsonResponse(404, {}));
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, undefined, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const got: unknown[] = [];
+            const off = models.on('telemetry.live_updated', (payload) => got.push(payload));
+            const es = MockEventSource.instances[0];
+            expect(es).toBeDefined();
+            es?.emit('telemetry.live_updated', { at: 1 });
+            expect(got).toEqual([{ at: 1 }]);
+
+            off();
+            const again = models.on('telemetry.live_updated', (payload) => got.push(payload));
+            es?.emit('telemetry.live_updated', { at: 2 });
+            expect(got).toEqual([{ at: 1 }, { at: 2 }]);
+            again();
+        });
+
         it('delivers an event that is no collection\'s to models.on, over the one stream, until unsubscribed', async () => {
             MockEventSource.instances = [];
             const fake = createFakeTransport((req) => {
@@ -1304,6 +1327,41 @@ describe('session-aware collections', () => {
             answers[1]?.(jsonResponse(200, [{ id: 'p1', name: 'Later', tag: 't1' }]));
             await new Promise((r) => setTimeout(r, 20));
             expect(parts.rows()).toEqual([{ id: 'p1', name: 'Later', tag: 't1' }]);
+        });
+
+        it('an event held during one user\'s fetch is not replayed into the next user\'s list (review 10-26)', async () => {
+            MockEventSource.instances = [];
+            const sessionSignal = signal<Session | null>(null);
+            // In order: Alice's fetch, then Bob's.
+            const answers: Array<(res: NetResponse) => void> = [];
+            const fake = createFakeTransport((req) => {
+                if (req.url.startsWith('/api/parts')) return new Promise<NetResponse>((resolve) => answers.push(resolve));
+                return jsonResponse(404, {});
+            });
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, sessionSignal, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const parts = models('part');
+            expect(parts.rows()).toEqual([]);
+            sessionSignal.set({ userId: 'alice', displayName: 'Alice', roles: ['operator'], expiresAt: Date.now() + 10000 });
+            await new Promise((r) => setTimeout(r, 20));
+            expect(answers.length).toBeGreaterThan(0);
+            const alices = answers.length;
+
+            // Alice's row made while her fetch is out; then Bob signs in before it answers.
+            MockEventSource.instances[0]?.emit('part.created', { id: 'p-alice', name: 'Alice Doc', tag: 't1' });
+            sessionSignal.set({ userId: 'bob', displayName: 'Bob', roles: ['operator'], expiresAt: Date.now() + 10000 });
+            flushSync();
+            await new Promise((r) => setTimeout(r, 20));
+
+            expect(answers.length).toBe(alices + 1);
+            answers[alices]?.(jsonResponse(200, [{ id: 'p-bob', name: 'Bob Doc', tag: 't1' }]));
+            await new Promise((r) => setTimeout(r, 20));
+
+            expect(parts.rows()).toEqual([{ id: 'p-bob', name: 'Bob Doc', tag: 't1' }]);
         });
 
         it('applies created, updated, and deleted events live to collection rows', async () => {

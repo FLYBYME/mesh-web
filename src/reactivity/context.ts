@@ -108,6 +108,10 @@ export function scheduleEffect(effect: IEffectNode): void {
 export function flushPendingEffects(): void {
     if (isFlushing || batchDepth > 0) return;
     isFlushing = true;
+    // Every effect runs, whichever throws: one that threw used to end the loop, and the effects
+    // after it in the batch stayed dirty and out of the queue for good (review 10-26). The first
+    // error is thrown once the flush is done.
+    const errors: unknown[] = [];
     try {
         let iterations = 0;
         while (pendingEffects.size > 0) {
@@ -119,10 +123,16 @@ export function flushPendingEffects(): void {
             const batchToRun = Array.from(pendingEffects);
             pendingEffects.clear();
             for (const eff of batchToRun) {
-                eff.runIfNeeded();
+                try {
+                    eff.runIfNeeded();
+                } catch (err) {
+                    errors.push(err);
+                }
             }
         }
     } finally {
         isFlushing = false;
     }
+
+    if (errors.length > 0) throw errors[0];
 }

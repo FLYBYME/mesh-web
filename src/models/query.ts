@@ -293,6 +293,8 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
                 // design: a collection holding rows from the previous session is a data leak.
                 this.currentRequestId++;
                 this.currentInFlightPromise = null;
+                // Events held for the fetch just dropped are the previous session's (review 10-26).
+                this.eventsDuringFetch = [];
                 this._data.set(undefined);
                 this._rows.set([]);
                 this._empty.set(false);
@@ -306,6 +308,9 @@ export class CollectionQueryImpl<TItem, TQuery> implements IDisposableContainer 
                 // Clear old rows immediately to prevent cross-user leak, then refetch for the new user.
                 this.currentRequestId++;
                 this.currentInFlightPromise = null;
+                // Held during the previous user's fetch: replayed on the new user's answer, they put
+                // the previous user's rows back in the list (review 10-26).
+                this.eventsDuringFetch = [];
                 this._data.set(undefined);
                 this._rows.set([]);
                 this._empty.set(false);

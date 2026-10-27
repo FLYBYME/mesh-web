@@ -146,6 +146,37 @@ export function createEventStreamClient(
         status.set('idle');
     }
 
+    function handleIncoming(eventName: string, rawData: unknown): void {
+        let data = rawData;
+        if (typeof rawData === 'string') {
+            try {
+                data = JSON.parse(rawData);
+            } catch {
+                log?.(`models: dropped a '${eventName}' event that is not JSON`);
+                return;
+            }
+        }
+        const listeners = eventListeners.get(eventName);
+        if (listeners) {
+            for (const listener of Array.from(listeners)) {
+                listener(data);
+            }
+        }
+    }
+
+    /**
+     * The event names the current stream has a listener for: each is attached once per stream. The
+     * first subscriber to a name opened the stream, which attached every name already asked for --
+     * its own too -- and then attached its name again: it heard each event twice. And a name
+     * dropped to no subscribers and asked for again was attached a third time (review 10-26).
+     */
+    let attachedTo = new Set<string>();
+    function attach(source: EventSourceLike, eventName: string): void {
+        if (attachedTo.has(eventName) || typeof source.addEventListener !== 'function') return;
+        attachedTo.add(eventName);
+        source.addEventListener(eventName, (event) => handleIncoming(eventName, event.data));
+    }
+
     function ensureConnected(): EventSourceLike | null {
         if (isDisposed) return null;
         if (es !== null) return es;
@@ -198,31 +229,8 @@ export function createEventStreamClient(
             source.onerror = onError;
         }
 
-        const handleIncoming = (eventName: string, rawData: unknown) => {
-            let data = rawData;
-            if (typeof rawData === 'string') {
-                try {
-                    data = JSON.parse(rawData);
-                } catch {
-                    log?.(`models: dropped a '${eventName}' event that is not JSON`);
-                    return;
-                }
-            }
-            const listeners = eventListeners.get(eventName);
-            if (listeners) {
-                for (const listener of Array.from(listeners)) {
-                    listener(data);
-                }
-            }
-        };
-
-        for (const [eventName] of eventListeners) {
-            if (typeof source.addEventListener === 'function') {
-                source.addEventListener(eventName, (event) => {
-                    handleIncoming(eventName, event.data);
-                });
-            }
-        }
+        attachedTo = new Set();
+        for (const [eventName] of eventListeners) attach(source, eventName);
 
         source.onmessage = (event) => {
             const evType = event.type || 'message';
@@ -313,25 +321,7 @@ export function createEventStreamClient(
 
             if (isFirst) {
                 const source = ensureConnected();
-                if (source && typeof source.addEventListener === 'function') {
-                    source.addEventListener(eventName, (event) => {
-                        let data = event.data;
-                        if (typeof event.data === 'string') {
-                            try {
-                                data = JSON.parse(event.data);
-                            } catch {
-                                log?.(`models: dropped a '${eventName}' event that is not JSON`);
-                                return;
-                            }
-                        }
-                        const cur = eventListeners.get(eventName);
-                        if (cur) {
-                            for (const l of Array.from(cur)) {
-                                l(data);
-                            }
-                        }
-                    });
-                }
+                if (source !== null) attach(source, eventName);
             }
 
             return () => {

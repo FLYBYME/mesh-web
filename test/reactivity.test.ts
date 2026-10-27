@@ -154,6 +154,26 @@ describe('reactivity system', () => {
             expect(results).toEqual([0, 12]);
         });
 
+        it('an effect that throws does not stop the others in its update, which keep working after', () => {
+            const a = signal(0);
+            const before: number[] = [];
+            const after: number[] = [];
+
+            effect(() => { before.push(a()); });
+            effect(() => {
+                if (a() === 1) throw new Error('boom');
+            });
+            effect(() => { after.push(a()); });
+
+            expect(() => batch(() => { a.set(1); })).toThrow('boom');
+            expect(before).toEqual([0, 1]);
+            expect(after).toEqual([0, 1]);
+
+            a.set(2);
+            flushSync();
+            expect(after).toEqual([0, 1, 2]);
+        });
+
         it('resets batch depth when an error is thrown inside batch', () => {
             const a = signal(1);
             const spy = vi.fn();

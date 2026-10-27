@@ -403,6 +403,14 @@ function buildDialog(node: DialogNode, options: RenderOptions, owner: ReactiveSc
         }
     });
 
+    // The page around an open dialog going away (a route change) disposes this scope without
+    // `open` ever turning false: the dialog left with its focus trap still the active one, and Tab
+    // did nothing on the next page (review 10-26). Reads nothing, so it runs only to be cleaned up.
+    effect(() => () => {
+        if (isOpen) closeModal();
+        isOpen = false;
+    });
+
     return el;
 }
 
@@ -534,15 +542,17 @@ function buildEach(
         const items = read(node.items);
         const next = new Map<string | number, Row>();
         const ordered: Row[] = [];
+        const duplicates: string[] = [];
 
         items.forEach((item, index) => {
             const key = node.key(item, index);
 
+            // A second row with a key is left out, and said after the list is put right. Thrown
+            // here, half the rows had already left `rows` for `next` and `rows` was never replaced:
+            // the list stopped updating for good (review 10-26).
             if (next.has(key)) {
-                throw new Error(
-                    `each(): duplicate key ${JSON.stringify(key)} at index ${index}. ` +
-                    `Keys must be unique within one list.`,
-                );
+                duplicates.push(`${JSON.stringify(key)} at index ${index}`);
+                return;
             }
 
             const existing = rows.get(key);
@@ -602,6 +612,13 @@ function buildEach(
         }
 
         rows = next;
+
+        // Said once the list is whole again, outside this effect: the page keeps working, and the
+        // error reaches whatever reports a page's uncaught errors (the kernel's log).
+        if (duplicates.length > 0) {
+            const message = `each(): duplicate key ${duplicates.join(', ')}. Keys must be unique within one list; the later rows are left out.`;
+            queueMicrotask(() => { throw new Error(message); });
+        }
 
         if (first) {
             first = false;

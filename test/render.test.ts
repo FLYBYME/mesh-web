@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { effect, flushSync, signal } from '../src/reactivity/index.js';
 import { applyDefaultProp } from '../src/render/component.js';
+import { getActiveTrap } from '../src/input/trap.js';
 import { commandAction as command, createHandlerTable, dialog, each, element, empty, text, when } from '../src/description/index.js';
 import type { Action, IntentValue } from '../src/description/index.js';
 import { createRegistry, PRIMITIVES, render, type Dispatcher } from '../src/render/index.js';
@@ -525,15 +526,38 @@ describe('each is keyed, so a reorder moves nodes instead of rebuilding them', (
         expect(host.textContent).toBe('FirstRenamed — draft');
     });
 
-    it('rejects a duplicate key', () => {
+    it('a duplicate key leaves the later row out, says so after, and the list keeps updating', () => {
         const { host, components, dispatch } = setup();
-        expect(() =>
-            render(
-                each([{ id: 1 }, { id: 1 }], (i) => i.id, () => text('x')),
-                host,
-                { components, dispatch },
-            ),
-        ).toThrow(/duplicate key 1 at index 1/);
+        const reported: Array<() => void> = [];
+        const spy = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((callback) => { reported.push(callback); });
+        const list = signal([{ id: 1, name: 'a' }, { id: 2, name: 'b' }]);
+
+        try {
+            render(each(list, (i) => i.id, (i) => text(() => i().name)), host, { components, dispatch });
+            expect(host.textContent).toBe('ab');
+
+            // It threw half way through: rows had left the old map, which was never replaced, and the
+            // list stopped updating for good (review 10-26).
+            list.set([{ id: 1, name: 'a' }, { id: 1, name: 'dup' }, { id: 2, name: 'b' }]);
+            tick();
+            expect(host.textContent).toBe('ab');
+            // The scheduler queues its own flushes too: the report is the one that throws.
+            const thrown: string[] = [];
+            for (const callback of reported.splice(0)) {
+                try {
+                    callback();
+                } catch (err) {
+                    thrown.push(err instanceof Error ? err.message : String(err));
+                }
+            }
+            expect(thrown).toEqual([expect.stringMatching(/duplicate key 1 at index 1/)]);
+
+            list.set([{ id: 2, name: 'B' }, { id: 3, name: 'c' }]);
+            tick();
+            expect(host.textContent).toBe('Bc');
+        } finally {
+            spy.mockRestore();
+        }
     });
 });
 
@@ -921,6 +945,34 @@ describe('a style object reaches the browser as CSS', () => {
         applyDefaultProp(el, 'style', { '--ink': '#fff' });
         expect(el.getAttribute('style')).toContain('--ink:#fff');
     });
+
+    it('never sets a handler attribute or srcdoc, nor a link to javascript: however it is spelled (review 10-26)', () => {
+        const a = document.createElement('a');
+        applyDefaultProp(a, 'onclick', 'alert(1)');
+        applyDefaultProp(a, 'onMouseOver', 'alert(1)');
+        expect(a.getAttribute('onclick')).toBeNull();
+        expect(a.getAttribute('onmouseover')).toBeNull();
+
+        for (const bad of ['javascript:alert(1)', ' JavaScript:alert(1)', 'java\tscript:alert(1)', 'vbscript:x', 'data:text/html,<script>x</script>']) {
+            applyDefaultProp(a, 'href', '/safe');
+            applyDefaultProp(a, 'href', bad);
+            expect(a.getAttribute('href')).toBeNull();
+        }
+        for (const good of ['/apps/web', '#top', 'https://example.com/x', 'mailto:a@b.c', 'tel:+15551234', 'page?q=1']) {
+            applyDefaultProp(a, 'href', good);
+            expect(a.getAttribute('href')).toBe(good);
+        }
+
+        const img = document.createElement('img');
+        applyDefaultProp(img, 'src', 'data:image/png;base64,AAAA');
+        expect(img.getAttribute('src')).toBe('data:image/png;base64,AAAA');
+        applyDefaultProp(img, 'src', 'data:image/svg+xml;base64,AAAA');
+        expect(img.getAttribute('src')).toBeNull();
+
+        const frame = document.createElement('iframe');
+        applyDefaultProp(frame, 'srcdoc', '<script>x</script>');
+        expect(frame.getAttribute('srcdoc')).toBeNull();
+    });
 });
 
 describe('dialog and focus trap', () => {
@@ -961,6 +1013,20 @@ describe('dialog and focus trap', () => {
 
         mounted.dispose();
         expect(host.querySelector('dialog')).toBeNull();
+    });
+
+    it('a dialog still open when its page goes away gives up its focus trap (review 10-26)', () => {
+        const { host, components, dispatch } = setup();
+        const mounted = render(
+            dialog({ open: () => true, children: [element('Button', { children: [text('Inside')] })] }),
+            host,
+            { components, dispatch },
+        );
+        tick();
+        expect(getActiveTrap()).toBeDefined();
+
+        mounted.dispose();
+        expect(getActiveTrap()).toBeUndefined();
     });
 
     it('focus enters on open and returns to the opener on close', () => {

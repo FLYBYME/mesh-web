@@ -258,7 +258,44 @@ const ARIA_MAP: Readonly<Record<string, string>> = {
  * Kept small on purpose: a prop that means something specific to a component belongs in that
  * component's `apply`, not here, or the default becomes a second uncontrolled vocabulary.
  */
+/** Attributes that load or navigate to a URL: a `javascript:` one there runs code. */
+const URL_ATTRIBUTES = new Set(['href', 'src', 'action', 'formaction', 'poster', 'cite', 'background', 'xlink:href', 'ping']);
+
+/** What a URL attribute may name: a page of the site, the web, mail, a phone. */
+const SAFE_URL = /^(?:[a-z][a-z0-9+.-]*:)?/i;
+const SAFE_SCHEMES = new Set(['', 'http:', 'https:', 'mailto:', 'tel:']);
+
+/**
+ * Whether `value` may go in URL attribute `name`. A relative URL, an anchor, or http(s), mailto and
+ * tel; a `data:` image only in `src`. Read as the browser reads it: control characters and spaces
+ * are dropped first, so "java\tscript:" is still javascript.
+ */
+export function safeUrl(name: string, value: string): boolean {
+    const plain = value.replace(/[\u0000- \u007f]/g, '');
+    const scheme = (SAFE_URL.exec(plain)?.[0] ?? '').toLowerCase();
+    if (SAFE_SCHEMES.has(scheme)) return true;
+
+    return scheme === 'data:' && name === 'src' && /^data:image\/(?:png|jpeg|gif|webp|avif);/i.test(plain);
+}
+
+/**
+ * Never set from props: an event handler attribute is code (handlers are intents), and `srcdoc` is
+ * a whole page. Any prop became an attribute, so a row from the api could give a link
+ * `onclick` or `javascript:` (review 10-26).
+ */
+function refusedAttribute(name: string): boolean {
+    const lower = name.toLowerCase();
+
+    return lower.startsWith('on') || lower === 'srcdoc';
+}
+
 export function applyDefaultProp(el: Element, name: string, value: Json): void {
+    if (refusedAttribute(name)) return;
+    if (URL_ATTRIBUTES.has(name.toLowerCase()) && typeof value === 'string' && !safeUrl(name.toLowerCase(), value)) {
+        el.removeAttribute(name);
+        return;
+    }
+
     const ariaAttr = ARIA_MAP[name] ?? (name.startsWith('aria-') ? name : undefined);
     if (ariaAttr !== undefined) {
         if (value === null || value === undefined) {
