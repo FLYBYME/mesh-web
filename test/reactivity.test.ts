@@ -11,6 +11,7 @@ import {
     signal,
     untrack,
 } from '../src/reactivity/index.js';
+import { heldBy } from '../src/reactivity/scope.js';
 
 describe('reactivity system', () => {
     describe('computed signals', () => {
@@ -249,6 +250,26 @@ describe('reactivity system', () => {
             val.set(3);
             flushSync();
             expect(effectSpy).toHaveBeenCalledTimes(2);
+        });
+
+        it('a child scope disposed on its own is let go by its parent (review 10-26)', () => {
+            const parent = createScope();
+            const children = parent.run(() => [createScope(), createScope(), createScope()]);
+            expect(heldBy(parent)).toBe(3);
+
+            for (const child of children) child.dispose();
+            expect(heldBy(parent)).toBe(0);
+        });
+
+        it('so is an effect or a resource disposed on its own', async () => {
+            const parent = createScope();
+            const [stop, data] = parent.run(() => [effect(() => undefined), resource(async () => 1)]);
+            // The resource's own fetching effect is held too.
+            expect(heldBy(parent)).toBe(3);
+
+            stop();
+            data.dispose();
+            expect(heldBy(parent)).toBe(0);
         });
 
         it('createDetachedScope does not attach to outer parent scope', () => {

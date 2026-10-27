@@ -28,12 +28,14 @@ class EffectNode implements ISubscriber, IEffectNode, IDisposableContainer {
     private currentRunDependencies: Set<ISource> | null = null;
     private childDisposables: Set<() => void> = new Set();
     private parentScope: IDisposableContainer | null = null;
+    /** Held by the parent, and taken back out when this is disposed on its own (scope.ts). */
+    private readonly disposeFromParent = (): void => this.dispose();
 
     constructor(fn: EffectFn) {
         this.effectFn = fn;
         this.parentScope = getActiveScopeContext();
         if (this.parentScope !== null) {
-            this.parentScope.addDisposable(() => this.dispose());
+            this.parentScope.addDisposable(this.disposeFromParent);
         }
         this.run();
     }
@@ -166,6 +168,7 @@ class EffectNode implements ISubscriber, IEffectNode, IDisposableContainer {
         if (this.isDisposed) return;
         this.isDisposed = true;
         this.state = NodeState.CLEAN;
+        this.parentScope?.removeDisposable(this.disposeFromParent);
 
         let cleanupErr: unknown = null;
 

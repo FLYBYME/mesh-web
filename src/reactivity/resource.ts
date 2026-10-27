@@ -30,6 +30,8 @@ class ResourceImpl<T> implements IDisposableContainer {
     private effectDispose: (() => void) | null = null;
     private childDisposables: Set<() => void> = new Set();
     private parentScope: IDisposableContainer | null = null;
+    /** Held by the parent, and taken back out when this is disposed on its own (scope.ts). */
+    private readonly disposeFromParent = (): void => this.dispose();
 
     constructor(fetcher: () => Promise<T>) {
         this.fetcher = fetcher;
@@ -39,7 +41,7 @@ class ResourceImpl<T> implements IDisposableContainer {
 
         this.parentScope = getActiveScopeContext();
         if (this.parentScope !== null) {
-            this.parentScope.addDisposable(() => this.dispose());
+            this.parentScope.addDisposable(this.disposeFromParent);
         }
 
         this.effectDispose = effect(() => {
@@ -143,6 +145,7 @@ class ResourceImpl<T> implements IDisposableContainer {
     dispose(): void {
         if (this.isDisposed) return;
         this.isDisposed = true;
+        this.parentScope?.removeDisposable(this.disposeFromParent);
         this.currentRequestId++;
         this.currentInFlightPromise = null;
 

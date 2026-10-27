@@ -14,12 +14,23 @@ class ReactiveScopeImpl implements ReactiveScope, IDisposableContainer {
     private disposables: Set<() => void> = new Set();
     private isDisposed = false;
     private parentScope: IDisposableContainer | null = null;
+    /**
+     * What the parent holds for this scope: the same function both to add and to remove. It removed
+     * a new `() => this.dispose()`, which matched nothing, so a parent kept every child it had
+     * ever disposed -- each row an `each()` dropped, for the life of the page (review 10-26).
+     */
+    private readonly disposeFromParent = (): void => this.dispose();
 
     constructor() {
         this.parentScope = getActiveScopeContext();
         if (this.parentScope !== null) {
-            this.parentScope.addDisposable(() => this.dispose());
+            this.parentScope.addDisposable(this.disposeFromParent);
         }
+    }
+
+    /** How many things this scope will dispose: for tests of what it lets go (heldBy). */
+    get held(): number {
+        return this.disposables.size;
     }
 
     addDisposable(dispose: () => void): void {
@@ -55,7 +66,7 @@ class ReactiveScopeImpl implements ReactiveScope, IDisposableContainer {
         this.isDisposed = true;
 
         if (this.parentScope !== null) {
-            this.parentScope.removeDisposable(() => this.dispose());
+            this.parentScope.removeDisposable(this.disposeFromParent);
         }
 
         const items = Array.from(this.disposables);
@@ -86,6 +97,11 @@ class ReactiveScopeImpl implements ReactiveScope, IDisposableContainer {
  */
 export function createScope(): ReactiveScope {
     return new ReactiveScopeImpl();
+}
+
+/** How many effects, resources and child scopes `scope` still holds. For tests, not apps. */
+export function heldBy(scope: ReactiveScope): number {
+    return scope instanceof ReactiveScopeImpl ? scope.held : 0;
 }
 
 /**
