@@ -958,7 +958,7 @@ describe('a style object reaches the browser as CSS', () => {
             applyDefaultProp(a, 'href', bad);
             expect(a.getAttribute('href')).toBeNull();
         }
-        for (const good of ['/apps/web', '#top', 'https://example.com/x', 'mailto:a@b.c', 'tel:+15551234', 'page?q=1']) {
+        for (const good of ['/apps/web', '#top', 'https://example.com/x', 'mailto:a@b.c', 'tel:+15551234', 'page?q=1', 'blob:https://console.example/3f2a']) {
             applyDefaultProp(a, 'href', good);
             expect(a.getAttribute('href')).toBe(good);
         }

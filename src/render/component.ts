@@ -261,13 +261,16 @@ const ARIA_MAP: Readonly<Record<string, string>> = {
 /** Attributes that load or navigate to a URL: a `javascript:` one there runs code. */
 const URL_ATTRIBUTES = new Set(['href', 'src', 'action', 'formaction', 'poster', 'cite', 'background', 'xlink:href', 'ping']);
 
-/** What a URL attribute may name: a page of the site, the web, mail, a phone. */
+/**
+ * What a URL attribute may name: a page of the site, the web, mail, a phone, or an object the page
+ * itself made (`blob:`, URL.createObjectURL's: the console's "download all mail" link is one).
+ */
 const SAFE_URL = /^(?:[a-z][a-z0-9+.-]*:)?/i;
-const SAFE_SCHEMES = new Set(['', 'http:', 'https:', 'mailto:', 'tel:']);
+const SAFE_SCHEMES = new Set(['', 'http:', 'https:', 'mailto:', 'tel:', 'blob:']);
 
 /**
- * Whether `value` may go in URL attribute `name`. A relative URL, an anchor, or http(s), mailto and
- * tel; a `data:` image only in `src`. Read as the browser reads it: control characters and spaces
+ * Whether `value` may go in URL attribute `name`. A relative URL, an anchor, or http(s), mailto,
+ * tel and blob; a `data:` image only in `src`. Read as the browser reads it: control characters and spaces
  * are dropped first, so "java\tscript:" is still javascript.
  */
 export function safeUrl(name: string, value: string): boolean {
