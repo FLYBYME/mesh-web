@@ -20,7 +20,8 @@ import { render } from '../render/dom.js';
 import type { Dispatcher } from '../render/renderer.js';
 import { browserHistory, type HistoryLike } from '../router/router.js';
 import type { CommandRegistryOptions } from './registry.js';
-import type { LayoutClass } from './types.js';
+import type { LayoutClass, PageHead } from './types.js';
+import { documentHead } from './head.js';
 import { compileRoutes, type RouteMatch } from './routes.js';
 import type { RouterBackend } from './router.js';
 import {
@@ -130,6 +131,7 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
     };
 
     const liveTitle = signal<(() => string) | undefined>(undefined);
+    const liveHead = signal<(() => PageHead) | undefined>(undefined);
 
     const outlet = (layout: LayoutClass | undefined): Node => each(
         () => { const current = route(); return current === undefined || current.layout !== layout ? [] : [current]; },
@@ -139,11 +141,16 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
             // A view's own `title()`. Cleared only if it is still this view's: the next view may
             // have registered its own before this one's teardown runs.
             let mine: (() => string) | undefined;
+            let myHead: (() => PageHead) | undefined;
             return runtime.view(match().view, match().raw, registry, {
                 query: () => match().query,
                 titled: (title) => {
                     if (title !== undefined) liveTitle.set(mine = title);
                     else if (liveTitle.peek() === mine) liveTitle.set(undefined);
+                },
+                headed: (head) => {
+                    if (head !== undefined) liveHead.set(myHead = head);
+                    else if (liveHead.peek() === myHead) liveHead.set(undefined);
                 },
             });
         },
@@ -172,6 +179,11 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
     const stopTitle = effect(() => {
         document.title = liveTitle()?.() ?? route()?.view.spec.title ?? pageTitle;
     });
+    // A view's `head()`, the same way: what it leaves out, or a view with none, is the page's own.
+    const pageHead = documentHead(document);
+    const stopHead = effect(() => {
+        pageHead.show(liveHead()?.() ?? {});
+    });
 
     return {
         runtime,
@@ -181,6 +193,8 @@ export function mountSite(App: AppClass, options: SiteOptions): MountedApp {
         dispose() {
             stopTitle();
             document.title = pageTitle;
+            stopHead();
+            pageHead.show({});
             stopKeys();
             stopHistory();
             mounted.dispose();

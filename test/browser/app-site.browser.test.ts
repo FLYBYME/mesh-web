@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { effect, element, signal, text, when, type Node } from '../../src/index.js';
 import {
     App, command, Component, Link, mountSite, props, Redirect, Router, Service, View, within,
-    type LayoutProps, type MountedApp,
+    type LayoutProps, type MountedApp, type PageHead,
 } from '../../src/app/index.js';
 
 // ---------------------------------------------------------------------------- the site
@@ -249,6 +249,76 @@ describe('a text area with submitOnEnter (a chat composer, 10-24)', () => {
         await frame();
         expect(sent()).toBe('sent 1');
         expect(area.value).toBe('one\ntwo');
+    });
+});
+
+// ---------------------------------------------------------------------------- the page head
+
+class PricedView extends View({ inject: { router: Router } }) {
+    readonly price = signal(5);
+
+    head(): PageHead {
+        return {
+            description: `Hosting from $${this.price()}`,
+            canonical: 'https://example.test/pricing',
+            structuredData: { '@type': 'Offer', price: this.price() },
+            lang: 'fr',
+        };
+    }
+
+    render(): Node {
+        return element('Stack', {
+            props: { 'data-view': 'priced' },
+            children: [
+                element('Button', {
+                    props: { 'aria-label': 'raise' },
+                    intents: { activate: { action: this.on(() => this.price.set(this.price() + 1)) } },
+                    children: [text('Raise')],
+                }),
+                this.mount(Link, { href: this.inject.router.href(PlainView), children: [text('plain')] }),
+            ],
+        });
+    }
+}
+
+class PlainView extends View({}) {
+    render(): Node { return element('Stack', { props: { 'data-view': 'plain' }, children: [] }); }
+}
+
+class HeadSite extends App({ routes: { '/priced': PricedView, '/plain': PlainView } }) {}
+
+describe('a view\'s head (surfdns.net wrote its own with createElement)', () => {
+    it('follows the view\'s state, and the page\'s own comes back when it goes', async () => {
+        const own = Object.assign(document.createElement('meta'), { name: 'description', content: 'the page\'s own' });
+        document.head.appendChild(own);
+        const description = (): string | null => document.head.querySelector<HTMLMetaElement>('meta[name="description"]')?.content ?? null;
+        const canonical = (): Element | null => document.head.querySelector('link[rel="canonical"]');
+        const data = (): string | null => document.head.querySelector('script[type="application/ld+json"]')?.textContent ?? null;
+        try {
+            history.pushState(null, '', '/priced');
+            site = mountSite(HeadSite, { root });
+            await frame();
+            expect(description()).toBe('Hosting from $5');
+            expect(canonical()?.getAttribute('href')).toBe('https://example.test/pricing');
+            expect(data()).toBe('{"@type":"Offer","price":5}');
+            expect(document.documentElement.getAttribute('lang')).toBe('fr');
+            expect(document.head.querySelectorAll('meta[name="description"]')).toHaveLength(1);
+
+            const raise = root.querySelector('[aria-label="raise"]');
+            if (raise === null) throw new Error('no raise button');
+            await userEvent.click(raise);
+            await frame();
+            expect(description()).toBe('Hosting from $6');
+
+            await userEvent.click(link('plain'));
+            await frame();
+            expect(description()).toBe('the page\'s own');
+            expect(canonical()).toBeNull();
+            expect(data()).toBeNull();
+            expect(document.documentElement.getAttribute('lang')).not.toBe('fr');
+        } finally {
+            own.remove();
+        }
     });
 });
 

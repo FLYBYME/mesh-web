@@ -20,8 +20,28 @@ import { createDetachedScope, runDetached } from '../reactivity/scope.js';
 import { createCommandRegistry, type CommandRegistry, type CommandRegistryOptions } from './registry.js';
 import { attachRouter, Router, type RouterBackend } from './router.js';
 import type {
-    ComponentClass, ErasedInit, Injectables, MountableInstance, Route, ServiceClass, UnitHost, UnitSpec, ViewClass,
+    ComponentClass, ErasedInit, Injectables, MountableInstance, PageHead, Route, ServiceClass, UnitHost, UnitSpec, ViewClass,
 } from './types.js';
+
+/** What a view's `head()` answered, keeping only fields of the right type: it is typed `unknown`. */
+function pageHeadOf(value: unknown): PageHead {
+    if (typeof value !== 'object' || value === null) return {};
+    const field = (name: string): unknown => Reflect.get(value, name);
+    const description = field('description');
+    const canonical = field('canonical');
+    const lang = field('lang');
+    const data = field('structuredData');
+    const structuredData = typeof data === 'object' && data !== null && !Array.isArray(data)
+        ? Object.fromEntries(Object.entries(data))
+        : undefined;
+
+    return {
+        ...(typeof description === 'string' ? { description } : {}),
+        ...(typeof canonical === 'string' ? { canonical } : {}),
+        ...(typeof lang === 'string' ? { lang } : {}),
+        ...(structuredData !== undefined ? { structuredData } : {}),
+    };
+}
 
 /** Where a root registers its handlers: a window's table, today through `vx.on` / `vx.off`. */
 export interface HandlerRegistry {
@@ -95,6 +115,8 @@ export interface ViewMountOptions {
      * goes. The page (or window) title follows it.
      */
     readonly titled?: (title: (() => string) | undefined) => void;
+    /** The same for the instance's `head()`: the page's head follows it (a site only). */
+    readonly headed?: (head: (() => PageHead) | undefined) => void;
 }
 
 export interface AppRuntimeOptions {
@@ -220,6 +242,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
         hostName: string,
         scope: string | undefined,
         titled?: (title: (() => string) | undefined) => void,
+        headed?: (head: (() => PageHead) | undefined) => void,
     ): MountNode => {
         const needs = needsOf(Class.spec);
         refuse(Class.name, needs, hostNeeds, hostName);
@@ -270,6 +293,11 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                         titled(bound);
                         cleanups.push(() => titled(undefined));
                     }
+                    const head = instance.head;
+                    if (headed !== undefined && typeof head === 'function') {
+                        headed(() => pageHeadOf(Reflect.apply(head, instance, [])));
+                        cleanups.push(() => headed(undefined));
+                    }
                     return { node, dispose: teardown };
                 } catch (error) {
                     // Whatever it registered before failing goes with it — and then this mount is the
@@ -300,7 +328,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                 params = parsed.data;
             }
             const query = parseQuery(view, mountOptions.query ?? (() => ({})));
-            return mount(view, { params, query }, handlers, grant, `the app (${App.name})`, mountOptions.scope, mountOptions.titled);
+            return mount(view, { params, query }, handlers, grant, `the app (${App.name})`, mountOptions.scope, mountOptions.titled, mountOptions.headed);
         },
         component(component, props, handlers, scope) {
             return mount(component, { props }, handlers, grant, `the app (${App.name})`, scope);

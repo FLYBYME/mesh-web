@@ -185,6 +185,26 @@ export interface MountableInstance {
      * uses it when it is a function, and only on a routed view.
      */
     readonly title?: unknown;
+    /**
+     * A routed view's page head from its own state (a method returning `PageHead`), read
+     * reactively while it is on screen. `unknown` for the same reason as `title`.
+     */
+    readonly head?: unknown;
+}
+
+/**
+ * What a page says about itself in the document's head: a site sets these for the view on screen
+ * and puts the page's own back when it goes. A view never writes the head itself.
+ */
+export interface PageHead {
+    /** `<meta name="description">`. */
+    readonly description?: string;
+    /** `<link rel="canonical">`: the page's one address. */
+    readonly canonical?: string;
+    /** `<script type="application/ld+json">`: Schema.org data, serialized by the site. */
+    readonly structuredData?: Readonly<Record<string, unknown>>;
+    /** `<html lang>`. */
+    readonly lang?: string;
 }
 
 /**
