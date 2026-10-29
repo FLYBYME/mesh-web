@@ -48,6 +48,7 @@ import { mountSite, type MountedApp } from '../app/site.js';
 import { mountDesktop, type MountedDesktop } from '../app/desktop.js';
 import type { AppClass } from '../app/runtime.js';
 import { kernelLog, mountLogViewer, reasonOf, type LogViewer } from './logs.js';
+import { collectUrl, startCollector } from './collect.js';
 import { mountViewSelector, type ViewSelector } from './view-selector.js';
 
 /** One part in a composition: an id, the module's default export, and the site's options for it. */
@@ -249,6 +250,12 @@ function startApp(App: AppClass, partId: string, composition: Composition, page:
         observer?.disconnect();
     };
 
+    // Before the site mounts, so a page that cannot start still says so (collect.ts).
+    const collectTo = collectUrl(composition.policy?.['telemetry/collect']);
+    const collector = collectTo !== undefined
+        ? startCollector(page.services.logs, { url: collectTo, route: () => win?.location.pathname ?? '' })
+        : undefined;
+
     // A website unless the site's policy asks for the desktop: single-page is the default for an App.
     const mode = composition.policy?.['window-manager/mode'];
     let site: MountedApp | MountedDesktop;
@@ -261,6 +268,7 @@ function startApp(App: AppClass, partId: string, composition: Composition, page:
         // not start and why, and the log panel is there to read — then the error still propagates,
         // loudly, to whatever booted it.
         log.error(`${partId} could not start: ${reasonOf(cause)}`, { part: partId });
+        void collector?.flush();
         handle.dispose();
         stopMeasuring();
         const notice = doc.createElement('div');
@@ -287,6 +295,7 @@ function startApp(App: AppClass, partId: string, composition: Composition, page:
         ready: Promise.resolve(),
         dispose() {
             stopMeasuring();
+            collector?.dispose();
             viewSelector.dispose();
             site.dispose();
             handle.dispose();

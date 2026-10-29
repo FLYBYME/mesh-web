@@ -179,6 +179,7 @@ The kernel maintains a bounded in-memory log buffer:
 - **Repeat Filtering**: Identical network call failures or capability refusals are deduplicated by [`RepeatFilter`](file:///home/ubuntu/code/mesh-web/src/kernel/logs.ts#L89) to prevent log flooding during render or polling loops.
 - **Attribution**: Kernel lines record the affected part name in `LogRecord.part`.
 - **Fullscreen Viewer**: Toggled by `ctrl+alt+q` or command `'kernel.logs'`. Provides level filtering (`all`, `error`, `warn`, `info`, `debug`), source filtering, text search, and eviction statistics.
+- **Collector** (`src/kernel/collect.ts`, v0.21.30): off unless the site's policy `telemetry/collect` is an http(s) URL. Then every `warn` and `error` from boot on is POSTed there as `{ records: [{ at, level, source, message, part?, route?, data? }], dropped? }` (`at` in ms, `data` as JSON text cut at 1,000 characters), with no cookies, in batches every 5 s of at most 50, and at most 60 records a minute (the rest counted in `dropped`). The route is the path only, never the query. A site that cannot start flushes at once.
 
 ---
 
