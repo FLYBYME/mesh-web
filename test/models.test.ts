@@ -1251,6 +1251,7 @@ describe('session-aware collections', () => {
 
             const got: unknown[] = [];
             const off = models.on('telemetry.live_updated', (payload) => got.push(payload));
+            await Promise.resolve();
             const es = MockEventSource.instances[0];
             expect(es).toBeDefined();
             es?.emit('telemetry.live_updated', { at: 1 });
@@ -1386,7 +1387,9 @@ describe('session-aware collections', () => {
 
             const es = MockEventSource.instances[0]!;
             expect(es).toBeDefined();
-            expect(es.url).toBe('/api/events');
+            // Only what this page listens for (11-05: a console page heard infer's per-word chunks).
+            expect(es.url).toBe('/api/events?events=part.created,part.deleted,part.updated');
+            expect(MockEventSource.instances).toHaveLength(1);
 
             // 1. Created event
             es.emit('part.created', { id: 'p2', name: 'Second Part', tag: 't1' });
@@ -1864,7 +1867,7 @@ describe("a collection's default query is nobody else's to own", () => {
 });
 
 describe('the stream edge: a frame that cannot be read is dropped and reported', () => {
-    it('reports bad JSON and a frame with no event name, and still delivers good frames', () => {
+    it('reports bad JSON and a frame with no event name, and still delivers good frames', async () => {
         const sources: { onmessage?: ((event: { type?: string; data?: unknown }) => void) | null }[] = [];
         const reports: string[] = [];
         const client = createEventStreamClient(
@@ -1879,6 +1882,7 @@ describe('the stream edge: a frame that cannot be read is dropped and reported',
         );
         const got: unknown[] = [];
         client.subscribe('part.created', (payload) => got.push(payload));
+        await Promise.resolve();
         const send = sources[0]?.onmessage;
         expect(send).toBeTypeOf('function');
 
@@ -1893,7 +1897,42 @@ describe('the stream edge: a frame that cannot be read is dropped and reported',
         client.close();
     });
 
-    it('says whether changes are arriving: connecting, open, reconnecting after a drop, closed when the browser gives up', () => {
+    it('asks for only the events listened for, and widens without a gap or a refetch when more are', async () => {
+        const sources: { url: string; onopen?: ((event: unknown) => void) | null; onmessage: null; closed: boolean; close(): void }[] = [];
+        const client = createEventStreamClient('/api/events', (url) => {
+            const source = { url, onopen: null, onmessage: null, closed: false, close(): void { source.closed = true; } };
+            sources.push(source);
+            return source;
+        });
+        let reconnects = 0;
+        client.onReconnect(() => { reconnects += 1; });
+
+        // One page mounting: two names in one turn, one stream.
+        client.subscribe('part.created', () => {});
+        client.subscribe('part.updated', () => {});
+        await Promise.resolve();
+        expect(sources.map((s) => s.url)).toEqual(['/api/events?events=part.created,part.updated']);
+        sources[0]?.onopen?.({});
+
+        // Another view asks for one more: a wider stream; the old one stays until it opens.
+        client.subscribe('zone.created', () => {});
+        await Promise.resolve();
+        expect(sources[1]?.url).toBe('/api/events?events=part.created,part.updated,zone.created');
+        expect(sources[0]?.closed).toBe(false);
+
+        sources[1]?.onopen?.({});
+        expect(sources[0]?.closed).toBe(true);
+        expect(reconnects).toBe(0);
+        expect(client.status()).toBe('open');
+
+        // A name already carried opens nothing new.
+        client.subscribe('part.created', () => {});
+        await Promise.resolve();
+        expect(sources).toHaveLength(2);
+        client.close();
+    });
+
+    it('says whether changes are arriving: connecting, open, reconnecting after a drop, closed when the browser gives up', async () => {
         const sources: { onopen?: ((event: unknown) => void) | null; onerror?: ((event: unknown) => void) | null; onmessage: null; readyState: number; close(): void }[] = [];
         const client = createEventStreamClient('/api/events', () => {
             const source = { onopen: null, onerror: null, onmessage: null, readyState: 0, close: () => {} };
@@ -1903,6 +1942,7 @@ describe('the stream edge: a frame that cannot be read is dropped and reported',
         expect(client.status()).toBe('idle');
 
         client.subscribe('part.created', () => {});
+        await Promise.resolve();
         const source = sources[0];
         expect(client.status()).toBe('connecting');
 

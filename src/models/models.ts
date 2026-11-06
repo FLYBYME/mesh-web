@@ -142,8 +142,58 @@ export function createEventStreamClient(
             es.close();
             es = null;
         }
+        retireNow();
+        openWith = new Set();
         openedOnce = false;
         status.set('idle');
+    }
+
+    /**
+     * The names the current stream was opened for: it asks the api for those alone
+     * (`?events=a,b`), never every event the api streams -- a console page heard each of infer's
+     * per-word chunks while showing domains (11-05). A name asked for later widens the stream: a
+     * new one is opened with every name, and the old one is closed only once the new one is open,
+     * so nothing is missed between them. An event heard on both in that moment is applied twice,
+     * which a collection's handlers take in their stride (a created row is replaced by id).
+     */
+    let openWith = new Set<string>();
+    /** The stream being replaced by a wider one, until that one opens. */
+    let retiring: EventSourceLike | null = null;
+    let widenQueued = false;
+
+    function retireNow(): void {
+        if (retiring !== null) {
+            retiring.close();
+            retiring = null;
+        }
+    }
+
+    function streamUrl(names: ReadonlySet<string>): string {
+        const list = [...names].sort().map((name) => encodeURIComponent(name)).join(',');
+        return `${url}${url.includes('?') ? '&' : '?'}events=${list}`;
+    }
+
+    /**
+     * After this turn's subscribes (a page mounting asks for many names at once): one stream with
+     * every name -- opened if there is none, widened if the open one lacks some.
+     */
+    function queueStream(): void {
+        if (widenQueued) return;
+        widenQueued = true;
+        queueMicrotask(() => {
+            widenQueued = false;
+            if (isDisposed) return;
+            if (es === null) {
+                ensureConnected();
+                return;
+            }
+            if ([...eventListeners.keys()].every((name) => openWith.has(name))) return;
+
+            retireNow();
+            retiring = es;
+            es = null;
+            ensureConnected();
+        });
     }
 
     function handleIncoming(eventName: string, rawData: unknown): void {
@@ -181,8 +231,11 @@ export function createEventStreamClient(
         if (isDisposed) return null;
         if (es !== null) return es;
         if (!shouldConnect()) return null;
+        // Nothing asked for yet: nothing to open. The first subscribe opens it.
+        if (eventListeners.size === 0) return null;
 
-        const source = factory!(url);
+        openWith = new Set(eventListeners.keys());
+        const source = factory!(streamUrl(openWith));
         es = source;
         status.set('connecting');
 
@@ -195,7 +248,14 @@ export function createEventStreamClient(
         };
 
         const onOpen = () => {
+            if (es !== source) return;
             status.set('open');
+            // A wider stream replacing one that was open: the old one goes now, and nothing was
+            // missed between them -- not a reconnect, so nothing refetches.
+            if (retiring !== null) {
+                retireNow();
+                if (openedOnce) return;
+            }
             if (openedOnce) {
                 // Reconnect!
                 for (const r of Array.from(reconnectListeners)) {
@@ -320,8 +380,11 @@ export function createEventStreamClient(
             listeners.add(handler);
 
             if (isFirst) {
-                const source = ensureConnected();
-                if (source !== null) attach(source, eventName);
+                // Streaming with this name already: listen. Otherwise a stream with every name
+                // asked for -- opened, or widened -- once this turn's subscribes are in (a page
+                // mounting asks for many at once).
+                if (es !== null && openWith.has(eventName)) attach(es, eventName);
+                else queueStream();
             }
 
             return () => {
@@ -336,7 +399,7 @@ export function createEventStreamClient(
         },
         onReconnect(handler: () => void) {
             reconnectListeners.add(handler);
-            ensureConnected();
+            if (es === null) queueStream();
             return () => {
                 reconnectListeners.delete(handler);
             };
