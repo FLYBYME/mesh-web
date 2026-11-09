@@ -1271,11 +1271,9 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
                 return true;
             }
             if (name === 'ariaLabel' || name === 'aria-label' || name === 'label') {
-                if (value !== null && value !== undefined) {
-                    el.setAttribute('aria-label', String(value));
-                } else {
-                    el.setAttribute('aria-label', 'Drop zone');
-                }
+                // `null` is "no name of its own": a zone given another role, inside something already named.
+                if (value === null) el.removeAttribute('aria-label');
+                else el.setAttribute('aria-label', value === undefined ? 'Drop zone' : String(value));
                 return true;
             }
             return false;
