@@ -92,7 +92,9 @@ export type IntentName =
     | 'scroll'
     | 'zoom'
     | 'change'
-    | 'drop';
+    | 'drop'
+    | 'resize'
+    | 'step';
 
 /**
  * Whether the default platform behaviour is suppressed.

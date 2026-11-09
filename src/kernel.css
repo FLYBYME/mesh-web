@@ -569,6 +569,20 @@
     min-height: 0;
 }
 
+[data-mesh-splitter] {
+    flex: none;
+    touch-action: none;
+    user-select: none;
+}
+
+[data-mesh-splitter][data-orientation="vertical"] {
+    cursor: col-resize;
+}
+
+[data-mesh-splitter][data-orientation="horizontal"] {
+    cursor: row-resize;
+}
+
 [data-mesh-draggable] {
     cursor: grab;
     user-select: none;

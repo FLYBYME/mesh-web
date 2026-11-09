@@ -19,6 +19,7 @@ import { computed } from '../reactivity/computed.js';
 import { createDetachedScope, runDetached } from '../reactivity/scope.js';
 import { createCommandRegistry, type CommandRegistry, type CommandRegistryOptions } from './registry.js';
 import { attachRouter, Router, type RouterBackend } from './router.js';
+import { attachCommandList, CommandList } from './command-list.js';
 import type {
     ComponentClass, ErasedInit, Injectables, MountableInstance, PageHead, Route, ServiceClass, UnitHost, UnitSpec, ViewClass,
 } from './types.js';
@@ -211,6 +212,7 @@ export function createAppRuntime(App: AppClass, granted: GrantedContext, options
                 inject: resolve(Class.spec.inject),
             })));
             if (Class === Router && options.router !== undefined) attachRouter(instance, options.router);
+            if (Class === CommandList) attachCommandList(instance, commands);
             const retire = commands.add(Class.name, instance);
             services.set(Asked, instance);
             teardowns.push(() => {

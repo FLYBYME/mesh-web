@@ -378,6 +378,44 @@ interface DropZoneState {
 
 const dropZoneStates = new WeakMap<Element, DropZoneState>();
 
+// ---------------------------------------------------------------------------- splitter helpers
+
+interface SplitterState {
+    orientation: 'vertical' | 'horizontal';
+    value: number;
+    min: number;
+    max: number;
+    /** The pane being sized is after the splitter, so moving towards it makes it smaller. */
+    reverse: boolean;
+    drag?: { readonly origin: number; readonly from: number };
+}
+
+const splitterStates = new WeakMap<Element, SplitterState>();
+
+function splitterState(el: Element): SplitterState {
+    const existing = splitterStates.get(el);
+    if (existing !== undefined) return existing;
+
+    const created: SplitterState = { orientation: 'vertical', value: 0, min: 0, max: Number.MAX_SAFE_INTEGER, reverse: false };
+    splitterStates.set(el, created);
+
+    return created;
+}
+
+/** Controlled: says what the size should be, and the value prop coming back is what moves it. */
+function requestSplitterSize(el: Element, wanted: number): void {
+    const state = splitterState(el);
+    const next = Math.min(Math.max(wanted, state.min), state.max);
+    if (next === state.value) return;
+
+    el.dispatchEvent(new CustomEvent('mesh:resize', { detail: next }));
+}
+
+function endSplitterDrag(el: Element): void {
+    delete splitterState(el).drag;
+    el.removeAttribute('data-mesh-dragging');
+}
+
 function isInteractiveChild(target: EventTarget | null, root: Element): boolean {
     if (!(target instanceof Element)) return false;
     const interactive = target.closest('button, input, textarea, select, a');
@@ -942,6 +980,90 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
      * crawler — still works, because the element is an ordinary link to an ordinary URL.
      */
     tag('Link', 'a'),
+    /**
+     * A divider that sizes the pane beside it, by pointer or by arrow keys. Props: `orientation`
+     * (`vertical`, the default, is a vertical line between left and right), `value`, `min` and `max`
+     * in pixels, and `reverse` when the pane is after the divider. Each move raises `resize` with the
+     * new size; the page sets `value` from it. Sizing is measured from where the drag started, so
+     * going past `min` and coming back lines up with the pointer again.
+     */
+    {
+        name: 'Splitter',
+        spaceIsTextInput: false,
+        create() {
+            const el = document.createElement('div');
+            el.setAttribute('data-mesh-splitter', '');
+            el.setAttribute('role', 'separator');
+            el.setAttribute('tabindex', '0');
+            el.setAttribute('aria-orientation', 'vertical');
+            el.setAttribute('data-orientation', 'vertical');
+
+            const along = (e: PointerEvent): number => (splitterState(el).orientation === 'vertical' ? e.clientX : e.clientY);
+
+            el.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0) return;
+
+                const state = splitterState(el);
+                state.drag = { origin: along(e), from: state.value };
+                el.setPointerCapture(e.pointerId);
+                el.setAttribute('data-mesh-dragging', '');
+                e.preventDefault();
+            });
+
+            el.addEventListener('pointermove', (e) => {
+                const state = splitterState(el);
+                if (state.drag === undefined) return;
+
+                const moved = along(e) - state.drag.origin;
+                requestSplitterSize(el, state.drag.from + (state.reverse ? -moved : moved));
+            });
+
+            el.addEventListener('pointerup', () => endSplitterDrag(el));
+            el.addEventListener('pointercancel', () => endSplitterDrag(el));
+
+            el.addEventListener('keydown', (e) => {
+                const state = splitterState(el);
+                const step = e.shiftKey ? 50 : 10;
+                const [less, more] = state.orientation === 'vertical' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown'];
+                const direction = state.reverse ? -1 : 1;
+
+                if (e.key === less) requestSplitterSize(el, state.value - step * direction);
+                else if (e.key === more) requestSplitterSize(el, state.value + step * direction);
+                else if (e.key === 'Home') requestSplitterSize(el, state.min);
+                else if (e.key === 'End') requestSplitterSize(el, state.max);
+                else return;
+
+                e.preventDefault();
+            });
+
+            return el;
+        },
+        apply(el, name, value) {
+            const state = splitterState(el);
+
+            if (name === 'orientation') {
+                state.orientation = value === 'horizontal' ? 'horizontal' : 'vertical';
+                el.setAttribute('aria-orientation', state.orientation);
+                el.setAttribute('data-orientation', state.orientation);
+                return true;
+            }
+
+            if (name === 'reverse') {
+                state.reverse = value === true;
+                return true;
+            }
+
+            if (name === 'value' || name === 'min' || name === 'max') {
+                if (typeof value !== 'number') return true;
+
+                state[name] = value;
+                el.setAttribute(name === 'value' ? 'aria-valuenow' : `aria-value${name}`, String(value));
+                return true;
+            }
+
+            return false;
+        },
+    },
     {
         name: 'Draggable',
         spaceIsTextInput: false,

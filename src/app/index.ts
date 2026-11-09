@@ -8,6 +8,7 @@ export * from './units.js';
 export * from './command.js';
 export * from './runtime.js';
 export * from './registry.js';
+export * from './command-list.js';
 export * from './routes.js';
 export * from './router.js';
 export * from './link.js';

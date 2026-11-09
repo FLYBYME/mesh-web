@@ -797,6 +797,25 @@ function bindIntents(
         el.addEventListener('input', (e) => fire('change', e));
     }
 
+    if (intents.step) {
+        // Up and down through a list: `1` is the next item, `-1` the one before. Works from a text
+        // field, where a keyed command would be refused for eating what somebody is typing.
+        el.addEventListener('keydown', (e) => {
+            if (!('key' in e)) return;
+
+            if (e.key === 'ArrowDown') fire('step', e, 1);
+            else if (e.key === 'ArrowUp') fire('step', e, -1);
+        });
+    }
+
+    if (intents.resize) {
+        // A `Splitter`'s new size, already clamped to its min and max.
+        el.addEventListener('mesh:resize', (e) => {
+            const value = isCustomPayloadEvent(e) ? e.detail : undefined;
+            fire('resize', e, value);
+        });
+    }
+
     if (intents.drop) {
         el.addEventListener('mesh:drop', (e) => {
             const value = isCustomPayloadEvent(e) ? e.detail : undefined;
