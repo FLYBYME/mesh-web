@@ -94,7 +94,9 @@ export type IntentName =
     | 'change'
     | 'drop'
     | 'resize'
-    | 'step';
+    | 'step'
+    | 'pick'
+    | 'key';
 
 /**
  * Whether the default platform behaviour is suppressed.

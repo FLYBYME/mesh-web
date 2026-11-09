@@ -693,6 +693,8 @@ function insertBefore(nodes: readonly ChildNode[], marker: ChildNode): void {
  * first cut covering pointer and keyboard; touch, pen and gamepad are roadmap A8 and will land here
  * without changing anything above this line, which is the property worth having.
  */
+const NAVIGATION_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter', 'Delete', 'F2']);
+
 function bindIntents(
     el: Element,
     intents: Intents,
@@ -777,7 +779,27 @@ function bindIntents(
     }
 
     if (intents.context) {
-        el.addEventListener('contextmenu', (e) => fire('context', e));
+        // Where it was pressed, in the page's coordinates, for a menu to open there.
+        el.addEventListener('contextmenu', (e) => {
+            fire('context', e, e instanceof MouseEvent ? { x: e.clientX, y: e.clientY } : undefined);
+        });
+    }
+
+    if (intents.pick) {
+        // A click that says which modifiers were held: choosing one of many, or adding to a selection.
+        el.addEventListener('click', (e) => {
+            if (e instanceof MouseEvent) fire('pick', e, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
+        });
+    }
+
+    if (intents.key) {
+        // Moving around a widget that holds its own focus. Only keys that are never text, so a
+        // binding's preventDefault can't eat what somebody is typing.
+        el.addEventListener('keydown', (e) => {
+            if (e instanceof KeyboardEvent && NAVIGATION_KEYS.has(e.key)) {
+                fire('key', e, { key: e.key, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
+            }
+        });
     }
 
     if (intents.commit) {
