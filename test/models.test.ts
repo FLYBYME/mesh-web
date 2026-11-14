@@ -1423,6 +1423,32 @@ describe('session-aware collections', () => {
             expect(parts.status()).toBe('empty');
         });
 
+        it('takes a row with a field of its own named item as the row, not as a wrapper (SUR-89)', async () => {
+            MockEventSource.instances = [];
+            const fake = createFakeTransport((_req) => jsonResponse(200, []));
+
+            const client = createClient(liveApi, { transport: fake.transport });
+            const { createModels } = await import('../src/models/index.js');
+            const models = createModels<typeof liveApi>(client, undefined, undefined, liveApi, {
+                eventSource: (url) => new MockEventSource(url),
+            });
+
+            const parts = models('part');
+            const tagged = parts.find({ tag: 't1' });
+            await new Promise((r) => setTimeout(r, 20));
+
+            const es = MockEventSource.instances[0];
+
+            expect(es).toBeDefined();
+
+            // As a board comment's item is its item's id: before, the row became the string 'i1'.
+            es?.emit('part.created', { id: 'c1', name: 'Hello', tag: 't1', item: 'i1' });
+            expect(tagged.rows()).toEqual([{ id: 'c1', name: 'Hello', tag: 't1', item: 'i1' }]);
+
+            es?.emit('part.updated', { id: 'c1', name: 'Hello again', tag: 't1', item: 'i1' });
+            expect(tagged.rows()).toEqual([{ id: 'c1', name: 'Hello again', tag: 't1', item: 'i1' }]);
+        });
+
         it('filters live events by query view and removes rows that no longer match', async () => {
             MockEventSource.instances = [];
             const fake = createFakeTransport((_req) => jsonResponse(200, []));

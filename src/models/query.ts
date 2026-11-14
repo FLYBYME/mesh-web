@@ -62,9 +62,13 @@ function idOf(value: unknown): unknown {
     return isRecord(value) ? (value.id ?? value._id) : undefined;
 }
 
-/** The row an event carries: `{ item }` (created, updated), or the payload itself. */
+/**
+ * The row an event carries: `{ item }` (created, updated), or the payload itself. Only a row in `item`
+ * is a wrapper: a row may have a field of its own named item (a board comment's is its item's id), and
+ * taking that for the row made the row a string, which threw drawing it (SUR-89).
+ */
 function itemOf(payload: unknown): unknown {
-    return isRecord(payload) && payload.item !== undefined ? payload.item : payload;
+    return isRecord(payload) && isRecord(payload.item) ? payload.item : payload;
 }
 
 /** A field of a row by its path, nested with dots as the database reads it: `target.id`. */
