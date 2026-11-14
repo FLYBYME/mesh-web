@@ -81,6 +81,8 @@ export function each<T>(
 export interface DialogOptions {
     readonly open: Reactive<boolean>;
     readonly props?: DialogProps;
+    /** A press on the dimmed page outside it fires `dismiss`, as Escape does (a side sheet, not a form). */
+    readonly dismissOnOutside?: boolean;
     readonly intents?: Intents;
     readonly key?: string | number;
     readonly children?: readonly Node[];
@@ -98,6 +100,7 @@ export function dialog(options: DialogOptions): DialogNode {
         kind: 'dialog',
         open: options.open,
         ...(options.props ? { props: options.props } : {}),
+        ...(options.dismissOnOutside === true ? { dismissOnOutside: true } : {}),
         ...(options.intents ? { intents: options.intents } : {}),
         ...(options.key !== undefined ? { key: options.key } : {}),
         children: options.children ?? [],

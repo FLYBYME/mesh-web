@@ -319,6 +319,27 @@ function buildDialog(node: DialogNode, options: RenderOptions, owner: ReactiveSc
     el.addEventListener('cancel', onCancel);
     el.addEventListener('keydown', onKeyDown);
 
+    // Asked for (a side sheet), a press on the dimmed page outside it dismisses it, as Escape does. The
+    // dimmed area is the <dialog> element itself: its content fills it, so a press inside lands on the
+    // content. The press must also have started there: dragging to select text inside and letting go
+    // outside makes a click on the dialog too, and must not close it.
+    if (node.dismissOnOutside === true) {
+        let downOutside = false;
+
+        el.addEventListener('pointerdown', (e: Event) => {
+            downOutside = e.target === el;
+        });
+        el.addEventListener('click', (e: Event) => {
+            const outside = downOutside && e.target === el;
+
+            downOutside = false;
+
+            if (!outside || !trap.active || getActiveTrap() !== trap) return;
+
+            if (node.intents?.dismiss) options.dispatch.dispatch(node.intents.dismiss.action, undefined);
+        });
+    }
+
     if (node.intents !== undefined) {
         const { dismiss: _dismiss, ...restIntents } = node.intents;
         bindIntents(el, restIntents, options.dispatch, definition);

@@ -287,6 +287,11 @@ export interface DialogNode {
     readonly kind: 'dialog';
     readonly open: Reactive<boolean>;
     readonly props?: DialogProps;
+    /**
+     * A press that starts and ends on the dimmed page outside it fires `dismiss`, as Escape does. Off
+     * unless asked: a side sheet wants it, a form in a modal would lose what was typed to a stray click.
+     */
+    readonly dismissOnOutside?: boolean;
     readonly intents?: Intents;
     readonly key?: string | number;
     readonly children: readonly Node[];

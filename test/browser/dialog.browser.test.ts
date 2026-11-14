@@ -82,6 +82,39 @@ class DialogPage extends View({}) {
 
 class DialogTestApp extends App({ routes: { '/': DialogPage } }) {}
 
+/**
+ * Two dialogs, one closing on a press outside it (a side sheet) and one not (a form): the padding of
+ * each <dialog> stands for the dimmed page around it, since a press there lands on the element itself.
+ */
+class OutsidePage extends View({}) {
+    readonly sheet = signal(false);
+    readonly form = signal(false);
+
+    render(): Node {
+        return element('Stack', {
+            children: [
+                element('Button', { props: { id: 'open-sheet' }, intents: { activate: { action: this.on(() => this.sheet.set(true)) } }, children: [text('Open sheet')] }),
+                element('Button', { props: { id: 'open-form' }, intents: { activate: { action: this.on(() => this.form.set(true)) } }, children: [text('Open form')] }),
+                dialog({
+                    open: () => this.sheet(),
+                    dismissOnOutside: true,
+                    props: { class: 'outside-test' },
+                    intents: { dismiss: { action: this.on(() => this.sheet.set(false)) } },
+                    children: [element('Button', { props: { id: 'sheet-inside' }, children: [text('Inside the sheet')] })],
+                }),
+                dialog({
+                    open: () => this.form(),
+                    props: { class: 'outside-test' },
+                    intents: { dismiss: { action: this.on(() => this.form.set(false)) } },
+                    children: [element('Button', { props: { id: 'form-inside' }, children: [text('Inside the form')] })],
+                }),
+            ],
+        });
+    }
+}
+
+class OutsideTestApp extends App({ routes: { '/': OutsidePage } }) {}
+
 let root: HTMLElement | undefined;
 let original = '';
 
@@ -300,5 +333,76 @@ describe('dialog and focus trap in a real browser', () => {
         expect(document.activeElement).toBe(openBtn1);
 
         site.dispose();
+    });
+
+    it('a dialog that asks closes on a press outside it, not on one inside nor a drag out of it; one that doesn\'t never does', async () => {
+        const style = document.createElement('style');
+
+        style.textContent = 'dialog.outside-test { padding: 40px; }';
+        document.head.appendChild(style);
+        original = `${location.pathname}${location.search}`;
+        history.replaceState(null, '', '/');
+        root = document.createElement('div');
+        document.body.appendChild(root);
+
+        const site = mountSite(OutsideTestApp, { root });
+
+        await tick();
+
+        const byId = (id: string): HTMLElement => {
+            const found = document.querySelector<HTMLElement>(id);
+
+            if (found === null) throw new Error(`No ${id}`);
+
+            return found;
+        };
+        const opened = async (id: string): Promise<HTMLDialogElement> => {
+            await userEvent.click(byId(id));
+            flushSync();
+            await tick();
+
+            const open = [...document.querySelectorAll<HTMLDialogElement>('dialog')].find((d) => d.open);
+
+            if (open === undefined) throw new Error(`${id} opened no dialog`);
+
+            return open;
+        };
+
+        // The sheet: a press inside keeps it, a press outside it (its padding) closes it.
+        const sheet = await opened('#open-sheet');
+
+        await userEvent.click(byId('#sheet-inside'));
+        flushSync();
+        expect(sheet.open).toBe(true);
+
+        await userEvent.click(sheet, { position: { x: 5, y: 5 } });
+        flushSync();
+        await tick();
+        expect(sheet.open).toBe(false);
+
+        // A drag that starts inside (selecting text) and lets go outside does not close it.
+        const again = await opened('#open-sheet');
+        const inside = byId('#sheet-inside').getBoundingClientRect();
+        const box = again.getBoundingClientRect();
+
+        await userEvent.dragAndDrop(byId('#sheet-inside'), again, { sourcePosition: { x: inside.width / 2, y: inside.height / 2 }, targetPosition: { x: 5, y: box.height - 5 } });
+        flushSync();
+        await tick();
+        expect(again.open).toBe(true);
+
+        await userEvent.keyboard('{Escape}');
+        flushSync();
+        await tick();
+
+        // The form never closes on a press outside it: only on Escape or its own buttons.
+        const form = await opened('#open-form');
+
+        await userEvent.click(form, { position: { x: 5, y: 5 } });
+        flushSync();
+        await tick();
+        expect(form.open).toBe(true);
+
+        site.dispose();
+        style.remove();
     });
 });
