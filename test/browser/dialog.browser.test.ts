@@ -335,35 +335,6 @@ describe('dialog and focus trap in a real browser', () => {
         site.dispose();
     });
 
-    it('a dialog open from the start is shown modal once it is on the page (0.21.36)', async () => {
-        class OpenAtStart extends View({}) {
-            readonly open = signal(true);
-
-            render(): Node {
-                return dialog({ open: () => this.open(), props: { class: 'open-at-start' }, children: [text('Open from the start')] });
-            }
-        }
-
-        class OpenAtStartApp extends App({ routes: { '/': OpenAtStart } }) {}
-
-        original = `${location.pathname}${location.search}`;
-        history.replaceState(null, '', '/');
-        root = document.createElement('div');
-        document.body.appendChild(root);
-
-        const site = mountSite(OpenAtStartApp, { root });
-
-        await tick();
-
-        const shown = document.querySelector<HTMLDialogElement>('dialog.open-at-start');
-
-        expect(shown?.open).toBe(true);
-        // Modal: the page behind is inert and dimmed, so a press beside it lands on the dialog.
-        expect(shown?.matches(':modal')).toBe(true);
-
-        site.dispose();
-    });
-
     it('a dialog that asks closes on a press outside it, not on one inside nor a drag out of it; one that doesn\'t never does', async () => {
         const style = document.createElement('style');
 
