@@ -364,13 +364,18 @@ function buildDialog(node: DialogNode, options: RenderOptions, owner: ReactiveSc
 
         trap.activate();
 
+        // Opened before it was on the page, showModal() threw and the dialog was only marked open: once it
+        // is on the page it is shown modal, as it was asked to be. (Until 0.21.36 this waited for `!el.open`,
+        // which the fallback had already made false, so such a dialog stayed non-modal for good: no dimmed
+        // page, no inert page behind, a press beside it landing on the page. 11-14, the boards item sheet.)
         if (!el.isConnected) {
             queueMicrotask(() => {
-                if (isOpen && el.isConnected && isModalDialogElement(el) && !el.open) {
+                if (isOpen && el.isConnected && isModalDialogElement(el) && !el.matches(':modal')) {
                     try {
+                        if (el.open) el.removeAttribute('open');
                         el.showModal();
                     } catch {
-                        // ignore
+                        el.setAttribute('open', '');
                     }
                 }
             });
